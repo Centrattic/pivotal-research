@@ -2,7 +2,7 @@ import os
 import pandas as pd
 
 # Path to your cleaning CSV
-MAIN_CSV = 'main.csv'  # <-- CHANGE THIS TO YOUR CLEANING FILE
+MAIN_CSV = 'main.csv'
 
 def run_extraction(source_folder, target_folder, main_csv=MAIN_CSV):
     os.makedirs(target_folder, exist_ok=True)
