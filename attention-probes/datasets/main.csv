@@ -2,8 +2,8 @@ number,source,name,tag,save_name,Probe from,Probe to,Data type,probe from extrac
 1,historical_figure.csv,hist_fig_birthyear,Historical figures,hist_fig_birthyear.csv,name,birth_year,Continuous data,col,col
 2,historical_figure.csv,hist_fig_deathyear,Historical figures,hist_fig_deathyear.csv,name,death_year,Continuous data,col,col
 3,historical_figure.csv,hist_fig_age,Historical figures,hist_fig_age.csv,name,age,Continuous data,col,col
-4,historical_figure.csv,hist_fig_ismale,Historical figures,hist_fig_ismale.csv,name,gender,Binary Classification,col,col == "Male"
-5,historical_figure.csv,hist_fig_isamerican,Historical figures,hist_fig_isamerican.csv,name,country,Binary Classification,col,col == "United States"
+4,historical_figure.csv,hist_fig_ismale,Historical figures,hist_fig_ismale.csv,name,gender,Binary Classification,col,col == 'Male'
+5,historical_figure.csv,hist_fig_isamerican,Historical figures,hist_fig_isamerican.csv,name,country,Binary Classification,col,col == 'United States'
 6,historical_figure.csv,hist_fig_ispolitician,Historical figures,hist_fig_ispolitician.csv,name,occupation,Binary Classification,col,"col.str.contains('politician|president', case=False, na=False)"
 7,nyc_place.csv,nyc_lat,NYC Places,nyc_lat.csv,name,latitude,Continuous data,col,col
 8,nyc_place.csv,nyc_long,NYC Places,nyc_long.csv,name,longitude,Continuous data,col,col
