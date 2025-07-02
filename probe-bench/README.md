@@ -1,0 +1,1 @@
+This will be a package that allows people to load in a model, super easily add probes to various layers, and then adversarially train against the probes and assess if model performance remains high with that set of probes.
