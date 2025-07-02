@@ -24,11 +24,6 @@ def run_extraction(source_folder, target_folder, main_csv=MAIN_CSV):
         probe_from_extract = row['probe from extraction']
         probe_to_extract = row['probe to extraction']
 
-        # # "col" always means just select the column
-        # if probe_from_extract.strip() == "col":
-        #     from_series = df[probe_from]
-        # else:
-        #     # If you add other extraction methods in the future, handle them here
         from_series = eval(probe_from_extract.replace("col", f"df[probe_from]"))
         to_series = eval(probe_to_extract.replace("col", f"df[probe_to]"))
 
