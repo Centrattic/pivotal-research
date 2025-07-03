@@ -9,3 +9,5 @@ SUPPORTED_MODELS = [
     "gpt2", "gpt2-medium", "gpt2-large",
 ]
 DEFAULT_DEVICE = "cuda"  # or "cpu"
+
+# define layer options, component options, aggregation options here

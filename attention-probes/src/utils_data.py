@@ -7,12 +7,13 @@ from typing import Tuple
 import numpy as np
 import pandas as pd
 from sklearn.model_selection import train_test_split
+from configs import *
 
 # Core loader
 @dataclass
 class DataLoader:
     tag: str                     # e.g. "7_nyc_lat"
-    data_root: str = "data/cleaned"
+    data_root: str = DATA_DIR
     target_col: str = "target"
     text_col: str = "prompt"
     # To Do: update to pull num from main.csv, not in tag
