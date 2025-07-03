@@ -28,7 +28,7 @@ def run_extraction(source_folder, target_folder, main_csv=MAIN_CSV):
         to_series = eval(probe_to_extract.replace("col", f"df[probe_to]"))
 
         # Combine into new DataFrame and save
-        out_df = pd.DataFrame({probe_from: from_series, probe_to: to_series})
+        out_df = pd.DataFrame({"prompt": from_series, "prompt_len": from_series.str.len(), "target": to_series})
         out_df.to_csv(out_file, index=False)
         print(f"Saved: {out_file}")
 

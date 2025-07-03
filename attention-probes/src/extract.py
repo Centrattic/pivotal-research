@@ -1,57 +1,128 @@
+# extract.py
+"""Streaming activation extractor for TransformerLens models.
+
+Highlights
+==========
+* **Single forward‑pass** per batch using `run_with_cache` – no huge .pt dumps.
+* Supports **any TransformerLens‑compatible model** (default GPT‑2 medium).
+* Flexibly choose *layer*, *component*, *aggregation* strategy.
+* Returns `(N, d)` NumPy array ready for `utils_probe`.
+
+Example
+-------
+```python
+from extract import Extractor
+from utils_probe import LogisticRegressionProbe
+
+ext = Extractor(model_name="gpt2-medium", device="cuda")
+X_train = ext.features(text_batch, layer=8, component="resid_post", agg="mean")
+probe = LogisticRegressionProbe().fit(X_train, labels)
+```
+"""
 from __future__ import annotations
 
-from pathlib import Path
-from typing import List, Dict, Tuple, Optional
+import enum
+from dataclasses import dataclass
+from typing import List, Literal, Sequence
 
-import torch
-from torch.utils.data import DataLoader
 import numpy as np
-from tqdm import tqdm
+import torch
+from transformer_lens import HookedTransformer, ActivationCache
 
-from datasets import load_dataset, DatasetDict
-from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import roc_auc_score, accuracy_score
-import transformer_lens as tl
-import yaml
+# Enumerations of components exposed
 
-from params import *
+class Comp(str, enum.Enum):
+    """User‑facing component keys."""
 
-def bucket_attention(vec: torch.Tensor, max_len: int, num_bins: int) -> torch.Tensor:
-    """Compress variable‑length attention vector *vec* (T,) into *num_bins* bins.
-    Uses simple average pooling."""
-    if vec.shape[-1] < max_len:
-        # pad to max_len so we can reshape evenly
-        pad_len = max_len - vec.shape[-1]
-        vec = torch.nn.functional.pad(vec, (0, pad_len))
-    step = max_len // num_bins
-    return vec.unfold(-1, step, step).mean(-1)
+    resid_pre = "resid_pre"     # before MLP+attn block
+    resid_post = "resid_post"   # after block
+    attn_q = "attn_q"           # queries  (batch, seq, n_heads, d_head)
+    attn_k = "attn_k"
+    attn_v = "attn_v"
+    attn_out = "attn_out"       # result of V*P
+    attn_pattern = "attn_pattern"  # attention weights (batch, heads, seq, seq)
 
-class AttentionFeatureExtractor:
-    def __init__(self, model_name: str = HF_MODEL_NAME, max_seq_len: int = DEFAULT_MAX_LENGTH, bins: int = 16):
-        self.model = tl.HookedTransformer.from_pretrained(model_name, device=DEVICE)
-        self.tokenizer = self.model.tokenizer  # Huggingface GPT‑2 tokenizer
-        self.max_seq_len = max_seq_len
-        self.bins = bins
-        self.last_layer = self.model.cfg.n_layers - 1
+# Helper to map (layer, component) -> hook name(s)
 
-    def _get_attention(self, tokens: torch.Tensor) -> torch.Tensor:
-        """Return last‑token attentions from final layer; shape (B, H, T)."""
-        _, cache = self.model.run_with_cache(tokens, names_filter=[f'attn_pattern_{self.last_layer}'])
-        pattern = cache[f'attn_pattern_{self.last_layer}']  # (B, H, T, T)
-        last_tok = pattern[:, :, -1, :]  # (B, H, T)
-        return last_tok
+def hook_name(layer: int, comp: Comp) -> str:
+    if comp in {Comp.resid_pre, Comp.resid_post}:
+        return f"blocks.{layer}.hook_{comp}"
+    elif comp == Comp.attn_q:
+        return f"blocks.{layer}.attn.hook_q"
+    elif comp == Comp.attn_k:
+        return f"blocks.{layer}.attn.hook_k"
+    elif comp == Comp.attn_v:
+        return f"blocks.{layer}.attn.hook_v"
+    elif comp == Comp.attn_out:
+        return f"blocks.{layer}.attn.hook_result"
+    elif comp == Comp.attn_pattern:
+        return f"blocks.{layer}.attn.hook_attn_probs"
+    else:
+        raise ValueError(f"Unknown component {comp}")
 
-    def encode(self, texts: List[str]) -> torch.Tensor:
-        # Tokenise with truncation
-        tok = self.tokenizer(texts, return_tensors='pt', padding=True, truncation=True, max_length=self.max_seq_len)
-        tokens = tok['input_ids'].to(DEVICE)
-        with torch.no_grad():
-            attn = self._get_attention(tokens)  # (B, H, T)
-            B, H, T = attn.shape
-            feats = []
-            for i in range(B):
-                # bucket each head separately then concatenate
-                head_feats = [bucket_attention(attn[i, h], self.max_seq_len, self.bins) for h in range(H)]
-                feats.append(torch.cat(head_feats, dim=0))
-            return torch.stack(feats).cpu()  # (B, H*bins)
+# Aggregation helpers
+
+def aggregate(t: torch.Tensor, mode: Literal["mean", "first", "last", "max", "flatten"] = "mean") -> np.ndarray:  # noqa: D401
+    """Convert `(B, seq, *d)` to `(B, D)`.
+
+    * If `flatten`, flattens all dims after batch.
+    """
+    if mode == "flatten":
+        return t.flatten(start_dim=1).cpu().numpy()
+    if t.ndim < 3:
+        raise ValueError("Need at least (B, seq, feat) for mean/first/last/max")
+    if mode == "mean":
+        out = t.mean(1)
+    elif mode == "first":
+        out = t[:, 0, ...]
+    elif mode == "last":
+        out = t[:, -1, ...]
+    elif mode == "max":
+        out = t.max(1).values
+    else:
+        raise ValueError(mode)
+    return out.flatten(start_dim=1).cpu().numpy()
+
+# Extractor class
+
+@dataclass
+class Extractor:
+    model_name: str = "gpt2-medium"
+    device: str = "cuda"
+    max_len: int = 512
+
+    def __post_init__(self):
+        self.model: HookedTransformer = HookedTransformer.from_pretrained(
+            self.model_name, device=self.device)
+        tok = self.model.tokenizer
+        assert tok is not None, "TransformerLens returned None tokenizer"
+        self.tokenizer: PreTrainedTokenizerBase = tok  # type: ignore
+        self.tokenizer.padding_side = "right"
+        self.tokenizer.truncation_side = "left"
+
+    def _batch_tokens(self, texts: Sequence[str]) -> torch.Tensor:
+        tok_out = self.tokenizer(
+            list(texts), return_tensors="pt", padding=True, truncation=True,
+            max_length=self.max_len)
+        return tok_out["input_ids"].to(self.device)
+
+    def features(
+        self,
+        texts: Sequence[str],
+        layer: int,
+        component: Comp | str = Comp.resid_post,
+        agg: Literal["mean", "first", "last", "max", "flatten"] = "mean",
+    ) -> np.ndarray:
+        comp = Comp(component) if not isinstance(component, Comp) else component
+        hook = hook_name(layer, comp)
+        inputs = self._batch_tokens(texts)
+        _, cache = self.model.run_with_cache(inputs, names_filter=[hook])
+        act = cache[hook]
+        if comp == Comp.attn_pattern:
+            act = act.flatten(start_dim=1, end_dim=2)
+        if comp in {Comp.attn_q, Comp.attn_k, Comp.attn_v}:
+            act = act.flatten(start_dim=2)
+        arr = aggregate(act, mode=agg)
+        del cache; torch.cuda.empty_cache()
+        return arr
 
