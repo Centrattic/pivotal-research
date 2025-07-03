@@ -7,6 +7,7 @@ import numpy as np
 import torch
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import accuracy_score, roc_auc_score
+import os
 
 class BaseProbe:
     """Abstract convenience wrapper (not strictly necessary)."""
@@ -33,6 +34,37 @@ class BaseProbe:
             "acc": float(accuracy_score(y, y_hat)),
             "auc": float(roc_auc_score(y, y_prob)),
         }
+
+    def save_results(
+        self,
+        X_test: np.ndarray,
+        y_test: np.ndarray,
+        *,
+        model_name: str,
+        dataset: str,
+        layer: int,
+        component: str,
+        out_dir: str = "results",
+    ) -> str:
+        """Evaluate, dump logits + metrics to JSON, return file path."""
+        os.makedirs(out_dir, exist_ok=True)
+        metrics = self.score(X_test, y_test)
+        logits  = self.predict_logits(X_test).tolist()
+        payload = {
+            "probe": self.name,
+            "model": model_name,
+            "dataset": dataset,
+            "layer": layer,
+            "component": component,
+            "timestamp": int(time.time()),
+            "metrics": metrics,
+            "logits": logits,
+        }
+        fname = f"{model_name}__{dataset}__L{layer}_{component}__{self.name}.json"
+        path  = os.path.join(out_dir, fname)
+        with open(path, "w") as f:
+            json.dump(payload, f, indent=2)
+        return path
 
     def _check_dims(self, X: np.ndarray, y: np.ndarray):  # noqa: D401
         assert X.ndim == 2, "X must be 2‑D (N, d)"

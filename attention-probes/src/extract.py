@@ -37,12 +37,12 @@ class Comp(str, enum.Enum):
     """User‑facing component keys."""
 
     resid_pre = "resid_pre"     # before MLP+attn block
-    resid_post = "resid_post"   # after block
-    attn_q = "attn_q"           # queries  (batch, seq, n_heads, d_head)
-    attn_k = "attn_k"
-    attn_v = "attn_v"
-    attn_out = "attn_out"       # result of V*P
-    attn_pattern = "attn_pattern"  # attention weights (batch, heads, seq, seq)
+    # resid_post = "resid_post"   # after block
+    # attn_q = "attn_q"           # queries  (batch, seq, n_heads, d_head)
+    # attn_k = "attn_k"
+    # attn_v = "attn_v"
+    # attn_out = "attn_out"       # result of V*P
+    # attn_pattern = "attn_pattern"  # attention weights (batch, heads, seq, seq)
 
 # Helper to map (layer, component) -> hook name(s)
 
