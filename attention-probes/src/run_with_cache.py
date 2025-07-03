@@ -5,7 +5,7 @@ import torch
 
 TAG        = "4_hist_fig_ismale"
 LAYER      = 8
-COMPONENT  = "resid_post"          # "attn_q", "attn_k", ...
+COMPONENT  = "resid_pre"          # "attn_q", "attn_k", ...
 HOOK       = f"blocks.{LAYER}.hook_{COMPONENT}" if COMPONENT.startswith("resid") \
              else f"blocks.{LAYER}.attn.hook_{COMPONENT.split('_')[-1]}"
 

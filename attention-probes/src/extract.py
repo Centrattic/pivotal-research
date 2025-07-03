@@ -33,21 +33,21 @@ from tqdm import tqdm
 
 # Enumerations of components exposed
 
+# For probing, we only use resid_pre. But may extract others for visualization.
 class Comp(str, enum.Enum):
     """User‑facing component keys."""
 
     resid_pre = "resid_pre"     # before MLP+attn block
-    # resid_post = "resid_post"   # after block
-    # attn_q = "attn_q"           # queries  (batch, seq, n_heads, d_head)
-    # attn_k = "attn_k"
-    # attn_v = "attn_v"
-    # attn_out = "attn_out"       # result of V*P
-    # attn_pattern = "attn_pattern"  # attention weights (batch, heads, seq, seq)
+    resid_mid = "resid_mid"   # after block
+    attn_q = "attn_q"           # queries  (batch, seq, n_heads, d_head)
+    attn_k = "attn_k"
+    attn_v = "attn_v"
+    attn_out = "attn_out"       # result of V*P
+    attn_pattern = "attn_pattern"  # attention weights (batch, heads, seq, seq)
 
 # Helper to map (layer, component) -> hook name(s)
-
 def hook_name(layer: int, comp: Comp) -> str:
-    if comp in {Comp.resid_pre, Comp.resid_post}:
+    if comp in {Comp.resid_pre, Comp.resid_mid}:
         return f"blocks.{layer}.hook_{comp}"
     elif comp == Comp.attn_q:
         return f"blocks.{layer}.attn.hook_q"
@@ -112,7 +112,7 @@ class Extractor:
         self,
         texts: Sequence[str],
         layer: int,
-        component: Comp | str = Comp.resid_post,
+        component: Comp | str = Comp.resid_pre,
         agg: str = "mean",
         batch_size: int = 300,
     ) -> np.ndarray:

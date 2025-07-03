@@ -9,7 +9,7 @@ data = DataLoader("4_hist_fig_ismale")
 print("Data loaded")
 
 # Parameters to play with: layer, component, aggregation method
-Xtr, ytr, Xte, yte = data.features(ext, layer=8, component=Comp.resid_post, agg="mean")
+Xtr, ytr, Xte, yte = data.features(ext, layer=8, component=Comp.resid_pre, agg="mean")
 print("Activations retrieved")
 probe_lg = LogisticRegressionProbe().fit(Xtr, ytr)
 probe_mm = MassMeanProbe().fit(Xtr, ytr)

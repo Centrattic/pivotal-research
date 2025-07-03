@@ -6,8 +6,8 @@ from tqdm import tqdm
 HOOKS = [
     "hook_embed",
     *[f"blocks.{l}.hook_resid_post"   for l in range(12)],   # GPT-2-medium
-    *[f"blocks.{l}.attn.hook_q"       for l in range(12)],
-    *[f"blocks.{l}.attn.hook_k"       for l in range(12)],
+    # *[f"blocks.{l}.attn.hook_q"       for l in range(12)],
+    # *[f"blocks.{l}.attn.hook_k"       for l in range(12)],
     # *[f"blocks.{l}.attn.hook_v"       for l in range(12)],
 ]
 # can just compute attention patterns from these
