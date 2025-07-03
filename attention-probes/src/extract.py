@@ -28,6 +28,7 @@ from typing import List, Literal, Sequence
 import numpy as np
 import torch
 from transformer_lens import HookedTransformer, ActivationCache
+from configs import *
 
 # Enumerations of components exposed
 
@@ -88,7 +89,7 @@ def aggregate(t: torch.Tensor, mode: Literal["mean", "first", "last", "max", "fl
 @dataclass
 class Extractor:
     model_name: str = "gpt2-medium"
-    device: str = "cuda"
+    device: str = DEFAULT_DEVICE
     max_len: int = 512
 
     def __post_init__(self):
