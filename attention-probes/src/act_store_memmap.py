@@ -4,12 +4,12 @@ import os, re, numpy as np
 def file_name(dataset: str, layer: int, component: str,
               cache_dir: str = "data/act_cache") -> str:
     """
-    component  ∈ {resid_post, attn_q, attn_k, attn_v}
+    component  ∈ {resid_post, resid_mid, embed}
     """
     if component == "resid_post":
         hook = f"blocks-{layer}-hook_resid_post"
-    elif component in {"attn_q", "attn_k", "attn_v"}:
-        hook = f"blocks-{layer}-attn-hook_{component.split('_')[-1]}"
+    elif component in {"resid_mid"}:
+        hook = f"blocks-{layer}-hook_resid_mid"
     elif component == "embed":
         hook = "hook_embed"
     else:

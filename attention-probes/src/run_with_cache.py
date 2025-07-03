@@ -1,6 +1,6 @@
 from act_store_memmap import file_name, load_memmap
 from utils_data import DataLoader
-from utils_probe import LogisticRegressionProbe, MassMeanProbe, aggregate_sequence
+from utils_probe import LogisticRegressionProbe, MassMeanProbe # aggregate_sequence
 import torch
 
 TAG        = "4_hist_fig_ismale"
@@ -15,7 +15,7 @@ d_model = 768                   # GPT-2-medium
 acts = load_memmap(path, max_len=32, d_last=d_model)   # (N, 256, 768)
 
 # collapse sequence → feature matrix
-X = aggregate_sequence(torch.tensor(acts), how="mean")   # (N, d)
+X = acts # aggregate_sequence(torch.tensor(acts), how="mean")   # (N, d)
 
 # labels & split
 data = DataLoader(TAG)

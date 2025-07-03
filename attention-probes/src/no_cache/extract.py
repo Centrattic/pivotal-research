@@ -38,6 +38,7 @@ class Comp(str, enum.Enum):
     """User‑facing component keys."""
 
     resid_pre = "resid_pre"     # before MLP+attn block
+    resid_post = "resid_post"   # after block
     resid_mid = "resid_mid"   # after block
     attn_q = "attn_q"           # queries  (batch, seq, n_heads, d_head)
     attn_k = "attn_k"
@@ -47,7 +48,7 @@ class Comp(str, enum.Enum):
 
 # Helper to map (layer, component) -> hook name(s)
 def hook_name(layer: int, comp: Comp) -> str:
-    if comp in {Comp.resid_pre, Comp.resid_mid}:
+    if comp in {Comp.resid_pre, Comp.resid_mid, Comp.resid_post}:
         return f"blocks.{layer}.hook_{comp}"
     elif comp == Comp.attn_q:
         return f"blocks.{layer}.attn.hook_q"
@@ -113,7 +114,7 @@ class Extractor:
         texts: Sequence[str],
         layer: int,
         component: Comp | str = Comp.resid_pre,
-        agg: str = "mean",
+        agg: Literal['mean', 'first', 'last', 'max', 'flatten'] = "mean",
         batch_size: int = 300,
     ) -> np.ndarray:
         comp = Comp(component) if not isinstance(component, Comp) else component
@@ -129,7 +130,7 @@ class Extractor:
                 act = act.flatten(start_dim=1, end_dim=2)
             if comp in {Comp.attn_q, Comp.attn_k, Comp.attn_v}:
                 act = act.flatten(start_dim=2)
-    
+     
             out_list.append(aggregate(act, mode=agg))
             # Free GPU memory
             del cache

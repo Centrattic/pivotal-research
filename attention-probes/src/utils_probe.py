@@ -1,5 +1,4 @@
 from __future__ import annotations
-
 from dataclasses import dataclass, asdict
 from typing import Dict, Literal, Optional
 
@@ -8,17 +7,18 @@ import torch
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import accuracy_score, roc_auc_score
 import os
+import json
+import time
+
+# ================= BASE CLASSES =================
 
 class BaseProbe:
-    """Abstract convenience wrapper (not strictly necessary)."""
-
     name: str = "base_probe"
 
-    def fit(self, X: np.ndarray, y: np.ndarray):  # noqa: D401 (simple docstring)
+    def fit(self, X: np.ndarray, y: np.ndarray):
         raise NotImplementedError
 
     def predict_logits(self, X: np.ndarray) -> np.ndarray:
-        """Return 1‑D logits (real‑valued) for class *1*."""
         raise NotImplementedError
 
     def predict(self, X: np.ndarray, prob: bool = False) -> np.ndarray:
@@ -46,7 +46,6 @@ class BaseProbe:
         component: str,
         out_dir: str = "results",
     ) -> str:
-        """Evaluate, dump logits + metrics to JSON, return file path."""
         os.makedirs(out_dir, exist_ok=True)
         metrics = self.score(X_test, y_test)
         logits  = self.predict_logits(X_test).tolist()
@@ -71,103 +70,243 @@ class BaseProbe:
         assert y.ndim == 1, "y must be 1‑D"
         assert X.shape[0] == y.shape[0], "N mismatch"
 
-# Log-Reg Probe
+# ================= FEATURE-BASED PROBES =================
+
 @dataclass
 class LRConfig:
     penalty: Literal["l1", "l2"] = "l2"
-    C: float = 1.0               # inverse regularisation
-    solver: str = "liblinear"    # supports both l1 & l2
+    C: float = 1.0
+    solver: str = "liblinear"
     max_iter: int = 1000
 
-
 class LogisticRegressionProbe(BaseProbe):
-    """Thin wrapper around sklearn LogisticRegression."""
-
     name: str = "logreg"
-
     def __init__(self, cfg: LRConfig | None = None):
         self.cfg = cfg or LRConfig()
         self._clf: Optional[LogisticRegression] = None
-
-    # --------------------------------------------
-    def fit(self, X: np.ndarray, y: np.ndarray):  # noqa: D401 (docstring)
+    def fit(self, X: np.ndarray, y: np.ndarray):
         self._check_dims(X, y)
         self._clf = LogisticRegression(**asdict(self.cfg))
         self._clf.fit(X, y)
         return self
-
     def predict_logits(self, X: np.ndarray) -> np.ndarray:
         assert self._clf is not None, "Probe not fitted yet"
-        # sklearn returns 2‑D probas -> take positive‑class column
         probs = self._clf.predict_proba(X)[:, 1]
-        # Convert to logits for consistency
         return np.log(probs / (1.0 - probs + 1e-9))
 
-# Mass‑Mean Probe (mean diff + optional LDA tilt)
 @dataclass
 class MMConfig:
-    tilt: bool = True      # True  -> use Σ^{-1} tilt (LDA style)
-    reg: float = 1e-6      # Ridge for Σ inversion stability
-
+    tilt: bool = True
+    reg: float = 1e-6
 
 class MassMeanProbe(BaseProbe):
-    """Implements θ_mm = μ+ − μ−  with optional Σ^{-1} tilt.
-
-    The decision rule is σ(θᵀx) where θ = Σ^{-1}(μ+ − μ−) if *tilt*
-    else (μ+ − μ−).  The bias term is automatically set so that the
-    threshold 0.5 lies halfway between projected means.
-    """
-
     name: str = "mass_mean"
-
     def __init__(self, cfg: MMConfig | None = None):
         self.cfg = cfg or MMConfig()
-        self.theta: Optional[np.ndarray] = None  # (d,)
+        self.theta: Optional[np.ndarray] = None
         self.bias: float = 0.0
-
-    # -------------------------------------------------
     def fit(self, X: np.ndarray, y: np.ndarray):
         self._check_dims(X, y)
         pos, neg = X[y == 1], X[y == 0]
         mu_pos, mu_neg = pos.mean(0), neg.mean(0)
-        diff = mu_pos - mu_neg  # θ_mm raw
-
+        diff = mu_pos - mu_neg
         if self.cfg.tilt:
-            # Shrink‑regularised covariance of *class‑centred* data
             centred = np.concatenate([pos - mu_pos, neg - mu_neg], axis=0)
             Σ = centred.T @ centred / centred.shape[0]
             Σ += np.eye(Σ.shape[0]) * self.cfg.reg
-            diff = np.linalg.solve(Σ, diff)  # Σ^{-1} (μ+−μ−)
-
+            diff = np.linalg.solve(Σ, diff)
         self.theta = diff
-        # bias so that σ=0.5 mid‑point between class means in θ‑space
         prj_pos = mu_pos @ self.theta
         prj_neg = mu_neg @ self.theta
         self.bias = -0.5 * (prj_pos + prj_neg)
         return self
-
-    # -----------------------------------------------
     def predict_logits(self, X: np.ndarray) -> np.ndarray:
         assert self.theta is not None, "Probe not fitted yet"
         return X @ self.theta + self.bias
 
+# ================= SEQUENCE PROBES (NO LOGREG) =================
 
-# Helper: flatten sequence into features if needed
-def aggregate_sequence(t: torch.Tensor, how: str = "mean") -> np.ndarray:
-    """Convert **(batch, seq_len, d_model)** → **(batch, d_model)**.
+class MeanProbe(BaseProbe):
+    name = "mean"
+    def __init__(self, d_model: int):
+        self.d_model = d_model
+        self.theta = np.zeros(d_model)
+        self.bias = 0.0
+        self._fitted = False
 
-    *how* ∈ {"mean", "first", "last", "max"}.
-    """
-    if t.ndim != 3:
-        raise ValueError("expected 3‑D tensor (batch, seq, d)")
-    if how == "mean":
-        out = t.mean(1)
-    elif how == "first":
-        out = t[:, 0, :]
-    elif how == "last":
-        out = t[:, -1, :]
-    elif how == "max":
-        out = t.max(1).values
-    else:
-        raise ValueError(f"Unknown agg '{how}'.")
-    return out.cpu().numpy()
+    def fit(self, X: np.ndarray, y: np.ndarray, lr=1e-2, epochs=100):
+        # X: (N, S, D), y: (N,)
+        N, S, D = X.shape
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        theta = torch.nn.Parameter(torch.zeros(D, device=device))
+        bias  = torch.nn.Parameter(torch.zeros(1, device=device))
+        X_tensor = torch.from_numpy(X).float().to(device)
+        y_tensor = torch.from_numpy(y).float().to(device)
+        optimizer = torch.optim.Adam([theta, bias], lr=lr)
+        for epoch in range(epochs):
+            optimizer.zero_grad()
+            per_token = torch.einsum('nsd,d->ns', X_tensor, theta)  # (N, S)
+            logits = per_token.mean(dim=1) + bias  # (N,)
+            loss = torch.nn.functional.binary_cross_entropy_with_logits(logits, y_tensor)
+            loss.backward()
+            optimizer.step()
+        self.theta = theta.detach().cpu().numpy()
+        self.bias  = float(bias.detach().cpu().numpy())
+        self._fitted = True
+        return self
+
+    def predict_logits(self, X: np.ndarray) -> np.ndarray:
+        # X: (batch, seq_len, d_model)
+        per_token = X @ self.theta  # (N, S)
+        logits = per_token.mean(axis=1) + self.bias
+        return logits
+
+class MaxProbe(BaseProbe):
+    name = "max"
+    def __init__(self, d_model: int):
+        self.d_model = d_model
+        self.theta = np.zeros(d_model)
+        self.bias = 0.0
+        self._fitted = False
+
+    def fit(self, X: np.ndarray, y: np.ndarray, lr=1e-2, epochs=100):
+        # X: (N, S, D), y: (N,)
+        N, S, D = X.shape
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        theta = torch.nn.Parameter(torch.zeros(D, device=device))
+        bias  = torch.nn.Parameter(torch.zeros(1, device=device))
+        X_tensor = torch.from_numpy(X).float().to(device)
+        y_tensor = torch.from_numpy(y).float().to(device)
+        optimizer = torch.optim.Adam([theta, bias], lr=lr)
+        for epoch in range(epochs):
+            optimizer.zero_grad()
+            per_token = torch.einsum('nsd,d->ns', X_tensor, theta)  # (N, S)
+            logits = per_token.max(dim=1).values + bias  # (N,)
+            loss = torch.nn.functional.binary_cross_entropy_with_logits(logits, y_tensor)
+            loss.backward()
+            optimizer.step()
+        self.theta = theta.detach().cpu().numpy()
+        self.bias  = float(bias.detach().cpu().numpy())
+        self._fitted = True
+        return self
+
+    def predict_logits(self, X: np.ndarray) -> np.ndarray:
+        per_token = X @ self.theta  # (N, S)
+        logits = per_token.max(axis=1) + self.bias
+        return logits
+
+class LastTokenProbe(BaseProbe):
+    name = "last_token"
+    def __init__(self, d_model: int):
+        self.d_model = d_model
+        self.theta = np.zeros(d_model)
+        self.bias = 0.0
+        self._fitted = False
+
+    def fit(self, X: np.ndarray, y: np.ndarray, lr=1e-2, epochs=100):
+        # X: (N, S, D), y: (N,)
+        N, S, D = X.shape
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        theta = torch.nn.Parameter(torch.zeros(D, device=device))
+        bias  = torch.nn.Parameter(torch.zeros(1, device=device))
+        X_tensor = torch.from_numpy(X).float().to(device)
+        y_tensor = torch.from_numpy(y).float().to(device)
+        optimizer = torch.optim.Adam([theta, bias], lr=lr)
+        for epoch in range(epochs):
+            optimizer.zero_grad()
+            last_token = X_tensor[:, -1, :]  # (N, D)
+            logits = last_token @ theta + bias  # (N,)
+            loss = torch.nn.functional.binary_cross_entropy_with_logits(logits, y_tensor)
+            loss.backward()
+            optimizer.step()
+        self.theta = theta.detach().cpu().numpy()
+        self.bias  = float(bias.detach().cpu().numpy())
+        self._fitted = True
+        return self
+
+    def predict_logits(self, X: np.ndarray) -> np.ndarray:
+        last_token = X[:, -1, :]
+        logits = last_token @ self.theta + self.bias
+        return logits
+
+class SoftmaxProbe(BaseProbe):
+    name = "softmax"
+    def __init__(self, d_model: int, temperature: float = 1.0):
+        self.d_model = d_model
+        self.theta = np.zeros(d_model)
+        self.bias = 0.0
+        self.temperature = temperature
+        self._fitted = False
+
+    def fit(self, X: np.ndarray, y: np.ndarray, lr=1e-2, epochs=100):
+        # X: (N, S, D), y: (N,)
+        N, S, D = X.shape
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        theta = torch.nn.Parameter(torch.zeros(D, device=device))
+        bias  = torch.nn.Parameter(torch.zeros(1, device=device))
+        temp  = torch.tensor(self.temperature, device=device)
+        X_tensor = torch.from_numpy(X).float().to(device)
+        y_tensor = torch.from_numpy(y).float().to(device)
+        optimizer = torch.optim.Adam([theta, bias], lr=lr)
+        for epoch in range(epochs):
+            optimizer.zero_grad()
+            scores = torch.einsum('nsd,d->ns', X_tensor, theta)  # (N, S)
+            attn = torch.softmax(scores / temp, dim=1)  # (N, S)
+            logits = torch.sum(attn * scores, dim=1) + bias  # (N,)
+            loss = torch.nn.functional.binary_cross_entropy_with_logits(logits, y_tensor)
+            loss.backward()
+            optimizer.step()
+        self.theta = theta.detach().cpu().numpy()
+        self.bias  = float(bias.detach().cpu().numpy())
+        self._fitted = True
+        return self
+
+    def predict_logits(self, X: np.ndarray) -> np.ndarray:
+        scores = X @ self.theta  # (N, S)
+        attn = np.exp(scores / self.temperature)
+        attn = attn / (np.sum(attn, axis=1, keepdims=True) + 1e-9)
+        logits = np.sum(attn * scores, axis=1) + self.bias
+        return logits
+
+class AttentionProbe(BaseProbe):
+    name = "attention"
+    def __init__(self, d_model: int, temperature: float = 1.0):
+        self.d_model = d_model
+        self.theta_q = np.random.randn(d_model) * 0.01
+        self.theta_v = np.random.randn(d_model) * 0.01
+        self.bias = 0.0
+        self.temperature = temperature
+        self._fitted = False
+
+    def fit(self, X: np.ndarray, y: np.ndarray, lr: float = 1e-2, epochs: int = 100):
+        N, S, D = X.shape
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        theta_q = torch.nn.Parameter(torch.from_numpy(self.theta_q).float().to(device))
+        theta_v = torch.nn.Parameter(torch.from_numpy(self.theta_v).float().to(device))
+        bias    = torch.nn.Parameter(torch.zeros(1, device=device))
+        temp    = torch.tensor(self.temperature, device=device)
+        X_tensor = torch.from_numpy(X).float().to(device)
+        y_tensor = torch.from_numpy(y).float().to(device)
+        optimizer = torch.optim.Adam([theta_q, theta_v, bias], lr=lr)
+        for epoch in range(epochs):
+            optimizer.zero_grad()
+            q = (X_tensor @ theta_q) / temp  # (N, S)
+            attn = torch.softmax(q, dim=1)   # (N, S)
+            v = (X_tensor @ theta_v)         # (N, S)
+            logits = torch.sum(attn * v, dim=1) + bias
+            loss = torch.nn.functional.binary_cross_entropy_with_logits(logits, y_tensor)
+            loss.backward()
+            optimizer.step()
+        self.theta_q = theta_q.detach().cpu().numpy()
+        self.theta_v = theta_v.detach().cpu().numpy()
+        self.bias = float(bias.detach().cpu().numpy())
+        self._fitted = True
+        return self
+
+    def predict_logits(self, X: np.ndarray) -> np.ndarray:
+        q = (X @ self.theta_q) / self.temperature  # (batch, seq_len)
+        attn = np.exp(q)
+        attn = attn / (np.sum(attn, axis=1, keepdims=True) + 1e-9)
+        v = X @ self.theta_v  # (batch, seq_len)
+        logits = np.sum(attn * v, axis=1) + self.bias
+        return logits

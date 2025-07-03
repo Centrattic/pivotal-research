@@ -11,8 +11,8 @@ class ActStore:
         """
         if comp == "resid_post":
             return self._data[f"blocks.{layer}.hook_resid_post"]
-        if comp == "attn_q":
-            return self._data[f"blocks.{layer}.attn.hook_q"]
-        if comp == "pattern":
-            return self._data[f"blocks.{layer}.attn.hook_attn_probs"]
+        if comp == "resid_mid":
+            return self._data[f"blocks.{layer}.attn.resid_mid"]
+        if comp == "embed":
+            return self._data[f"blocks.{layer}.attn.hook_embed"]
         raise KeyError(comp)
