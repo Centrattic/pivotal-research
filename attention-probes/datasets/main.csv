@@ -30,7 +30,7 @@ number,source,name,tag,save_name,Probe from,Probe to,Data type,probe from extrac
 29,art.csv,book_length,Art,book_length.csv,title,length,Continuous data,title,length,simple
 30,sciq-train.parquet,sciq_tf,MC Science Qs,sciq_tf.csv,"question, distractor1, distractor2, distractor3","correct_answer",Binary Classification,,,generic_mcq_balancer
 31,basic-arithmetic.jsonl,arith_mc,Basic arithmetic,arith_mc.csv,"question,choices.text,choices.label",answerKey, Multiclass Classification,,,arithmetic_label
-32,basic-arithmetic.jsonl,arith_difficulty,Basic arithmetic,arith_difficulty.csv,"question,choices.text,choices.label",type_tag,Multiclass Classification,,,arithmetic_label
+32,basic-arithmetic.jsonl,arith_difficulty,Basic arithmetic,arith_difficulty.csv,"question,choices.text,choices.label",type_tag,Multiclass Classification,,,choices_dict_label
 33,truthful-qa-gen.parquet,truthqa_tf,TruthfulQA,truthqa_tf.csv,"question, incorrect_answers","correct_answers",Binary Classification,,,generic_mcq_balancer
 34,nyc_place.csv,nyc_borough_Manhattan,NYC Boroughs,nyc_borough_Manhattan.csv,name,borough_name,Binary Classification,name,borough_name == 'Manhattan',simple
 35,nyc_place.csv,nyc_borough_Brooklyn,NYC Boroughs,nyc_borough_Brooklyn.csv,name,borough_name,Binary Classification,name,borough_name == 'Brooklyn',simple
@@ -73,3 +73,15 @@ number,source,name,tag,save_name,Probe from,Probe to,Data type,probe from extrac
 72,text_features.arrow,textinfo_contains_all_whitespace,TextInfo,textinfo_contains_all_whitespace.csv,text,contains_all_whitespace|probe_classes,Binary Classification,text,contains_all_whitespace|probe_classes,hf_handler[text_info_label]
 73,text_features.arrow,textinfo_is_not_alphanumeric,TextInfo,textinfo_is_not_alphanumeric.csv,text,is_not_alphanumeric|probe_classes,Binary Classification,text,is_not_alphanumeric|probe_classes,hf_handler[text_info_label]
 74,text_features.arrow,textinfo_is_not_ascii,TextInfo,textinfo_is_not_ascii.csv,text,is_not_ascii|probe_classes,Binary Classification,text,is_not_ascii|probe_classes,hf_handler[text_info_label]
+75,temporal_reasoning.tsv,temp_sense,Temporal Reasoning,temp_sense.csv,"0,1,2",3,Binary Classification,"0 + ' ' + 1 + ' ' + 2",3,simple
+76,temporal_reasoning.tsv,temp_cat,Temporal Reasoning,temp_cat.csv,1,4,Multiclass Classification,1,4,simple
+77,contextual-reasoning.parquet,context_ans,Contextual Reasoning,context_ans.csv,"context,question,answers",correct_answer_id,Multiclass Classification,,,context_reasoning_rowwise
+78,contextual-reasoning.parquet,context_question_type,Contextual Reasoning,context_question_type.csv,question,question_type,Multiclass Classification,question,question_type,simple
+79,reasoning-tf-train.parquet,reasoning_tf,Reasoning,reasoning_tf.csv,"question,choices.text,choices.label",answerKey,Multiclass Classification,,,choices_dict_label
+80,commonsense_train.csv,cm_correct,Common Sense,cm_correct.csv,input,label,Binary Classification,input,label,simple
+81,commonsense_train.csv,cm_isshort,Common Sense,cm_isshort.csv,input,is_short,Binary Classification,input,is_short,simple
+82,deontology_train.csv,deon_isvalid,Deontology,deon_isvalid.csv,"scenario,excuse",label,Binary Classification,"scenario + ' ' + excuse",label,simple
+83,justice_train.csv,justice_is,Justice,justice_is.csv,scenario,label,Binary Classification,scenario,label,simple
+84,virtue_train.csv,virtue_is,Virtue,virtue_is.csv,scenario,label,Binary Classification,scenario,label,simple
+85,commonsense_qa.json,cm_qa_tf,Common Sense Questions,cm_qa_tf.csv,question,answer,Binary Classification,question,answer,simple
+86,openqa_train.jsonl,open_qa,OpenBookQA,open_qa.csv,"question.stem,question.choices",answerKey,Mutliclass Classification,,,choices_list_label

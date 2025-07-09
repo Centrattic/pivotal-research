@@ -16,8 +16,20 @@ Missing from SAE probing paper:
 * left: from truthful qa to the rest of the og place ones, skip og place ones, then to the end (around 50 done, 100 to go)
 * not using proglangtest.csv -- seems only to have like 70 data points or smt,so no
 * the textinfo datasets seem like crap? like what is contains digit? like they all have a number somewhere? lmaoo maybe look deeper into these
+* for context ans dataset, I could also make this binary classification version and multiclass version both. binary is easier but more logical, multiclass could just be highly random shit or smt
+* context_question_type dataset might be interesting if you just have question text, or also context + question text -> probe to question type
+* for reasoning-tf I'm also just using train. **Maybe I should add a handler that merges train test and validatoin if there are multiple or smt, for better training. How I can do this, also with labels one, is have a folder for some datasets with multiple files for them this might be super nice eventually!**
+* commonsense dataset: just used the train set for now, and there were atleast 2 more, test, and test_hard
+* unclear how to use utilitarianism, but leo gao does use it 
+* I have more arrow files I haven't used so far! Keep these in mind for sure.
+* only using train for openqa
 
 Thoughts? If making this easy for probing library, upload all your datasets to hugging face so you can just use HF datasets~ For now, don't load in datasets not on Hugging Face! Can you upload a folder of datasets or something? Ah even on hugging face you want to be able to parse them, this is taking portions of other peoples' cant do that
+
+
+
+One thing: if the files have no headers, we create headers where column names are numbers.
+
 
 ## Handler Schemas
 
