@@ -10,12 +10,19 @@ def run_extraction(source_folder, target_folder, main_csv=MAIN_CSV):
     os.makedirs(target_folder, exist_ok=True)
     index = pd.read_csv(main_csv)
 
-    for _, row in tqdm(index.iterrows()): # for each dataset
-        handler_name = row.get('handler', 'simple')
-        handler_name = handler_name.strip()
-        # Dynamically import the handler function
+    for _, row in tqdm(index.iterrows()):
+        handler_name = row.get('handler', 'simple').strip() # defualt to simple
+
         try:
-            handler_mod = importlib.import_module(f'handlers.{handler_name}')
+            # NEW: Intercept bracket-style meta-handlers
+            if handler_name.startswith('hf_handler[') and handler_name.endswith(']'):
+                downstream_handler = handler_name[len('hf_handler['):-1]
+                handler_mod = importlib.import_module(f'handlers.hf_handler')
+                handler_to_pass = downstream_handler
+            else:
+                handler_mod = importlib.import_module(f'handlers.{handler_name}')
+                handler_to_pass = None
+
         except Exception as e:
             print(f"Could not import handler '{handler_name}': {e}")
             continue
@@ -31,8 +38,12 @@ def run_extraction(source_folder, target_folder, main_csv=MAIN_CSV):
             continue
 
         try:
-            # handler is responsible for reading the file
-            out_df = handler_mod.process(row, source_file)
+            if handler_to_pass is not None:
+                out_df = handler_mod.process(row, source_file, handler_to_pass)
+            elif handler_name == "phys_reasoning_balancer":
+                out_df = handler_mod.process(row, source_folder)
+            else:
+                out_df = handler_mod.process(row, source_file)
             out_df.to_csv(out_file, index=False)
             print(f"Saved: {out_file}")
         except Exception as e:

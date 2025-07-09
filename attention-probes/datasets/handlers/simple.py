@@ -1,11 +1,24 @@
-# handlers/simple.py
-
 import pandas as pd
+import os
+import ast
 
-def process(row, source_file):
-    df = pd.read_csv(source_file)
+def process(row, source_file_or_df):
+    # Accept either a DataFrame or a file path, DataFrame from other handlers calling it
+    if isinstance(source_file_or_df, pd.DataFrame):
+        df = source_file_or_df
+    else:
+        # Load supported formats
+        _, ext = os.path.splitext(source_file_or_df)
+        ext = ext.lower()
+        if ext == ".csv":
+            df = pd.read_csv(source_file_or_df)
+        elif ext == ".parquet":
+            df = pd.read_parquet(source_file_or_df)
+        else:
+            raise ValueError(f"Unsupported file extension: {ext}")
 
-    # Extract probe from
+    df.to_csv("proglangtest.csv")
+
     probe_from = list(str(row['Probe from']).split(',')) if pd.notnull(row['Probe from']) else []
     probe_to = list(str(row['Probe to']).split(',')) if pd.notnull(row['Probe to']) else []
     probe_from_extract = row['probe from extraction']

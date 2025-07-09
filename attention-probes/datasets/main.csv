@@ -47,5 +47,29 @@ number,source,name,tag,save_name,Probe from,Probe to,Data type,probe from extrac
 46,art.csv,art_type_book,Art Type,art_type_book.csv,title,entity_type,Binary Classification,title,entity_type == 'book',simple
 47,art.csv,art_type_song,Art Type,art_type_song.csv,title,entity_type,Binary Classification,title,entity_type == 'song',simple
 48,art.csv,art_type_movie,Art Type,art_type_movie.csv,title,entity_type,Binary Classification,title,entity_type == 'movie',simple
-49,phys_reasoning.jsonl,phys_tf,Physical reasoning,phys_tf.csv,none,none,Binary Classification, none, none, arithmetic_label
-
+49,"phys_reasoning.jsonl,phys-reasoning-train-labels.lst",phys_tf,Physical reasoning,phys_tf.csv,"goal,sol1,sol2",label,Binary Classification,,,phys_reasoning_balancer
+50,wikidata_sorted_sex_or_gender.arrow,wikidata_sex_or_gender,Wikidata,wikidata_sex_or_gender.csv,text,class,Binary Classification,text,class,hf_handler[simple]
+51,wikidata_sorted_is_alive.arrow,wikidata_is_alive,Wikidata,wikidata_is_alive.csv,text,class,Binary Classification,text,class,hf_handler[simple]
+52,wikidata_sorted_political_party.arrow,wikidata_political_party,Wikidata,wikidata_political_party.csv,text,class,Binary Classification,text,class,hf_handler[simple]
+53,wikidata_sorted_occupation.arrow,wikidata_occupation_isjournalist,Wikidata Occupation,wikidata_occupation_isjournalist.csv,text,class,Binary Classification,text,class == 'journalist',hf_handler[simple]
+54,wikidata_sorted_occupation.arrow,wikidata_occupation_isathlete,Wikidata Occupation,wikidata_occupation_isathlete.csv,text,class,Binary Classification,text,class == 'athlete',hf_handler[simple]
+55,wikidata_sorted_occupation.arrow,wikidata_occupation_isactor,Wikidata Occupation,wikidata_occupation_isactor.csv,text,class,Binary Classification,text,class == 'actor',hf_handler[simple]
+56,wikidata_sorted_occupation.arrow,wikidata_occupation_ispolitician,Wikidata Occupation,wikidata_occupation_ispolitician.csv,text,class,Binary Classification,text,class == 'politician',hf_handler[simple]
+57,wikidata_sorted_occupation.arrow,wikidata_occupation_issinger,Wikidata Occupation,wikidata_occupation_issinger.csv,text,class,Binary Classification,text,class == 'singer',hf_handler[simple]
+58,wikidata_sorted_occupation.arrow,wikidata_occupation_isresearcher,Wikidata Occupation,wikidata_occupation_isresearcher.csv,text,class,Binary Classification,text,class == 'researcher',hf_handler[simple]
+59,wikidata_sorted_occupation_athlete.arrow,wikidata_occupation_isAmericanfootballplayer,Wikidata Occupation Athlete,wikidata_occupation_isAmericanfootballplayer.csv,text,class,Binary Classification,text,"class.str.contains('American football', case=False, na=False)",hf_handler[simple]
+60,wikidata_sorted_occupation_athlete.arrow,wikidata_occupation_isbasketballplayer,Wikidata Occupation Athlete,wikidata_occupation_isbasketballplayer.csv,text,class,Binary Classification,text,"class.str.contains('basketball', case=False, na=False)",hf_handler[simple]
+61,wikidata_sorted_occupation_athlete.arrow,wikidata_occupation_isbaseballplayer,Wikidata Occupation Athlete,wikidata_occupation_isbaseballplayer.csv,text,class,Binary Classification,text,"class.str.contains('baseball', case=False, na=False)",hf_handler[simple]
+62,wikidata_sorted_occupation_athlete.arrow,wikidata_occupation_isAssociationfootballplayer,Wikidata Occupation Athlete,wikidata_occupation_isAssociationfootballplayer.csv,text,class,Binary Classification,text,"class.str.contains('association football', case=False, na=False)",hf_handler[simple]
+63,wikidata_sorted_occupation_athlete.arrow,wikidata_occupation_isicehockeyplayer,Wikidata Occupation Athlete,wikidata_occupation_isicehockeyplayer.csv,text,class,Binary Classification,text,"class.str.contains('ice hockey', case=False, na=False)",hf_handler[simple]
+64,text_features.arrow,textinfo_contains_digit,TextInfo,textinfo_contains_digit.csv,text,contains_digit|probe_classes,Binary Classification,text,contains_digit|probe_classes,hf_handler[text_info_label]
+65,text_features.arrow,textinfo_all_digits,TextInfo,textinfo_all_digits.csv,text,all_digits|probe_classes,Binary Classification,text,all_digits|probe_classes,hf_handler[text_info_label]
+66,text_features.arrow,textinfo_contains_capital,TextInfo,textinfo_contains_capital.csv,text,contains_capital|probe_classes,Binary Classification,text,contains_capital|probe_classes,hf_handler[text_info_label]
+67,text_features.arrow,textinfo_leading_capital,TextInfo,textinfo_leading_capital.csv,text,leading_capital|probe_classes,Binary Classification,text,leading_capital|probe_classes,hf_handler[text_info_label]
+68,text_features.arrow,textinfo_all_capitals,TextInfo,textinfo_all_capitals.csv,text,all_capitals|probe_classes,Binary Classification,text,all_capitals|probe_classes,hf_handler[text_info_label]
+69,text_features.arrow,textinfo_contains_whitespace,TextInfo,textinfo_contains_whitespace.csv,text,contains_whitespace|probe_classes,Binary Classification,text,contains_whitespace|probe_classes,hf_handler[text_info_label]
+70,text_features.arrow,textinfo_has_leading_space,TextInfo,textinfo_has_leading_space.csv,text,has_leading_space|probe_classes,Binary Classification,text,has_leading_space|probe_classes,hf_handler[text_info_label]
+71,text_features.arrow,textinfo_no_leading_space_and_loweralpha,TextInfo,textinfo_no_leading_space_and_loweralpha.csv,text,no_leading_space_and_loweralpha|probe_classes,Binary Classification,text,no_leading_space_and_loweralpha|probe_classes,hf_handler[text_info_label]
+72,text_features.arrow,textinfo_contains_all_whitespace,TextInfo,textinfo_contains_all_whitespace.csv,text,contains_all_whitespace|probe_classes,Binary Classification,text,contains_all_whitespace|probe_classes,hf_handler[text_info_label]
+73,text_features.arrow,textinfo_is_not_alphanumeric,TextInfo,textinfo_is_not_alphanumeric.csv,text,is_not_alphanumeric|probe_classes,Binary Classification,text,is_not_alphanumeric|probe_classes,hf_handler[text_info_label]
+74,text_features.arrow,textinfo_is_not_ascii,TextInfo,textinfo_is_not_ascii.csv,text,is_not_ascii|probe_classes,Binary Classification,text,is_not_ascii|probe_classes,hf_handler[text_info_label]

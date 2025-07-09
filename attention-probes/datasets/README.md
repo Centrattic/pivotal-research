@@ -10,11 +10,12 @@ Missing from SAE probing paper:
 * duplicates in name and save_name
 * truthful qa generation vs multiple choice?? not sure of difference yet!
 * add notes section to main.csv for each possibly?
-
+* wikidata sex or gender, should I be using name or text ??? this is so curs-ed https://www.dropbox.com/scl/fo/lvajx9100jsy3h9cvis7q/ACU8osTw0FCM_X-d8Wn-3ao/cleaned_data?dl=0&preview=56_wikidatasex_or_gender.csv&rlkey=tq7td61h1fufm01cbdu2oqsb5&subfolder_nav_tracking=1. I mean the wikidata datasets are all so sus....
+* note: using the atleete wiki, added football and basketball and baseball players YAY, in total 5 classes of players, added all of those
 * phys reasoning train labels are separate death!
-
 * left: from truthful qa to the rest of the og place ones, skip og place ones, then to the end (around 50 done, 100 to go)
-
+* not using proglangtest.csv -- seems only to have like 70 data points or smt,so no
+* the textinfo datasets seem like crap? like what is contains digit? like they all have a number somewhere? lmaoo maybe look deeper into these
 
 Thoughts? If making this easy for probing library, upload all your datasets to hugging face so you can just use HF datasets~ For now, don't load in datasets not on Hugging Face! Can you upload a folder of datasets or something? Ah even on hugging face you want to be able to parse them, this is taking portions of other peoples' cant do that
 
@@ -85,4 +86,8 @@ Thoughts? If making this easy for probing library, upload all your datasets to h
 
 - **Example Use Cases:**  
   - MCQ math, science, or quiz datasets with choices as arrays and labels as the classification target.
+
+
+
+
 
