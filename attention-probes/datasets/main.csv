@@ -1,30 +1,51 @@
-number,source,name,tag,save_name,Probe from,Probe to,Data type,probe from extraction,probe to extraction
-1,historical_figure.csv,hist_fig_birthyear,Historical figures,hist_fig_birthyear.csv,name,birth_year,Continuous data,col,col
-2,historical_figure.csv,hist_fig_deathyear,Historical figures,hist_fig_deathyear.csv,name,death_year,Continuous data,col,col
-3,historical_figure.csv,hist_fig_age,Historical figures,hist_fig_age.csv,name,age,Continuous data,col,col
-4,historical_figure.csv,hist_fig_ismale,Historical figures,hist_fig_ismale.csv,name,gender,Binary Classification,col,col == 'Male'
-5,historical_figure.csv,hist_fig_isamerican,Historical figures,hist_fig_isamerican.csv,name,country,Binary Classification,col,col == 'United States'
-6,historical_figure.csv,hist_fig_ispolitician,Historical figures,hist_fig_ispolitician.csv,name,occupation,Binary Classification,col,"col.str.contains('politician|president', case=False, na=False)"
-7,nyc_place.csv,nyc_lat,NYC Places,nyc_lat.csv,name,latitude,Continuous data,col,col
-8,nyc_place.csv,nyc_long,NYC Places,nyc_long.csv,name,longitude,Continuous data,col,col
-9,nyc_place.csv,nyc_borough,NYC Places,nyc_borough.csv,name,borough_name,Multiclass classification,col,col
-10,us_place.csv,us_lat,US places,us_lat.csv,name,latitude,Continuous data,col,col
-11,us_place.csv,us_long,US places,us_long.csv,name,longitude,Continuous data,col,col
-12,us_place.csv,us_state,US places,us_state.csv,name,state_name,Multiclass classification,col,col
-13,us_place.csv,us_timezone,US places,us_timezone.csv,name,timezone,Multiclass classification,col,col
-14,us_place.csv,us_population,US places,us_population.csv,name,population,Continuous data,col,col
-15,us_place.csv,us_density,US places,us_density.csv,name,density,Continuous data,col,col
-16,world_place.csv,world_country,World Places,world_country.csv,name,country,Multiclass classification,col,col
-17,world_place.csv,world_latitude,World Places,world_latitude.csv,name,latitude,Continuous data,col,col
-18,world_place.csv,world_longitude,World Places,world_longitude.csv,name,longitude,Continuous data,col,col
-19,world_place.csv,world_pageviews,World Places,world_pageviews.csv,name,page_views,Continuous data,col,col
-20,headline.csv,headline_istrump,Headline,headline_istrump.csv,headline,is_trump,Binary Classification,col,col == True
-21,headline.csv,headline_isobama,Headline,headline_isobama.csv,headline,is_obama,Binary Classification,col,col == True
-22,headline.csv,headline_ischina,Headline,headline_ischina.csv,headline,is_china,Binary Classification,col,col == True
-23,headline.csv,headline_isiran,Headline,headline_isiran.csv,headline,is_iran,Binary Classification,col,col == True
-24,headline.csv,headline_year,Headline,headline_year.csv,headline,year,Multiclass classification,col,col
-25,headline.csv,headline_isfrontpage,Headline,headline_isfrontpage.csv,headline,print_page,Binary Classification,col,col == 1
-26,art.csv,art_type,Art,art_type.csv,title,entity_type,Multiclass classification,col,col
-27,art.csv,art_year,Art,art_year.csv,title,release_date,Continuous data,col,col
-28,art.csv,art_pageviews,Art,art_pageviews.csv,title,page_views,Continuous data,col,col
-29,art.csv,book_length,Art,book_length.csv,title,length,Continuous data,col,col
+number,source,name,tag,save_name,Probe from,Probe to,Data type,probe from extraction,probe to extraction,handler
+1,historical_figure.csv,hist_fig_birthyear,Historical figures,hist_fig_birthyear.csv,name,birth_year,Continuous data,name,birth_year,simple
+2,historical_figure.csv,hist_fig_deathyear,Historical figures,hist_fig_deathyear.csv,name,death_year,Continuous data,name,death_year,simple
+3,historical_figure.csv,hist_fig_age,Historical figures,hist_fig_age.csv,name,age,Continuous data,name,age,simple
+4,historical_figure.csv,hist_fig_ismale,Historical figures,hist_fig_ismale.csv,name,gender,Binary Classification,name,gender == 'Male',simple
+5,historical_figure.csv,hist_fig_isamerican,Historical figures,hist_fig_isamerican.csv,name,country,Binary Classification,name,country == 'United States',simple
+6,historical_figure.csv,hist_fig_ispolitician,Historical figures,hist_fig_ispolitician.csv,name,occupation,Binary Classification,name,"occupation.str.contains('politician|president', case=False, na=False)",simple
+7,nyc_place.csv,nyc_lat,NYC Places,nyc_lat.csv,name,latitude,Continuous data,name,latitude,simple
+8,nyc_place.csv,nyc_long,NYC Places,nyc_long.csv,name,longitude,Continuous data,name,longitude,simple
+9,nyc_place.csv,nyc_borough,NYC Places,nyc_borough.csv,name,borough_name,Multiclass classification,name,borough_name,simple
+10,us_place.csv,us_lat,US places,us_lat.csv,name,latitude,Continuous data,name,latitude,simple
+11,us_place.csv,us_long,US places,us_long.csv,name,longitude,Continuous data,name,longitude,simple
+12,us_place.csv,us_state,US places,us_state.csv,name,state_name,Multiclass classification,name,state_name,simple
+13,us_place.csv,us_timezone,US places,us_timezone.csv,name,timezone,Multiclass classification,name,timezone,simple
+14,us_place.csv,us_population,US places,us_population.csv,name,population,Continuous data,name,population,simple
+15,us_place.csv,us_density,US places,us_density.csv,name,density,Continuous data,name,density,simple
+16,world_place.csv,world_country,World Places,world_country.csv,name,country,Multiclass classification,name,country,simple
+17,world_place.csv,world_latitude,World Places,world_latitude.csv,name,latitude,Continuous data,name,latitude,simple
+18,world_place.csv,world_longitude,World Places,world_longitude.csv,name,longitude,Continuous data,name,longitude,simple
+19,world_place.csv,world_pageviews,World Places,world_pageviews.csv,name,page_views,Continuous data,name,page_views,simple
+20,headline.csv,headline_istrump,Headline,headline_istrump.csv,headline,is_trump,Binary Classification,headline,is_trump == True,simple
+21,headline.csv,headline_isobama,Headline,headline_isobama.csv,headline,is_obama,Binary Classification,headline,is_obama == True,simple
+22,headline.csv,headline_ischina,Headline,headline_ischina.csv,headline,is_china,Binary Classification,headline,is_china == True,simple
+23,headline.csv,headline_isiran,Headline,headline_isiran.csv,headline,is_iran,Binary Classification,headline,is_iran == True,simple
+24,headline.csv,headline_year,Headline,headline_year.csv,headline,year,Multiclass classification,headline,year,simple
+25,headline.csv,headline_isfrontpage,Headline,headline_isfrontpage.csv,headline,print_page,Binary Classification,headline,print_page == 1,simple
+26,art.csv,art_type,Art,art_type.csv,title,entity_type,Multiclass classification,title,entity_type,simple
+27,art.csv,art_year,Art,art_year.csv,title,release_date,Continuous data,title,release_date,simple
+28,art.csv,art_pageviews,Art,art_pageviews.csv,title,page_views,Continuous data,title,page_views,simple
+29,art.csv,book_length,Art,book_length.csv,title,length,Continuous data,title,length,simple
+30,sciq-train.parquet,sciq_tf,MC Science Qs,sciq_tf.csv,"question, distractor1, distractor2, distractor3","correct_answer",Binary Classification,,,generic_mcq_balancer
+31,basic-arithmetic.jsonl,arith_mc,Basic arithmetic,arith_mc.csv,"question,choices.text,choices.label",answerKey, Multiclass Classification,,,arithmetic_label
+32,basic-arithmetic.jsonl,arith_difficulty,Basic arithmetic,arith_difficulty.csv,"question,choices.text,choices.label",type_tag,Multiclass Classification,,,arithmetic_label
+33,truthful-qa-gen.parquet,truthqa_tf,TruthfulQA,truthqa_tf.csv,"question, incorrect_answers","correct_answers",Binary Classification,,,generic_mcq_balancer
+34,nyc_place.csv,nyc_borough_Manhattan,NYC Boroughs,nyc_borough_Manhattan.csv,name,borough_name,Binary Classification,name,borough_name == 'Manhattan',simple
+35,nyc_place.csv,nyc_borough_Brooklyn,NYC Boroughs,nyc_borough_Brooklyn.csv,name,borough_name,Binary Classification,name,borough_name == 'Brooklyn',simple
+36,nyc_place.csv,nyc_borough_Bronx,NYC Boroughs,nyc_borough_Bronx.csv,name,borough_name,Binary Classification,name,borough_name == 'Bronx',simple
+37,us_place.csv,us_state_FL,US State,us_state_FL.csv,name,state_name,Binary Classification,name,state_name == 'Florida',simple
+38,us_place.csv,us_state_CA,US State,us_state_CA.csv,name,state_name,Binary Classification,name,state_name == 'California',simple
+39,us_place.csv,us_state_TX,US State,us_state_TX.csv,name,state_name,Binary Classification,name,state_name == 'Texas',simple
+40,us_place.csv,us_timezone_Chicago,US Timezone,us_timezone_Chicago.csv,name,timezone,Binary Classification,name,timezone == 'America/Chicago',simple
+41,us_place.csv,us_timezone_New_York,US Timezone,us_timezone_New_York.csv,name,timezone,Binary Classification,name,timezone == 'America/New_York',simple
+42,us_place.csv,us_timezone_Los_Angeles,US Timezone,us_timezone_Los_Angeles.csv,name,timezone,Binary Classification,name,timezone == 'America/Los_Angeles',simple
+43,world_place.csv,world_country_United_Kingdom,World Country,world_country_United_Kingdom.csv,name,country,Binary Classification,name,country == 'United Kingdom',simple
+44,world_place.csv,world_country_United_States,World Country,world_country_United_States.csv,name,country,Binary Classification,name,country == 'United States',simple
+45,world_place.csv,world_country_Italy,World Country,world_country_Italy.csv,name,country,Binary Classification,name,country == 'Italy',simple
+46,art.csv,art_type_book,Art Type,art_type_book.csv,title,entity_type,Binary Classification,title,entity_type == 'book',simple
+47,art.csv,art_type_song,Art Type,art_type_song.csv,title,entity_type,Binary Classification,title,entity_type == 'song',simple
+48,art.csv,art_type_movie,Art Type,art_type_movie.csv,title,entity_type,Binary Classification,title,entity_type == 'movie',simple
+49,phys_reasoning.jsonl,phys_tf,Physical reasoning,phys_tf.csv,none,none,Binary Classification, none, none, arithmetic_label
+
