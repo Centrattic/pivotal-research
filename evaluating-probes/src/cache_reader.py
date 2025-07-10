@@ -1,0 +1,18 @@
+import torch
+
+class ActStore:
+    def __init__(self, path):          # e.g. data/act_cache/7_hist_fig.pt
+        self._data: dict[str, torch.Tensor] = torch.load(path, mmap=True)
+
+    def get(self, layer: int, comp: str) -> torch.Tensor:
+        """
+        comp in {"resid_post", "attn_q", "attn_pattern", ...}
+        Returns tensor shape (N, seq, …) on CPU; convert/reshape as needed.
+        """
+        if comp == "resid_post":
+            return self._data[f"blocks.{layer}.hook_resid_post"]
+        if comp == "resid_mid":
+            return self._data[f"blocks.{layer}.attn.resid_mid"]
+        if comp == "embed":
+            return self._data[f"blocks.{layer}.attn.hook_embed"]
+        raise KeyError(comp)
