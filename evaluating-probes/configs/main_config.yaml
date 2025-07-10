@@ -1,0 +1,32 @@
+# configs/main_config.yaml
+
+run_name: "pythia_70m_project_then_aggregate"
+model_name: "EleutherAI/pythia-70m"
+device: "cuda"
+cache_activations: True
+
+# List of datasets to run probes on ('save_name' from main.csv)
+datasets:
+  - "4_hist_fig_ismale"
+  - "30_sciq_tf"
+
+# Define the layers and components to extract activations from
+layers: [0, 2, 4, 5] # For EleutherAI/pythia-70m (6 layers total)
+components:
+  - "resid_post"
+
+# Define the probe architectures and their hyperparameter configs.
+# The 'name' must match a class in probes.py.
+# The 'config_name' must be a key in the PROBE_CONFIGS dict in configs/probes.py.
+architectures:
+  - name: "linear"
+    config_name: "default_linear"
+  - name: "attention"
+    config_name: "default_attention"
+
+# Define the score aggregation methods to test for each architecture
+aggregations:
+  - "mean"
+  - "max"
+  - "last_token"
+  - "softmax"
