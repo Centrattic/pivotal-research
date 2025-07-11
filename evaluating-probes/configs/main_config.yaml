@@ -2,8 +2,10 @@
 
 run_name: "pythia_70m_project_then_aggregate"
 model_name: "EleutherAI/pythia-70m"
-device: "cuda"
+device: "cuda:1"
 cache_activations: True
+max_len: "32" # This should be oulled from the particular dataset (max over vals) depending on which one we choose
+seed: "42"
 
 # List of datasets to run probes on ('save_name' from main.csv)
 datasets:

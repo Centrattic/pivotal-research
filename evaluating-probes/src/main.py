@@ -31,12 +31,13 @@ def main():
         config['layers'],
         config['components'],
         config['architectures'],
-        config['aggregations']
+        config['aggregations'],
+        config['max_len'],
     ))
 
     print(f"Starting run '{config['run_name']}'. Total jobs: {len(job_list)}")
 
-    for i, (dataset, layer, comp, arch_config_raw, agg) in enumerate(job_list):
+    for i, (dataset, layer, comp, arch_config_raw, agg, max_len) in enumerate(job_list):
         arch_config = cast(Dict[str, str], arch_config_raw)
 
         print("-" * 60)
@@ -53,6 +54,7 @@ def main():
                 component=comp,
                 architecture_config=arch_config,
                 aggregation=agg,
+                max_len=config['max_len'],
                 device=config['device'],
                 use_cache=config['cache_activations'],
                 results_dir=results_dir,

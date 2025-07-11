@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import List
 
 class ActivationManager:
-    def __init__(self, model_name: str, device: str, d_model: int):
+    def __init__(self, model_name: str, device: str, d_model: int, max_len:int):
         self.model = HookedTransformer.from_pretrained(model_name, device=device)
         self.tokenizer = self.model.tokenizer
         
@@ -18,7 +18,7 @@ class ActivationManager:
         self.tokenizer.truncation_side = "left"
         self.device = device
         self.d_model = d_model
-        self.max_len = self.model.cfg.n_ctx
+        self.max_len = int(max_len) # self.model.cfg.n_ctx
 
     def _get_hook_name(self, layer: int, component: str) -> str:
         if component in {"resid_post", "resid_mid", "resid_pre"}:
@@ -53,6 +53,7 @@ class ActivationManager:
         mmap_file = []
         
         if use_cache:
+            mmap_path.parent.mkdir(parents=True, exist_ok=True)
             mmap_file = np.memmap(mmap_path, dtype=np.float16, mode='w+', shape=shape)
 
         all_acts = []

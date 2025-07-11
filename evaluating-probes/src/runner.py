@@ -25,6 +25,7 @@ def run_single_experiment(
     architecture_config: dict,
     aggregation: str,
     device: str,
+    max_len: int,
     use_cache: bool,
     results_dir: Path,
     cache_dir: Path,
@@ -49,7 +50,7 @@ def run_single_experiment(
     X_train_text, y_train, X_test_text, y_test = data_loader.split_text_and_labels()
 
     # 2. Get Activations: compute if don't exist, else load
-    act_manager = ActivationManager(model_name, device, d_model=d_model)
+    act_manager = ActivationManager(model_name, device, d_model=d_model,max_len=max_len)
     dataset_cache_dir = cache_dir / dataset_name
     
     train_acts = act_manager.get_activations(X_train_text, layer, component, use_cache, dataset_cache_dir)
