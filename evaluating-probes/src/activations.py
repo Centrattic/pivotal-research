@@ -5,6 +5,7 @@ from transformer_lens import HookedTransformer
 from tqdm import tqdm
 from pathlib import Path
 from typing import List
+from src.logger import Logger
 
 class ActivationManager:
     def __init__(self, model_name: str, device: str, d_model: int, max_len:int):
@@ -36,6 +37,7 @@ class ActivationManager:
         component: str,
         use_cache: bool,
         cache_dir: Path,
+        logger: Logger,
         batch_size: int = 32,
     ) -> np.ndarray:
         
@@ -43,26 +45,23 @@ class ActivationManager:
         shape = (len(texts), self.max_len, self.d_model)
         
         if use_cache and mmap_path.exists():
-            print(f"  - Loading activations from cache: {mmap_path}")
-            return np.memmap(mmap_path, dtype=np.float16, mode='r', shape=shape)
+            logger.log(f"  - Loading activations from cache: {mmap_path}") # ✨ FIX: Used logger
+            read_only_array = np.memmap(mmap_path, dtype=np.float16, mode='r', shape=shape)
+            return np.copy(read_only_array)
 
-        print("  - Generating activations...")
-        N = len(texts)
-        hook_name = self._get_hook_name(layer, component)
-
-        mmap_file = []
+        logger.log("  - Generating activations...") # ✨ FIX: Used logger
         
+        mmap_file = None
         if use_cache:
             mmap_path.parent.mkdir(parents=True, exist_ok=True)
             mmap_file = np.memmap(mmap_path, dtype=np.float16, mode='w+', shape=shape)
 
         all_acts = []
+        N = len(texts)
+        hook_name = self._get_hook_name(layer, component)
         
         for i in tqdm(range(0, N, batch_size), desc="  - Activation Extraction"):
             batch_texts = texts[i:i + batch_size]
-
-            assert self.tokenizer is not None, "Tokenizer not found on the model."
-
             tokens = self.tokenizer(
                 batch_texts, return_tensors="pt", padding="max_length",
                 truncation=True, max_length=self.max_len
@@ -72,6 +71,7 @@ class ActivationManager:
             chunk = cache[hook_name].cpu().to(torch.float16).numpy()
             
             if use_cache:
+                assert mmap_file is not None
                 mmap_file[i:i + len(batch_texts)] = chunk
             else:
                 all_acts.append(chunk)
@@ -80,7 +80,14 @@ class ActivationManager:
             torch.cuda.empty_cache()
 
         if use_cache:
-            mmap_file.flush() # Todo; Runtime logic is fine. Fix type issue later
+            assert mmap_file is not None
+            mmap_file.flush()
             return mmap_file
         else:
             return np.concatenate(all_acts, axis=0)
+
+
+
+
+
+
