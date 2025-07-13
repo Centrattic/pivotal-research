@@ -5,25 +5,22 @@ import numpy as np
 from typing import Optional, Any
 from src.data import Dataset
 from src.activations import ActivationManager
-from src.probes import LinearProbe, AttentionProbe, RidgeProbe
+from src.probes import LinearProbe, AttentionProbe
 from src.logger import Logger
 from configs.probes import PROBE_CONFIGS
 
 # Adding as to not need to load dataset if previously over length limit
-prev_train_dataset_name = None
-prev_train_max_len = None
+prev_train_skip_dataset_name = None
+prev_eval_skip_dataset_name = None
 
 # Define a simple type hint for the logger
 
-def get_probe_architecture(architecture_name: str, d_model: int, n_classes: Optional[int]):
-    """Factory function to create a probe instance based on task type."""
-    if architecture_name in ["linear", "attention"]:
-        assert n_classes is not None, f"n_classes must be provided for {architecture_name}"
-        if architecture_name == "linear":
-            return LinearProbe(d_model=d_model, n_classes=n_classes)
-        return AttentionProbe(d_model=d_model, n_classes=n_classes)
-    elif architecture_name == "ridge":
-        return RidgeProbe(d_model=d_model)
+def get_probe_architecture(architecture_name: str, d_model: int):
+    """Factory function to create a probe instance."""
+    if architecture_name == "linear":
+        return LinearProbe(d_model=d_model)
+    if architecture_name == "attention":
+        return AttentionProbe(d_model=d_model)
     raise ValueError(f"Unknown architecture: {architecture_name}")
 
 def run_single_experiment(
@@ -43,45 +40,59 @@ def run_single_experiment(
     logger: Logger,
 ):
     
-    global prev_train_dataset_name, prev_train_max_len
+    global prev_train_skip_dataset_name, prev_eval_skip_dataset_name
 
-    if (prev_train_dataset_name == train_dataset_name):
-        # logger.log(f"  - ⏭️  Skipping training dataset '{train_dataset_name}' (max_len: {prev_train_max_len}), exceeds 512 token limit.")
+    if (prev_train_skip_dataset_name == train_dataset_name):
+        # logger.log(f"  - ⏭️  Skipping training dataset '{train_dataset_name}' (max_len: {prev_train_max_len}), exceeds 512 token limit.") too much logging
         return
 
-    logger.log("-" * 60)
-    logger.log(f"  - Evaluating on: {eval_dataset_name}, Layer: {layer}, Component: {component}")
-    logger.log(f"  - Architecture: {architecture_config['name']}, Config: {architecture_config['config_name']}, Aggregation: {aggregation}")
+    if (prev_eval_skip_dataset_name == eval_dataset_name):
+        # logger.log(f"  - ⏭️  Skipping evaluation dataset '{eval_dataset_name}' (max_len: {prev_eval_max_len}), exceeds 512 token limit.") too much logging
+        return
 
     architecture_name = architecture_config['name']
     config_name = architecture_config['config_name']
+
+    logger.log("-" * 60)
+    logger.log(f"  - Evaluating on: {eval_dataset_name}, Layer: {layer}, Component: {component}")
+    logger.log(f"  - Architecture: {architecture_name}, Config: {config_name}, Aggregation: {aggregation}")
 
     # Data loading and inspection
     train_data = Dataset(train_dataset_name, seed=seed)
     task_type = train_data.task_type
     n_classes = train_data.n_classes
-    max_len = train_data.max_len
 
-    if max_len > 512:
-        prev_train_dataset_name = train_dataset_name
-        prev_train_max_len = max_len
+    eval_data = Dataset(eval_dataset_name, seed=seed)
+
+    # ToDo: clean up these skips in the future!
+
+    # 1. Skip if training on a continuous dataset
+    if "Continuous" in train_data.task_type:
+        logger.log(f"  - ⏭️  Skipping job: Training on continuous data ('{train_dataset_name}') is not supported.")
+        return
+
+    # 2. Skip if task types or class counts are mismatched
+    if train_data.task_type != eval_data.task_type:
+        logger.log(f"  - ⏭️  Skipping job: Mismatched task types (Train: {train_data.task_type}, Eval: {eval_data.task_type}).")
+        return
+    if train_data.n_classes != eval_data.n_classes:
+        logger.log(f"  - ⏭️  Skipping job: Mismatched number of classes (Train: {train_data.n_classes}, Eval: {eval_data.n_classes}).")
+        return
+
+    # 3. Skip if dataset length is too long
+    if train_data.max_len > 512:
+        prev_train_skip_dataset_name = train_dataset_name
         logger.log(f"  - ⏭️  Skipping training dataset '{train_dataset_name}' (max_len: {train_data.max_len}), exceeds 512 token limit.")
         return
-    
-    logger.log(f"  - Detected task: {task_type} (n_classes={n_classes}, max_len={max_len})")
 
-    # Conditional logic for task type
-    if "Classification" not in task_type and architecture_name != "ridge":
-        logger.log(f"  - ⏭️  Skipping classification architecture '{architecture_name}' for non-classification task.")
+    if eval_data.max_len > 512: # The global skip doesn't help too much with this because of experiment ordering.
+        prev_eval_skip_dataset_name = eval_dataset_name
+        logger.log(f"  - ⏭️  Skipping evaluation dataset '{eval_dataset_name}' (max_len: {eval_data.max_len}), exceeds 512 token limit.")
         return
-    if task_type == "Continuous data" and architecture_name == "ridge":
-        if aggregation not in ["mean", "last_token"]:
-            logger.log(f"  - ⏭️  Skipping aggregation '{aggregation}' not suitable for RidgeProbe.")
-            return
-    elif task_type == "Continuous data":
-        logger.log(f"  - ⏭️  Skipping non-regression architecture for continuous task.")
-        return
-        
+
+    logger.log(f"  - Detected task: {task_type} (n_classes={n_classes}, max_len={train_data.max_len})")
+
+    # Conditional logic for task type        
     if architecture_name == "attention" and aggregation != "mean":
         logger.log(f"  - ⏭️  Skipping redundant aggregation '{aggregation}' for attention architecture.")
         return
@@ -92,7 +103,8 @@ def run_single_experiment(
     probe_save_dir = results_dir / f"train_{train_dataset_name}"
     probe_state_path = probe_save_dir / f"{probe_filename_base}_state.npz"
 
-    probe = get_probe_architecture(architecture_name, d_model=d_model, n_classes=n_classes)
+    probe = get_probe_architecture(architecture_name, d_model=d_model)
+    max_len = max(train_data.max_len, eval_data.max_len)
     act_manager = ActivationManager(model_name, device, d_model=d_model, max_len=max_len)
 
     if use_cache and probe_state_path.exists():
@@ -109,12 +121,7 @@ def run_single_experiment(
         probe.fit(train_acts, y_train, aggregation=aggregation, **fit_params)
         probe.save_state(probe_state_path)
 
-    # Evaluation
-    eval_data = Dataset(eval_dataset_name, seed=seed)
-    if eval_data.max_len > 512:
-        logger.log(f"  - ⏭️  Skipping evaluation dataset '{eval_dataset_name}' (max_len: {eval_data.max_len}), exceeds 512 token limit.")
-        return
-        
+    # Evaluation        
     logger.log(f"  - Evaluating on test set of '{eval_dataset_name}'...")
     X_test_text, y_test = eval_data.get_test_set()
 

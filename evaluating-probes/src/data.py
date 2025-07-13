@@ -1,9 +1,8 @@
-# src/data.py
 import pandas as pd
 import numpy as np
 from pathlib import Path
 from sklearn.model_selection import train_test_split
-from typing import List, Tuple, Optional
+from typing import List, Tuple, Optional, Dict
 from functools import lru_cache
 
 @lru_cache(maxsize=1)
@@ -18,29 +17,37 @@ class Dataset:
     """
     A comprehensive data handler for a single dataset. It loads the data,
     its metadata, and determines properties like max_len, task_type, and n_classes.
+    It also automatically handles label encoding for classification tasks.
     """
     def __init__(self, dataset_name: str, data_dir: Path = Path("datasets/cleaned"), test_size: float = 0.3, seed: int = 42):
         self.dataset_name = dataset_name
         
-        # Load metadata from main.csv
         main_meta = get_main_csv_metadata()
         dataset_number = int(dataset_name.split('_')[0])
         self.metadata = main_meta.loc[dataset_number]
         self.task_type: str = self.metadata['Data type'].strip()
 
-        # Load cleaned data
         self.file_path = data_dir / f"{dataset_name}.csv"
         if not self.file_path.exists():
             raise FileNotFoundError(f"Dataset file not found at: {self.file_path}")
         self.df = pd.read_csv(self.file_path)
         self.df.dropna(subset=['prompt', 'target'], inplace=True)
 
-        # Determine dataset-specific properties
-        calculated_max_len = self.df['prompt_len'].max() if 'prompt_len' in self.df.columns else self.df['prompt'].str.len().max()
-        self.max_len: int = calculated_max_len
-
+        self.max_len: int = self.df['prompt_len'].max() if 'prompt_len' in self.df.columns else self.df['prompt'].str.len().max()
+        
         self.n_classes: Optional[int] = None
+        self.label_map: Optional[Dict[int, str]] = None
+
         if "Classification" in self.task_type:
+            # Automatically convert string labels to integers
+            if pd.api.types.is_string_dtype(self.df['target']):
+                print(f"  - Note: Detected string labels for '{self.dataset_name}'. Converting to integers.")
+                # factorize() is a great pandas tool for this. It returns integer codes and the unique values.
+                self.df['target'], uniques = pd.factorize(self.df['target'])
+                self.label_map = {i: label for i, label in enumerate(uniques)}
+            
+            # Ensure target is of integer type for classification
+            self.df['target'] = self.df['target'].astype(int)
             self.n_classes = len(self.df['target'].unique())
 
         self._perform_split(test_size, seed)

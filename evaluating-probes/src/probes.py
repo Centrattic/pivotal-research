@@ -16,11 +16,10 @@ def numpy_softmax(x: np.ndarray, axis: int = -1) -> np.ndarray:
 class BaseProbe:
     """Abstract base class for all probes."""
     name: str = "base"
+    task_type: str # Will be 'classification' or 'regression'
+    n_classes: Optional[int] # Only for classification
 
     def fit(self, X, y, **kwargs):
-        raise NotImplementedError
-
-    def predict_logits(self, X: np.ndarray, aggregation: str) -> np.ndarray:
         raise NotImplementedError
         
     def save_state(self, path: Path):
@@ -30,82 +29,93 @@ class BaseProbe:
         raise NotImplementedError
 
     def score(self, X: np.ndarray, y: np.ndarray, aggregation: str) -> dict[str, float]:
-        """Calculates metrics, automatically handling binary vs. multiclass cases."""
-        logits = self.predict_logits(X, aggregation=aggregation)
-        is_multiclass = logits.ndim == 2 and logits.shape[1] > 1
-
-        if not is_multiclass:
-            # Binary case
-            y_prob = 1 / (1 + np.exp(-logits.squeeze()))
+        predictions = self.predict(X, aggregation)
+        
+        if self.task_type == 'regression':
+            return {
+                "r2_score": float(r2_score(y, predictions)),
+                "mse": float(mean_squared_error(y, predictions))
+            }
+        
+        # Classification scoring
+        is_multiclass = predictions.ndim == 2 and predictions.shape[1] > 1
+        if not is_multiclass: # Binary
+            y_prob = 1 / (1 + np.exp(-predictions.squeeze()))
             y_hat = (y_prob > 0.5).astype(int)
             auc = roc_auc_score(y, y_prob) if len(np.unique(y)) > 1 else 0.5
-        else:
-            # Multiclass case
-            y_prob = numpy_softmax(logits, axis=1)
-            y_hat = np.argmax(logits, axis=1)
+        else: # Multiclass
+            y_prob = numpy_softmax(predictions, axis=1)
+            y_hat = np.argmax(predictions, axis=1)
             auc = roc_auc_score(y, y_prob, multi_class='ovr')
 
         return {"acc": float(accuracy_score(y, y_hat)), "auc": auc}
+
+    def predict(self, X: np.ndarray, aggregation: str) -> np.ndarray:
+        """Predicts either class logits or continuous values."""
+        raise NotImplementedError
+
 
 class LinearProbe(BaseProbe):
     """A linear probe that learns a projection vector θ for each class."""
     name: str = "linear"
 
-    def __init__(self, d_model: int, n_classes: int):
+    def __init__(self, d_model: int):
         self.d_model = d_model
-        self.n_classes = n_classes
         self.theta: np.ndarray | None = None
         self.bias: np.ndarray | None = None
+        self.n_classes: int | None = None 
 
     def _aggregate_scores(self, scores: torch.Tensor, aggregation: str) -> torch.Tensor:
-        if aggregation == "mean":
-            return scores.mean(dim=1)
-        if aggregation == "max":
-            return scores.max(dim=1).values
-        if aggregation == "last_token":
-            return scores[:, -1]
+        if aggregation == "mean": return scores.mean(dim=1)
+        if aggregation == "max": return scores.max(dim=1).values
+        if aggregation == "last_token": return scores[:, -1]
         if aggregation == "softmax":
-            if scores.ndim == 3: # (N, S, K) for multiclass
+            if scores.ndim == 3:
                 norm_scores = torch.linalg.norm(scores, dim=2)
                 attn = torch.softmax(norm_scores, dim=1).unsqueeze(-1)
-            else: # (N, S) for binary
+            else:
                 attn = torch.softmax(scores, dim=1)
             return torch.sum(attn * scores, dim=1)
         raise ValueError(f"Unknown aggregation method: {aggregation}")
 
     def fit(self, X: np.ndarray, y: np.ndarray, aggregation: str, lr: float = 0.01, epochs: int = 100, weight_decay: float = 1e-2):
+        # --- Task Detection ---
+        is_classification = np.issubdtype(y.dtype, np.integer)
+        if is_classification:
+            self.task_type = 'classification'
+            self.n_classes = len(np.unique(y))
+            out_features = self.n_classes if self.n_classes > 2 else 1
+            loss_fn = torch.nn.CrossEntropyLoss() if self.n_classes > 2 else torch.nn.BCEWithLogitsLoss()
+        else: # Regression
+            self.task_type = 'regression'
+            self.n_classes = None
+            out_features = 1
+            loss_fn = torch.nn.MSELoss()
+
         device = "cuda" if torch.cuda.is_available() else "cpu"
-        out_features = self.n_classes if self.n_classes > 2 else 1
-        
         theta = torch.nn.Parameter(torch.randn(out_features, self.d_model, device=device) * 0.02)
         bias = torch.nn.Parameter(torch.zeros(out_features, device=device))
-        
         optimizer = torch.optim.AdamW([theta, bias], lr=lr, weight_decay=weight_decay)
-        X_t = torch.from_numpy(X).float().to(device)
-        y_t = torch.from_numpy(y).long().to(device)
-        loss_fn = torch.nn.CrossEntropyLoss() if self.n_classes > 2 else torch.nn.BCEWithLogitsLoss()
+        X_t, y_t = torch.from_numpy(X).float().to(device), torch.from_numpy(y).to(device)
 
         for _ in tqdm(range(epochs), desc="  - Fitting Probe", leave=False):
             optimizer.zero_grad()
             scores = torch.einsum('nsd,cd->nsc', X_t, theta)
             aggregated_scores = self._aggregate_scores(scores, aggregation)
-            logits = aggregated_scores + bias
+            predictions = (aggregated_scores + bias).squeeze()
             
-            loss = loss_fn(logits.squeeze(), y_t.float() if self.n_classes <= 2 else y_t)
+            loss = loss_fn(predictions, y_t.long() if is_classification and self.n_classes > 2 else y_t.float()) # it's fine at runtime sob should fix this
             loss.backward()
             optimizer.step()
 
-        self.theta = theta.detach().cpu().numpy()
-        self.bias = bias.detach().cpu().numpy()
+        self.theta, self.bias = theta.detach().cpu().numpy(), bias.detach().cpu().numpy()
         return self
 
-    def predict_logits(self, X: np.ndarray, aggregation: str) -> np.ndarray:
+    def predict(self, X: np.ndarray, aggregation: str) -> np.ndarray:
         assert self.theta is not None and self.bias is not None, "Probe not fitted yet"
         
-        if self.n_classes <= 2:
-            scores = np.einsum('nsd,d->ns', X, self.theta.squeeze())
-        else:
-            scores = np.einsum('nsd,cd->nsc', X, self.theta)
+        is_multiclass = self.task_type == 'classification' and self.n_classes > 2
+        scores = np.einsum('nsd,cd->nsc', X, self.theta) if is_multiclass else np.einsum('nsd,d->ns', X, self.theta.squeeze())
         
         scores_t = torch.from_numpy(scores)
         aggregated_scores = self._aggregate_scores(scores_t, aggregation).numpy()
@@ -115,128 +125,79 @@ class LinearProbe(BaseProbe):
     def save_state(self, path: Path):
         np.savez(path, theta=self.theta, bias=self.bias, name=self.name, n_classes=self.n_classes)
 
-    def load_state(self, path: Path, logger: Logger): # ✨ FIX: Added logger parameter
+    def load_state(self, path: Path, logger: Logger):
         data = np.load(path)
-        self.theta = data['theta']
-        self.bias = data['bias']
-        self.n_classes = int(data['n_classes'])
-        logger.log(f"  - Loaded pre-trained '{self.name}' probe state from {path}") # ✨ FIX: Used logger
+        self.theta, self.bias, self.task_type = data['theta'], data['bias'], str(data['task_type'])
+        self.n_classes = int(data['n_classes']) if self.task_type == 'classification' else None
+        logger.log(f"  - Loaded pre-trained '{self.name}' probe ({self.task_type}) from {path}")
 
 class AttentionProbe(BaseProbe):
     """An attention probe that learns one query vector and K value vectors."""
     name: str = "attention"
     
-    def __init__(self, d_model: int, n_classes: int):
+    def __init__(self, d_model: int):
         self.d_model = d_model
-        self.n_classes = n_classes
         self.theta_q: np.ndarray | None = None
         self.theta_v: np.ndarray | None = None
         self.bias: np.ndarray | None = None
+        self.n_classes: int | None = None
 
     def fit(self, X: np.ndarray, y: np.ndarray, aggregation: str = "attention", lr: float = 0.01, epochs: int = 100, weight_decay: float = 1e-2):
-        device = "cuda" if torch.cuda.is_available() else "cpu"
-        out_features = self.n_classes if self.n_classes > 2 else 1
+        is_classification = np.issubdtype(y.dtype, np.integer)
+        if is_classification:
+            self.task_type = 'classification'
+            self.n_classes = len(np.unique(y))
+            out_features = self.n_classes if self.n_classes > 2 else 1
+            loss_fn = torch.nn.CrossEntropyLoss() if self.n_classes > 2 else torch.nn.BCEWithLogitsLoss()
+        else: # Regression
+            self.task_type = 'regression'
+            self.n_classes = None
+            out_features = 1
+            loss_fn = torch.nn.MSELoss()
 
+        device = "cuda" if torch.cuda.is_available() else "cpu"
         theta_q = torch.nn.Parameter(torch.randn(self.d_model, device=device) * 0.02)
         theta_v = torch.nn.Parameter(torch.randn(out_features, self.d_model, device=device) * 0.02)
         bias = torch.nn.Parameter(torch.zeros(out_features, device=device))
-        
         optimizer = torch.optim.AdamW([theta_q, theta_v, bias], lr=lr, weight_decay=weight_decay)
-        X_t = torch.from_numpy(X).float().to(device)
-        y_t = torch.from_numpy(y).long().to(device)
-        loss_fn = torch.nn.CrossEntropyLoss() if self.n_classes > 2 else torch.nn.BCEWithLogitsLoss()
+        X_t, y_t = torch.from_numpy(X).float().to(device), torch.from_numpy(y).to(device)
 
         for _ in tqdm(range(epochs), desc="  - Fitting Probe", leave=False):
             optimizer.zero_grad()
             attn_scores = torch.einsum('nsd,d->ns', X_t, theta_q)
             attn_weights = torch.softmax(attn_scores, dim=1)
-            
             value_scores = torch.einsum('nsd,cd->nsc', X_t, theta_v)
             aggregated_scores = torch.einsum('ns,nsc->nc', attn_weights, value_scores)
-            
-            logits = aggregated_scores + bias
-            loss = loss_fn(logits.squeeze(), y_t.float() if self.n_classes <= 2 else y_t)
+            predictions = (aggregated_scores + bias).squeeze()
+            loss = loss_fn(predictions, y_t.long() if is_classification and self.n_classes > 2 else y_t.float())
             loss.backward()
             optimizer.step()
 
-        self.theta_q = theta_q.detach().cpu().numpy()
-        self.theta_v = theta_v.detach().cpu().numpy()
-        self.bias = bias.detach().cpu().numpy()
+        self.theta_q, self.theta_v, self.bias = theta_q.detach().cpu().numpy(), theta_v.detach().cpu().numpy(), bias.detach().cpu().numpy()
         return self
 
-    def predict_logits(self, X: np.ndarray, aggregation: str = "attention") -> np.ndarray:
+    def predict(self, X: np.ndarray, aggregation: str = "attention") -> np.ndarray:
         assert self.theta_q is not None and self.theta_v is not None and self.bias is not None, "Probe not fitted yet"
         
         attn_scores = np.einsum('nsd,d->ns', X, self.theta_q)
         attn_weights = numpy_softmax(attn_scores, axis=1)
         
-        if self.n_classes <= 2:
-            value_scores = np.einsum('nsd,d->ns', X, self.theta_v.squeeze())
-            aggregated_scores = np.einsum('ns,ns->n', attn_weights, value_scores)
-        else:
+        is_multiclass = self.task_type == 'classification' and self.n_classes > 2
+        if is_multiclass:
             value_scores = np.einsum('nsd,cd->nsc', X, self.theta_v)
             aggregated_scores = np.einsum('ns,nsc->nc', attn_weights, value_scores)
+        else:
+            value_scores = np.einsum('nsd,d->ns', X, self.theta_v.squeeze())
+            aggregated_scores = np.einsum('ns,ns->n', attn_weights, value_scores)
         
         return (aggregated_scores + self.bias).squeeze()
 
     def save_state(self, path: Path):
         np.savez(path, theta_q=self.theta_q, theta_v=self.theta_v, bias=self.bias, name=self.name, n_classes=self.n_classes)
 
-    def load_state(self, path: Path, logger:Logger): 
+    def load_state(self, path: Path, logger: Logger):
         data = np.load(path)
-        self.theta_q = data['theta_q']
-        self.theta_v = data['theta_v']
-        self.bias = data['bias']
-        self.n_classes = int(data['n_classes'])
-        logger.log(f"  - Loaded pre-trained '{self.name}' probe state from {path}") # ✨ FIX: Used logger
-
-class RidgeProbe(BaseProbe):
-    """A probe for regression tasks using Ridge regression."""
-    name: str = "ridge"
-
-    def __init__(self, d_model: int, alpha: float = 1.0):
-        self.model = Ridge(alpha=alpha)
-        self.theta: Optional[np.ndarray] = None
-        self.bias: Optional[float] = None
-
-    def _aggregate_activations(self, X: np.ndarray, aggregation: str) -> np.ndarray:
-        """For regression, we aggregate the vectors *before* fitting."""
-        if aggregation == "mean":
-            return X.mean(axis=1)
-        if aggregation == "last_token":
-            return X[:, -1, :]
-        raise ValueError(f"Aggregation '{aggregation}' not supported for RidgeProbe")
-
-    def fit(self, X: np.ndarray, y: np.ndarray, aggregation: str, **kwargs):
-        X_agg = self._aggregate_activations(X, aggregation)
-        self.model.fit(X_agg, y)
-        self.theta = self.model.coef_
-        self.bias = self.model.intercept_
-        return self
-
-    def predict(self, X: np.ndarray, aggregation: str) -> np.ndarray:
-        """Predicts continuous values."""
-        assert self.model is not None, "Probe not fitted yet"
-        X_agg = self._aggregate_activations(X, aggregation)
-        return self.model.predict(X_agg)
-
-    def score(self, X: np.ndarray, y: np.ndarray, aggregation: str) -> dict[str, float]:
-        y_pred = self.predict(X, aggregation)
-        return {
-            "r2_score": float(r2_score(y, y_pred)),
-            "mse": float(mean_squared_error(y, y_pred))
-        }
-
-    def save_state(self, path: Path):
-        np.savez(path, theta=self.theta, bias=self.bias, name=self.name)
-
-    def load_state(self, path: Path, logger:Logger):
-        data = np.load(path)
-        self.theta = data['theta']
-        self.bias = data['bias']
-        self.model = Ridge()
-        self.model.coef_ = self.theta
-        self.model.intercept_ = self.bias
-        assert self.theta != None
-        self.model.n_features_in_ = self.theta.shape[0]
-        logger.log(f"  - Loaded pre-trained '{self.name}' probe state from {path}")
+        self.theta_q, self.theta_v, self.bias = data['theta_q'], data['theta_v'], data['bias']
+        self.task_type = str(data['task_type'])
+        self.n_classes = int(data['n_classes']) if self.task_type == 'classification' else None
+        logger.log(f"  - Loaded pre-trained '{self.name}' probe ({self.task_type}) from {path}")

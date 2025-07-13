@@ -30,6 +30,7 @@ def main():
         global_seed = int(config.get('seed', 42))
         available_datasets = get_available_datasets()
 
+        # Expand 'all' and 'self' keywords to generate a list of concrete experiments
         all_experiments = []
         for experiment in config['experiments']:
             train_sets = [experiment['train_on']]
@@ -51,11 +52,12 @@ def main():
 
         for experiment in all_experiments:
             train_dataset_name = experiment['train_on']
-
+            
             # Determine task type BEFORE creating the jobs
             train_data = Dataset(train_dataset_name, seed=global_seed)
             task_type = train_data.task_type
             
+            architectures, aggregations = [], []
             if "Classification" in task_type:
                 architectures = config.get('architectures', [])
                 aggregations = config.get('aggregations', [])
@@ -63,7 +65,7 @@ def main():
                 architectures = config.get('regression_architectures', [])
                 aggregations = config.get('regression_aggregations', [])
             else:
-                logger.log(f"  - ⏭️  Skipping dataset with unknown task type: {task_type}")
+                logger.log(f"  - ⏭️  Skipping dataset '{train_dataset_name}' with unknown task type: {task_type}")
                 continue
 
             job_list = list(itertools.product(
@@ -75,8 +77,7 @@ def main():
             ))
 
             logger.log(f"--- Starting Experiment: {experiment.get('name', 'Unnamed')} ---")
-            logger.log(f"  Training on: {train_dataset_name}, with {len(job_list)} jobs in total.")
-
+            logger.log(f"  Training on: {train_dataset_name} ({task_type}), with {len(job_list)} jobs in total.")
             
             for i, (eval_dataset, layer, comp, arch_config_raw, agg) in enumerate(job_list):
                 arch_config = cast(Dict[str, str], arch_config_raw)
