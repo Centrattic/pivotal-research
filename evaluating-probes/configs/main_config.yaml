@@ -1,16 +1,26 @@
 # configs/main_config.yaml
 
-run_name: "pythia_70m_project_then_aggregate"
-model_name: "EleutherAI/pythia-70m"
+run_name: "pythia_14m_test_run"
+model_name: "EleutherAI/pythia-14m"
 device: "cuda:1"
 cache_activations: True
-max_len: "32" # This should be oulled from the particular dataset (max over vals) depending on which one we choose
 seed: "42"
+# maxing out tokens at 512, a bit cooked but some context is just too long or smt
 
-# List of datasets to run probes on ('save_name' from main.csv)
-datasets:
-  - "4_hist_fig_ismale"
-  - "30_sciq_tf"
+# List of experiments to run, named
+experiments:
+  - name: "run all exps"
+    train_on: "all"
+    evaluate_on:
+      - "all" # Standard in-distribution evaluation
+  - name: "train_meta_probe_on_all"
+    train_on: "single_all"  # Special keyword to combine all classification datasets
+    evaluate_on: ["self"]     # This will evaluate on the combined test set
+
+  # - name: "cross_dataset_sciq_to_truthfulqa"
+  #   train_on: "30_sciq_tf"
+  #   evaluate_on:
+  #     - "33_truthqa_tf" # Cross-dataset evaluation
 
 # Define the layers and components to extract activations from
 layers: [0, 2, 4, 5] # For EleutherAI/pythia-70m (6 layers total)
