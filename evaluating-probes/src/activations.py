@@ -12,7 +12,7 @@ class ActivationManager:
         self.model = HookedTransformer.from_pretrained(model_name, device=device)
         self.tokenizer = self.model.tokenizer
         
-        # FIX: Add an assertion to handle the optional type
+        # Assertion to handle the optional type
         assert self.tokenizer is not None, "Tokenizer not found on the model."
 
         self.tokenizer.padding_side = "right"
@@ -45,11 +45,17 @@ class ActivationManager:
         shape = (len(texts), self.max_len, self.d_model)
         
         if use_cache and mmap_path.exists():
-            logger.log(f"  - Loading activations from cache: {mmap_path}") # ✨ FIX: Used logger
-            read_only_array = np.memmap(mmap_path, dtype=np.float16, mode='r', shape=shape)
-            return np.copy(read_only_array)
+            try:
+                # Try to load the file, but be prepared for a shape mismatch incase old activation files
+                logger.log(f"  - Loading activations from cache: {mmap_path}")
+                read_only_array = np.memmap(mmap_path, dtype=np.float16, mode='r', shape=shape)
+                return np.copy(read_only_array)
+            except ValueError as e:
+                # This error means the file on disk has a different size than we expect.
+                logger.log(f"  - ⚠️  Warning: Stale cache file detected for {mmap_path}. Deleting and regenerating. Error: {e}")
+                mmap_path.unlink() # Delete the corrupt/stale file
 
-        logger.log("  - Generating activations...") # ✨ FIX: Used logger
+        logger.log("  - Generating activations...")
         
         mmap_file = None
         if use_cache:

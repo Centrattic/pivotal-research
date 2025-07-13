@@ -83,3 +83,53 @@ def get_available_datasets(data_dir: Path = Path("datasets/cleaned")) -> List[st
     """Scans the cleaned data directory for available dataset names."""
     if not data_dir.exists(): return []
     return [f.stem for f in data_dir.glob("*.csv")]
+
+def load_combined_classification_datasets(seed: int) -> Dataset:
+    """
+    Loads all BINARY classification datasets, combines their train/test splits,
+    and returns a single, unified Dataset object.
+    """
+    print("Combining all BINARY classification datasets for meta-probe...")
+    all_datasets = get_available_datasets()
+    
+    combined_X_train, combined_y_train = [], []
+    combined_X_test, combined_y_test = [], []
+    max_len = 0
+    included_datasets = []
+
+    for name in all_datasets:
+        try:
+            data = Dataset(name, seed=seed)
+            # Only include datasets that are binary classification tasks.
+            if "Classification" in data.task_type and data.n_classes == 2:
+                xtr, ytr = data.get_train_set()
+                xte, yte = data.get_test_set()
+                
+                combined_X_train.extend(xtr)
+                combined_y_train.append(ytr)
+                combined_X_test.extend(xte)
+                combined_y_test.append(yte)
+                
+                if data.max_len > max_len:
+                    max_len = data.max_len
+                included_datasets.append(name)
+        except Exception as e:
+            print(f"  - Warning: Could not load or process dataset '{name}'. Skipping. Error: {e}")
+
+    if not included_datasets:
+        raise ValueError("No binary classification datasets found to create a combined 'single_all' dataset.")
+
+    # Create a mock Dataset object to hold the combined data
+    combined_data = Dataset(included_datasets[0], seed=seed)
+    combined_data.dataset_name = "single_all"
+    combined_data.task_type = "Binary Classification"
+    combined_data.n_classes = 2
+    combined_data.max_len = min(max_len, 512)
+
+    combined_data.X_train_text = combined_X_train
+    combined_data.y_train = np.concatenate(combined_y_train)
+    combined_data.X_test_text = combined_X_test
+    combined_data.y_test = np.concatenate(combined_y_test)
+    
+    print(f"Combined dataset created from {len(included_datasets)} binary datasets. Train size: {len(combined_data.X_train_text)}, Test size: {len(combined_data.X_test_text)}")
+    return combined_data
