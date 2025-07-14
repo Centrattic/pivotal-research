@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Probe Generalization Matrix</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Link to the new external stylesheet -->
+    <link rel="stylesheet" href="style.css">
+    <style>
+        /* Keep only essential sticky positioning styles here */
+        th { position: sticky; top: 0; background-color: #f8fafc; z-index: 10; }
+        .train-col { position: sticky; left: 0; background-color: #f8fafc; z-index: 5; }
+    </style>
+</head>
+<body class="bg-gray-50 text-gray-800">
+
+    <div class="main-container mx-auto p-4 sm:p-6 lg:p-8">
+        <div class="bg-white p-6 rounded-xl shadow-lg">
+            <h1 class="text-3xl font-bold text-gray-900 mb-2">Probe Generalization Matrix</h1>
+            <p class="text-gray-600 mb-6">This table shows how well a probe trained on one dataset (row) performs when evaluated on another (column), measured by **AUROC**. The diagonal shows in-distribution performance.</p>
+            
+            <div class="mb-6">
+                <label for="probe-selector" class="block mb-2 text-sm font-medium text-gray-900">Select a Probe Configuration:</label>
+                <select id="probe-selector" class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5"></select>
+            </div>
+
+            <div id="loading" class="text-center py-12"><p class="text-lg text-gray-500">Loading visualization data...</p></div>
+            <div id="visualization" class="hidden overflow-x-auto">
+                <table id="heatmap-table" class="w-full text-sm text-left text-gray-500"></table>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let vizData = null;
+
+        document.addEventListener('DOMContentLoaded', async () => {
+            try {
+                const response = await fetch('../visualization_data.json');
+                if (!response.ok) throw new Error(`HTTP error! status: ${response.status}.`);
+                vizData = await response.json();
+                const allProbes = new Set(vizData.performance.map(p => `L${p.layer}_${p.component}_${p.architecture}_${p.aggregation}`));
+                populateSelector(Array.from(allProbes));
+                document.getElementById('loading').classList.add('hidden');
+                document.getElementById('visualization').classList.remove('hidden');
+            } catch (error) {
+                document.getElementById('loading').innerHTML = `<p class="text-red-500 font-semibold">${error.message}</p>`;
+            }
+        });
+
+        function populateSelector(probes) {
+            const selector = document.getElementById('probe-selector');
+            probes.sort().forEach(probe => selector.add(new Option(probe, probe)));
+            selector.addEventListener('change', (e) => buildTable(e.target.value));
+            if (probes.length > 0) buildTable(probes[0]);
+        }
+
+        function buildTable(selectedProbe) {
+            const table = document.getElementById('heatmap-table');
+            table.innerHTML = '';
+            
+            const matrix = {};
+            const allDatasets = new Set();
+
+            vizData.performance.forEach(item => {
+                const probeName = `L${item.layer}_${item.component}_${item.architecture}_${item.aggregation}`;
+                if (probeName !== selectedProbe) return;
+
+                const trainDs = item.train_dataset;
+                const evalDs = item.eval_dataset;
+                const score = item.metrics.auc;
+
+                if (!matrix[trainDs]) matrix[trainDs] = {};
+                matrix[trainDs][evalDs] = score;
+                allDatasets.add(trainDs);
+                allDatasets.add(evalDs);
+            });
+            
+            const sortedDatasets = Array.from(allDatasets).sort();
+
+            const thead = document.createElement('thead');
+            let headerRow = `<tr class="text-xs text-gray-700 uppercase bg-gray-100"><th class="px-6 py-3 train-col">Train ↘ / Eval →</th>`;
+            sortedDatasets.forEach(ds => headerRow += `<th class="px-6 py-3">${ds}</th>`);
+            thead.innerHTML = headerRow + `</tr>`;
+            table.appendChild(thead);
+
+            const tbody = document.createElement('tbody');
+            sortedDatasets.forEach(trainDs => {
+                let bodyRow = `<tr class="bg-white border-b"><th class="px-6 py-4 font-medium text-gray-900 whitespace-nowrap train-col">${trainDs}</th>`;
+                sortedDatasets.forEach(evalDs => {
+                    const score = matrix[trainDs]?.[evalDs];
+                    if (score !== undefined) {
+                        const bgColor = `style="${getColorForValue(score)}"`;
+                        bodyRow += `<td class="px-6 py-4 text-center font-mono" ${bgColor}>${score.toFixed(3)}</td>`;
+                    } else {
+                        bodyRow += `<td class="px-6 py-4 text-center font-mono na-cell">N/A</td>`;
+                    }
+                });
+                tbody.innerHTML += bodyRow + `</tr>`;
+            });
+            table.appendChild(tbody);
+        }
+
+        function getColorForValue(value) {
+            const intensity = Math.max(0, (value - 0.5) * 2);
+            const g = 100 + Math.floor(120 * intensity);
+            const r = 220 - Math.floor(150 * intensity);
+            const b = 220 - Math.floor(150 * intensity);
+            return `background-color: rgb(${r}, ${g}, ${b});`;
+        }
+    </script>
+</body>
+</html>
