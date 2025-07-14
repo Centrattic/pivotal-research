@@ -15,17 +15,26 @@ def get_main_csv_metadata() -> pd.DataFrame:
 
 class Dataset:
     """
-    A comprehensive data handler for a single dataset. It loads the data,
-    its metadata, and determines properties like max_len, task_type, and n_classes.
-    It also automatically handles label encoding for classification tasks.
+    Loads, cleans, and prepares a dataset for probing tasks.
+    - Converts classification string labels to integers (with label_map).
+    - Drops rows with missing prompts or targets.
     """
-    def __init__(self, dataset_name: str, data_dir: Path = Path("datasets/cleaned"), test_size: float = 0.3, seed: int = 42):
+    def __init__(
+        self, dataset_name: str, 
+        data_dir: Path = Path("datasets/cleaned"), 
+        test_size: float = 0.2, 
+        seed: int = 42
+    ):
+        if dataset_name == "single_all":
+            raise RuntimeError(
+                "Dataset('single_all', ...) called directly! Use Dataset.from_combined(...) or load_combined_classification_datasets()."
+            )
         self.dataset_name = dataset_name
-        
+
         main_meta = get_main_csv_metadata()
         dataset_number = int(dataset_name.split('_')[0])
         self.metadata = main_meta.loc[dataset_number]
-        self.task_type: str = self.metadata['Data type'].strip()
+        self.task_type: str = (self.metadata['Data type'].strip()).lower()
 
         self.file_path = data_dir / f"{dataset_name}.csv"
         if not self.file_path.exists():
@@ -33,59 +42,60 @@ class Dataset:
         self.df = pd.read_csv(self.file_path)
         self.df.dropna(subset=['prompt', 'target'], inplace=True)
 
-        self.max_len: int = self.df['prompt_len'].max() if 'prompt_len' in self.df.columns else self.df['prompt'].str.len().max()
-        
+        # If present, use prompt_len column for max_len, else use string length
+        self.max_len: int = (
+            self.df['prompt_len'].max()
+            if 'prompt_len' in self.df.columns
+            else self.df['prompt'].astype(str).str.len().max()
+        )
+
         self.n_classes: Optional[int] = None
         self.label_map: Optional[Dict[int, str]] = None
 
-        if "Classification" in self.task_type:
-            # Automatically convert string labels to integers
-            if pd.api.types.is_string_dtype(self.df['target']):
-                print(f"  - Note: Detected string labels for '{self.dataset_name}'. Converting to integers.")
-                # factorize() is a great pandas tool for this. It returns integer codes and the unique values.
-                self.df['target'], uniques = pd.factorize(self.df['target'])
-                self.label_map = {i: label for i, label in enumerate(uniques)}
-            
-            # Ensure target is of integer type for classification
+        if "classification" in self.task_type:
+            print(f"  - Note: Forcing integer encoding for '{self.dataset_name}'.")
+            self.df['target'], uniques = pd.factorize(self.df['target'].astype(str))
+            self.label_map = {i: label for i, label in enumerate(uniques)}
             self.df['target'] = self.df['target'].astype(int)
             self.n_classes = len(self.df['target'].unique())
-            unique_labels, counts = np.unique(self.df['target'], return_counts=True)
-            if any(counts < 2):
-                print(f"  - Warning: Dataset '{self.dataset_name}' has a class with only 1 sample. It cannot be reliably split and will be marked as not trainable.")
-                print(self.dataset_name, "AHHH")
-                self.is_trainable = False
-        
-        elif "Continuous" in self.task_type:
+        elif "continuous" in self.task_type or "regression" in self.task_type:
             self.df['target'] = pd.to_numeric(self.df['target'], errors='coerce')
             self.df.dropna(subset=['target'], inplace=True)
+            self.df['target'] = self.df['target'].astype(float)
+
+        # Check for empty dataset
+        if self.df.shape[0] == 0:
+            raise ValueError(
+                f"Dataset '{self.dataset_name}' is empty after cleaning. No samples left to split."
+            )
 
         self._perform_split(test_size, seed)
+
+        # Ensure split labels are correct type
+        if "classification" in self.task_type:
+            self.y_train = self.y_train.astype(np.int32)
+            self.y_test = self.y_test.astype(np.int32)
+        elif "continuous" in self.task_type or "regression" in self.task_type:
+            self.y_train = self.y_train.astype(np.float32)
+            self.y_test = self.y_test.astype(np.float32)
+
+        # Debug: print type and first few targets
+        print(f"{self.dataset_name}: y_train task type: {self.task_type} dtype: {self.y_train.dtype}, sample: {self.y_train[:5]}")
 
     def _perform_split(self, test_size: float, seed: int):
         prompts_arr = self.df["prompt"].astype(str).to_numpy()
         labels_arr = self.df["target"].to_numpy()
-
-        stratify_option = None
-        # We only attempt to stratify if the dataset has been marked as trainable.
-        if "Classification" in self.task_type and self.is_trainable:
-            stratify_option = labels_arr
-        
+        stratify_option = labels_arr if "classification" in self.task_type else None
         indices = np.arange(len(self.df))
-        
-        # This train_test_split call is now safer.
+
         train_indices, test_indices = train_test_split(
             indices, test_size=test_size, random_state=seed, stratify=stratify_option
         )
-        
+
         self.X_train_text: List[str] = prompts_arr[train_indices].tolist()
         self.y_train: np.ndarray = labels_arr[train_indices]
         self.X_test_text: List[str] = prompts_arr[test_indices].tolist()
         self.y_test: np.ndarray = labels_arr[test_indices]
-
-        # This post-split check remains as a final safeguard.
-        if "Classification" in self.task_type:
-            if len(np.unique(self.y_train)) < 2:
-                self.is_trainable = False
 
     def get_train_set(self) -> Tuple[List[str], np.ndarray]:
         return self.X_train_text, self.y_train
@@ -93,10 +103,31 @@ class Dataset:
     def get_test_set(self) -> Tuple[List[str], np.ndarray]:
         return self.X_test_text, self.y_test
 
+    @classmethod
+    def from_combined(
+        cls, 
+        X_train_text, y_train, 
+        X_test_text, y_test, 
+        max_len, n_classes, label_map=None
+    ):
+        obj = cls.__new__(cls)
+        obj.dataset_name = "single_all"
+        obj.task_type = "binary classification"
+        obj.n_classes = n_classes
+        obj.max_len = max_len
+        obj.label_map = label_map
+        obj.X_train_text = X_train_text
+        obj.y_train = np.array(y_train).astype(np.int64)
+        obj.X_test_text = X_test_text
+        obj.y_test = np.array(y_test).astype(np.int64)
+        obj.df = None
+        obj.metadata = None
+        return obj
 
 def get_available_datasets(data_dir: Path = Path("datasets/cleaned")) -> List[str]:
     """Scans the cleaned data directory for available dataset names."""
-    if not data_dir.exists(): return []
+    if not data_dir.exists():
+        return []
     return [f.stem for f in data_dir.glob("*.csv")]
 
 def load_combined_classification_datasets(seed: int) -> Dataset:
@@ -106,7 +137,6 @@ def load_combined_classification_datasets(seed: int) -> Dataset:
     """
     print("Combining all BINARY classification datasets for meta-probe...")
     all_datasets = get_available_datasets()
-    
     combined_X_train, combined_y_train = [], []
     combined_X_test, combined_y_test = [], []
     max_len = 0
@@ -115,16 +145,14 @@ def load_combined_classification_datasets(seed: int) -> Dataset:
     for name in all_datasets:
         try:
             data = Dataset(name, seed=seed)
-            # Only include datasets that are binary classification tasks.
-            if "Classification" in data.task_type and data.n_classes == 2:
+            # Use case-insensitive matching and ensure binary classification
+            if "classification" in data.task_type and data.n_classes == 2:
                 xtr, ytr = data.get_train_set()
                 xte, yte = data.get_test_set()
-                
                 combined_X_train.extend(xtr)
                 combined_y_train.append(ytr)
                 combined_X_test.extend(xte)
                 combined_y_test.append(yte)
-                
                 if data.max_len > max_len:
                     max_len = data.max_len
                 included_datasets.append(name)
@@ -134,17 +162,13 @@ def load_combined_classification_datasets(seed: int) -> Dataset:
     if not included_datasets:
         raise ValueError("No binary classification datasets found to create a combined 'single_all' dataset.")
 
-    # Create a mock Dataset object to hold the combined data
-    combined_data = Dataset(included_datasets[0], seed=seed)
-    combined_data.dataset_name = "single_all"
-    combined_data.task_type = "Binary Classification"
-    combined_data.n_classes = 2
-    combined_data.max_len = min(max_len, 512)
-
-    combined_data.X_train_text = combined_X_train
-    combined_data.y_train = np.concatenate(combined_y_train)
-    combined_data.X_test_text = combined_X_test
-    combined_data.y_test = np.concatenate(combined_y_test)
-    
+    combined_data = Dataset.from_combined(
+        X_train_text=combined_X_train,
+        y_train=np.concatenate(combined_y_train),
+        X_test_text=combined_X_test,
+        y_test=np.concatenate(combined_y_test),
+        max_len=min(max_len, 512),
+        n_classes=2
+    )
     print(f"Combined dataset created from {len(included_datasets)} binary datasets. Train size: {len(combined_data.X_train_text)}, Test size: {len(combined_data.X_test_text)}")
     return combined_data
