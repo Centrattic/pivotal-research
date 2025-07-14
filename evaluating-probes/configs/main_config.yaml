@@ -1,6 +1,6 @@
 # configs/main_config.yaml
 
-run_name: "pythia_14m_quick_test_run"
+run_name: "pythia_14m_l3_proper_test_run"
 model_name: "EleutherAI/pythia-14m"
 device: "cuda:1"
 cache_activations: True
@@ -13,9 +13,9 @@ experiments:
     train_on: "all"
     evaluate_on:
       - "all" # Standard in-distribution evaluation
-  - name: "train_meta_probe_on_all"
-    train_on: "single_all"  # Special keyword to combine all classification datasets
-    evaluate_on: "single_all"     # This will evaluate on the combined test set. Does ["self"] also work?
+  # - name: "train_meta_probe_on_all"
+  #   train_on: "single_all"  # Special keyword to combine all classification datasets
+  #   evaluate_on: "single_all"     # This will evaluate on the combined test set. Does ["self"] also work?
 
   # - name: "cross_dataset_sciq_to_truthfulqa"
   #   train_on: "30_sciq_tf"

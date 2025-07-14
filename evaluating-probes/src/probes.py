@@ -3,6 +3,7 @@ import torch
 from pathlib import Path
 from tqdm import tqdm
 from typing import Any, Optional
+import yaml
 
 from sklearn.linear_model import LogisticRegression, LinearRegression
 from sklearn.metrics import r2_score, mean_squared_error, accuracy_score, roc_auc_score
@@ -64,58 +65,65 @@ class LinearProbe(BaseProbe):
         self.d_model = d_model
         self.model: Optional[LogisticRegression | LinearRegression] = None
 
-    def _aggregate_activations(self, X: np.ndarray, aggregation: str) -> np.ndarray:
+    def _aggregate_activations(self, logits: np.ndarray, aggregation: str) -> np.ndarray:
         """Aggregates activations from (N, S, D) to (N, D) before feeding to sklearn."""
-        if aggregation == "mean": return X.mean(axis=1)
-        if aggregation == "max": return X.max(axis=1)
-        if aggregation == "last_token": return X[:, -1]
-        if aggregation == "softmax":
-            # For softmax, we need a direction. We use the probe's learned direction.
-            # This makes softmax a bit different, as it requires a trained probe.
-            # For simplicity in training, we don't support softmax as the training aggregation.
-            if not hasattr(self, 'theta_') or self.theta_ is None:
-                 raise RuntimeError("Softmax aggregation can only be used for prediction, not training, with the sklearn LinearProbe.")
-            
-            per_token_scores = np.einsum('nsd,d->ns', X, self.theta_)
-            attn_weights = numpy_softmax(per_token_scores, axis=1)
-            return np.einsum('ns,nsd->nd', attn_weights, X)
-
-        raise ValueError(f"Unknown aggregation method: {aggregation}")
+        # Now aggregate over sequence axis (axis=1)
+        if aggregation == "mean":
+            return logits.mean(axis=1)
+        elif aggregation == "max":
+            return logits.max(axis=1)
+        elif aggregation == "softmax":
+            # Softmax pooling across sequence axis
+            w = np.exp(logits - np.max(logits, axis=1, keepdims=True))
+            w = w / (w.sum(axis=1, keepdims=True) + 1e-9)
+            return (logits * w).sum(axis=1)
+        else:
+            raise ValueError(f"Unknown aggregation: {aggregation}")
 
     def fit(self, X: np.ndarray, y: np.ndarray, **kwargs):
         is_classification = np.issubdtype(y.dtype, np.integer)
         
-        # Training always uses 'mean' aggregation.
-        X_agg = self._aggregate_activations(X, "mean")
+        # Training flattens across sequence length
+        N, S, D = X.shape
+        X_flat = X.reshape(N, S*D)
+
+        # Normalize
+        X_norm = (X_flat - X_flat.mean(axis=0)) / (X_flat.std(axis=0) + 1e-6)
 
         if is_classification:
             self.task_type = 'classification'
-            self.model = LogisticRegression(random_state=42, **kwargs)
+            self.model = LogisticRegression(verbose=3, random_state=42, **kwargs)
         else: # Regression
             self.task_type = 'regression'
             self.model = LinearRegression()
 
-        self.model.fit(X_agg, y)
+        self.model.fit(X_norm, y)
         # Store for softmax aggregation during prediction
         self.theta_ = self.model.coef_.squeeze()
         return self
 
     def predict(self, X: np.ndarray, aggregation: str) -> np.ndarray:
         assert self.model is not None, "Probe has not been trained."
-        X_agg = self._aggregate_activations(X, aggregation)
+
+        N, S, D = X.shape
+        X_flat = X.reshape(N, S*D)
         
         if isinstance(self.model, LogisticRegression):
             # For binary, decision_function gives logits. For multiclass, predict_proba is used.
             if len(self.model.classes_) > 2:
-                probs = self.model.predict_proba(X_agg)
+                probs = self.model.predict_proba(X_flat)
                 # Convert probabilities to logits
-                return np.log(probs / (1 - probs + 1e-9))
+                logits = np.log(probs / (1 - probs + 1e-9))
+                print(logits)
             else:
-                return self.model.decision_function(X_agg)
+                logits = self.model.decision_function(X_flat)
         elif isinstance(self.model, LinearRegression):
-            return self.model.predict(X_agg)
+            logits = self.model.predict(X_flat)
         else:
             raise TypeError(f"Unsupported model type for prediction: {type(self.model)}")
+    
+        final_score = self._aggregate_activations(logits, aggregation)
+        return final_score
     
     def save_state(self, path: Path):
         if isinstance(self.model, LogisticRegression):
@@ -150,6 +158,9 @@ class AttentionProbe(BaseProbe):
         self.theta_q: np.ndarray | None = None
         self.theta_v: np.ndarray | None = None
         self.bias: np.ndarray | None = None
+        with open("configs/main_config.yaml", "r") as f:
+            config = yaml.safe_load(f)
+        self.device = config['device']
 
     def fit(self, X: np.ndarray, y: np.ndarray, lr: float = 0.01, epochs: int = 100, weight_decay: float = 1e-2):
         is_classification = np.issubdtype(y.dtype, np.integer)
@@ -164,7 +175,7 @@ class AttentionProbe(BaseProbe):
             out_features = 1
             loss_fn = torch.nn.MSELoss()
 
-        device = "cuda" if torch.cuda.is_available() else "cpu"
+        device = self.device if torch.cuda.is_available() else "cpu" # funny logic lol, but correct effect
         theta_q = torch.nn.Parameter(torch.randn(self.d_model, device=device) * 0.02)
         theta_v = torch.nn.Parameter(torch.randn(out_features, self.d_model, device=device) * 0.02)
         bias = torch.nn.Parameter(torch.zeros(out_features, device=device))

@@ -52,3 +52,18 @@ helper in `extract.py` does this for you.
 
 You may freely modify / extend the hyperparameters.  See the README for
 examples.
+
+# Viewing the visualizations
+
+Run ```python -m http.server``` in the ```evaluating-probes/interpretability``` directory.
+
+
+### RunPod Access: 
+https://github.com/Stefan-Heimersheim/runpod_cli/
+
+### Running Notes:
+
+* Rewrite aggregation code to actually properly aggregate only up to the proper sequence length if specified. If you don't, single all will be messed with (other datasets have probes trained up to their max len or smt smt)
+- there is even a lot of variance in length across dataset which I am unclear-ish on how to handle
+
+* skipping meta probe for now, since need more compute to train (working on getting this)

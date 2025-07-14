@@ -25,8 +25,8 @@ def get_included_datasets_classification_all(logger:Logger):
     included_datasets = []
     for name in get_available_datasets():
         try:
-            data = Dataset(name)
-            if ("classification" in data.task_type.lower() and not should_skip_dataset(name, data, logger)):
+            data = Dataset(name) # only binary classification allowed!
+            if ("binary" in data.task_type.lower() and not should_skip_dataset(name, data, logger)):
                 included_datasets.append(name)
         except Exception as e:
             if logger:
@@ -34,21 +34,33 @@ def get_included_datasets_classification_all(logger:Logger):
     return included_datasets
 
 def get_combined_activations(
-    datasets: List[str], layer: int, component: str, model_name: str, d_model: int, max_len: int, device: str, cache_dir: Path, logger: Logger
+    datasets: List[str], layer: int, component: str,
+    model_name: str, d_model: int, final_max_len: int, device: str,
+    cache_dir: Path, logger: Logger
 ) -> np.ndarray:
-    """Loads and concatenates cached activations for each binary dataset, regenerating any stale ones."""
+    """
+    Loads and concatenates (with zero padding) cached activations for each dataset.
+    Each dataset can have its own max_len; result is (N_total, final_max_len, d_model).
+    """
     acts_list = []
-    act_manager = ActivationManager(model_name, device, d_model=d_model, max_len=max_len)
     for ds in datasets:
-        ds_cache_dir = cache_dir / ds
-        # Always use get_activations so that any stale/corrupt cache is repaired automatically!
         ds_data = Dataset(ds)
+        ds_max_len = ds_data.max_len
+        ds_cache_dir = cache_dir / ds
+        logger.log(f"  - Ensuring activations for {ds}: {ds_cache_dir} (max_len={ds_max_len})")
+        # Use correct max_len for this dataset
+        act_manager = ActivationManager(model_name, device, d_model=d_model, max_len=ds_max_len)
         X_train_text, _ = ds_data.get_train_set()
-        logger.log(f"  - Ensuring activations for {ds}: {ds_cache_dir}")
-        arr = act_manager.get_activations(
+        arr = act_manager.get_activations( # should never recalculate activations
             X_train_text, layer, component, use_cache=True, cache_dir=ds_cache_dir, logger=logger
-        )
-        acts_list.append(np.copy(arr))  # Load into memory
+        )  # shape (N, ds_max_len, d_model)
+        # Zero-pad to final_max_len if needed
+        if ds_max_len < final_max_len:
+            pad_width = ((0, 0), (0, final_max_len - ds_max_len), (0, 0))
+            arr = np.pad(arr, pad_width, mode='constant', constant_values=0)
+        elif ds_max_len > final_max_len:
+            arr = arr[:, :final_max_len, :]
+        acts_list.append(np.copy(arr))
     combined = np.concatenate(acts_list, axis=0)
     return combined
 

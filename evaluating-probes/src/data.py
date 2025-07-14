@@ -80,7 +80,7 @@ class Dataset:
             self.y_test = self.y_test.astype(np.float32)
 
         # Debug: print type and first few targets
-        print(f"{self.dataset_name}: y_train task type: {self.task_type} dtype: {self.y_train.dtype}, sample: {self.y_train[:5]}")
+        print(f"{self.dataset_name}: y_train task type: {self.task_type} dtype: {self.y_train.dtype}, sample: {self.y_train[:5]} max_len {self.max_len}")
 
     def _perform_split(self, test_size: float, seed: int):
         prompts_arr = self.df["prompt"].astype(str).to_numpy()
