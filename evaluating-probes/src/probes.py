@@ -4,6 +4,7 @@ from pathlib import Path
 from tqdm import tqdm
 from typing import Any, Optional
 
+from sklearn.linear_model import LogisticRegression, LinearRegression
 from sklearn.metrics import r2_score, mean_squared_error, accuracy_score, roc_auc_score
 
 class Logger:
@@ -19,7 +20,7 @@ class BaseProbe:
     """Abstract base class for all probes."""
     name: str = "base"
     task_type: str
-    n_classes: Optional[int]
+    model: Any # Will hold the sklearn model instance
 
     def fit(self, X, y, **kwargs):
         raise NotImplementedError
@@ -37,11 +38,11 @@ class BaseProbe:
             return {"r2_score": float(r2_score(y, predictions)), "mse": float(mean_squared_error(y, predictions))}
         
         is_multiclass = predictions.ndim == 2 and predictions.shape[1] > 1
-        if not is_multiclass:
+        if not is_multiclass: # Binary
             y_prob = 1 / (1 + np.exp(-predictions.squeeze()))
             y_hat = (y_prob > 0.5).astype(int)
             auc = roc_auc_score(y, y_prob) if len(np.unique(y)) > 1 else 0.5
-        else:
+        else: # Multiclass
             y_prob = numpy_softmax(predictions, axis=1)
             y_hat = np.argmax(predictions, axis=1)
             auc = roc_auc_score(y, y_prob, multi_class='ovr')
@@ -49,84 +50,99 @@ class BaseProbe:
         return {"acc": float(accuracy_score(y, y_hat)), "auc": auc}
 
     def predict(self, X: np.ndarray, aggregation: str) -> np.ndarray:
+        """Predicts either class logits or continuous values."""
         raise NotImplementedError
 
 class LinearProbe(BaseProbe):
-    """A linear probe that learns a projection vector θ for each class or for regression."""
+    """
+    A probe using a linear model from scikit-learn. It automatically chooses
+    Logistic Regression for classification and Linear Regression for regression.
+    """
     name: str = "linear"
 
     def __init__(self, d_model: int):
         self.d_model = d_model
-        self.theta: np.ndarray | None = None
-        self.bias: np.ndarray | None = None
+        self.model: Optional[LogisticRegression | LinearRegression] = None
 
-    def _aggregate_scores(self, scores: torch.Tensor, aggregation: str) -> torch.Tensor:
-        if aggregation == "mean": return scores.mean(dim=1)
-        if aggregation == "max": return scores.max(dim=1).values
-        if aggregation == "last_token": return scores[:, -1]
+    def _aggregate_activations(self, X: np.ndarray, aggregation: str) -> np.ndarray:
+        """Aggregates activations from (N, S, D) to (N, D) before feeding to sklearn."""
+        if aggregation == "mean": return X.mean(axis=1)
+        if aggregation == "max": return X.max(axis=1)
+        if aggregation == "last_token": return X[:, -1]
         if aggregation == "softmax":
-            if scores.ndim == 3:
-                norm_scores = torch.linalg.norm(scores, dim=2)
-                attn = torch.softmax(norm_scores, dim=1).unsqueeze(-1)
-            else:
-                attn = torch.softmax(scores, dim=1)
-            return torch.sum(attn * scores, dim=1)
+            # For softmax, we need a direction. We use the probe's learned direction.
+            # This makes softmax a bit different, as it requires a trained probe.
+            # For simplicity in training, we don't support softmax as the training aggregation.
+            if not hasattr(self, 'theta_') or self.theta_ is None:
+                 raise RuntimeError("Softmax aggregation can only be used for prediction, not training, with the sklearn LinearProbe.")
+            
+            per_token_scores = np.einsum('nsd,d->ns', X, self.theta_)
+            attn_weights = numpy_softmax(per_token_scores, axis=1)
+            return np.einsum('ns,nsd->nd', attn_weights, X)
+
         raise ValueError(f"Unknown aggregation method: {aggregation}")
 
-    def fit(self, X: np.ndarray, y: np.ndarray, aggregation: str, lr: float = 0.01, epochs: int = 100, weight_decay: float = 1e-2):
+    def fit(self, X: np.ndarray, y: np.ndarray, **kwargs):
         is_classification = np.issubdtype(y.dtype, np.integer)
+        
+        # Training always uses 'mean' aggregation.
+        X_agg = self._aggregate_activations(X, "mean")
+
         if is_classification:
             self.task_type = 'classification'
-            self.n_classes = len(np.unique(y))
-            out_features = self.n_classes if self.n_classes > 2 else 1
-            loss_fn = torch.nn.CrossEntropyLoss() if self.n_classes > 2 else torch.nn.BCEWithLogitsLoss()
-        else:
+            self.model = LogisticRegression(random_state=42, **kwargs)
+        else: # Regression
             self.task_type = 'regression'
-            self.n_classes = None
-            out_features = 1
-            loss_fn = torch.nn.MSELoss()
+            self.model = LinearRegression()
 
-        device = "cuda" if torch.cuda.is_available() else "cpu"
-        theta = torch.nn.Parameter(torch.randn(out_features, self.d_model, device=device) * 0.02)
-        bias = torch.nn.Parameter(torch.zeros(out_features, device=device))
-        optimizer = torch.optim.AdamW([theta, bias], lr=lr, weight_decay=weight_decay)
-        X_t, y_t = torch.from_numpy(X).float().to(device), torch.from_numpy(y).to(device)
-
-        for _ in tqdm(range(epochs), desc="  - Fitting Probe", leave=False):
-            optimizer.zero_grad()
-            scores = torch.einsum('nsd,cd->nsc', X_t, theta)
-            aggregated_scores = self._aggregate_scores(scores, aggregation)
-            predictions = (aggregated_scores + bias).squeeze()
-            loss = loss_fn(predictions, y_t.long() if is_classification and self.n_classes > 2 else y_t.float())
-            loss.backward()
-            optimizer.step()
-
-        self.theta, self.bias = theta.detach().cpu().numpy(), bias.detach().cpu().numpy()
+        self.model.fit(X_agg, y)
+        # Store for softmax aggregation during prediction
+        self.theta_ = self.model.coef_.squeeze()
         return self
 
     def predict(self, X: np.ndarray, aggregation: str) -> np.ndarray:
-        assert self.theta is not None and self.bias is not None, "Probe not fitted yet"
+        assert self.model is not None, "Probe has not been trained."
+        X_agg = self._aggregate_activations(X, aggregation)
         
-        is_multiclass = hasattr(self, 'task_type') and self.task_type == 'classification' and self.n_classes > 2
-        scores = np.einsum('nsd,cd->nsc', X, self.theta) if is_multiclass else np.einsum('nsd,d->ns', X, self.theta.squeeze())
-        
-        scores_t = torch.from_numpy(scores)
-        aggregated_scores = self._aggregate_scores(scores_t, aggregation).numpy()
-        
-        return (aggregated_scores + self.bias).squeeze()
+        if isinstance(self.model, LogisticRegression):
+            # For binary, decision_function gives logits. For multiclass, predict_proba is used.
+            if len(self.model.classes_) > 2:
+                probs = self.model.predict_proba(X_agg)
+                # Convert probabilities to logits
+                return np.log(probs / (1 - probs + 1e-9))
+            else:
+                return self.model.decision_function(X_agg)
+        elif isinstance(self.model, LinearRegression):
+            return self.model.predict(X_agg)
+        else:
+            raise TypeError(f"Unsupported model type for prediction: {type(self.model)}")
     
     def save_state(self, path: Path):
-        np.savez(path, theta=self.theta, bias=self.bias, name=self.name, task_type=self.task_type, n_classes=self.n_classes or -1)
+        if isinstance(self.model, LogisticRegression):
+            np.savez(path, coef=self.model.coef_, intercept=self.model.intercept_,
+                    task_type=self.task_type, classes=getattr(self.model, 'classes_', None))
+        else:
+            raise TypeError(f"Unsupported model type for prediction: {type(self.model)}")
+
 
     def load_state(self, path: Path, logger: Logger):
-        data = np.load(path)
-        self.theta, self.bias = data['theta'], data['bias']
+        data = np.load(path, allow_pickle=True)
         self.task_type = str(data['task_type'])
-        self.n_classes = int(data['n_classes']) if self.task_type == 'classification' else None
+        
+        if self.task_type == 'classification':
+            self.model = LogisticRegression()
+            self.model.classes_ = data['classes']
+        else:
+            self.model = LinearRegression()
+        
+        self.model.coef_ = data['coef']
+        self.model.intercept_ = data['intercept']
+        self.theta_ = self.model.coef_.squeeze()
         logger.log(f"  - Loaded pre-trained '{self.name}' probe ({self.task_type}) from {path}")
 
 class AttentionProbe(BaseProbe):
-    """An attention probe that learns one query vector and K value vectors."""
+    # This class remains a custom PyTorch implementation as requested.
+    # Its internal logic is unchanged from the previous version.
     name: str = "attention"
     
     def __init__(self, d_model: int):
@@ -135,7 +151,7 @@ class AttentionProbe(BaseProbe):
         self.theta_v: np.ndarray | None = None
         self.bias: np.ndarray | None = None
 
-    def fit(self, X: np.ndarray, y: np.ndarray, aggregation: str = "attention", lr: float = 0.01, epochs: int = 100, weight_decay: float = 1e-2):
+    def fit(self, X: np.ndarray, y: np.ndarray, lr: float = 0.01, epochs: int = 100, weight_decay: float = 1e-2):
         is_classification = np.issubdtype(y.dtype, np.integer)
         if is_classification:
             self.task_type = 'classification'
@@ -162,7 +178,7 @@ class AttentionProbe(BaseProbe):
             value_scores = torch.einsum('nsd,cd->nsc', X_t, theta_v)
             aggregated_scores = torch.einsum('ns,nsc->nc', attn_weights, value_scores)
             predictions = (aggregated_scores + bias).squeeze()
-            loss = loss_fn(predictions, y_t.long() if is_classification and self.n_classes > 2 else y_t.float())
+            loss = loss_fn(predictions, y_t.long() if is_classification and self.n_classes > 2 else y_t.float()) # not issue at runtime, for type safety should fix
             loss.backward()
             optimizer.step()
 
@@ -175,7 +191,7 @@ class AttentionProbe(BaseProbe):
         attn_scores = np.einsum('nsd,d->ns', X, self.theta_q)
         attn_weights = numpy_softmax(attn_scores, axis=1)
         
-        is_multiclass = hasattr(self, 'task_type') and self.task_type == 'classification' and self.n_classes > 2
+        is_multiclass = self.task_type == 'classification' and self.n_classes > 2
         if is_multiclass:
             value_scores = np.einsum('nsd,cd->nsc', X, self.theta_v)
             aggregated_scores = np.einsum('ns,nsc->nc', attn_weights, value_scores)
