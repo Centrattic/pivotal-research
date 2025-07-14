@@ -5,17 +5,17 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Probe Similarity Heatmap</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Link to the new external stylesheet -->
+    <link rel="stylesheet" href="style.css">
     <style>
-        body { font-family: 'Inter', sans-serif; }
-        table { border-collapse: separate; border-spacing: 0; }
-        th, td { border: 1px solid #e2e8f0; }
+        /* Keep only essential sticky positioning styles here */
         th { position: sticky; top: 0; background-color: #f8fafc; z-index: 10; }
         .probe-col { position: sticky; left: 0; background-color: #f8fafc; z-index: 5; }
     </style>
 </head>
 <body class="bg-gray-50 text-gray-800">
 
-    <div class="container mx-auto p-4 sm:p-6 lg:p-8">
+    <div class="main-container mx-auto p-4 sm:p-6 lg:p-8">
         <div class="bg-white p-6 rounded-xl shadow-lg">
             <h1 class="text-3xl font-bold text-gray-900 mb-2">Probe Similarity Heatmap</h1>
             <p class="text-gray-600 mb-6">This table shows the cosine similarity between the direction vectors of probes trained on the same dataset. A value of 1 (dark blue) means the probes learned identical directions.</p>
@@ -42,10 +42,8 @@
 
         document.addEventListener('DOMContentLoaded', async () => {
             try {
-                const response = await fetch('visualization_data.json');
-                if (!response.ok) {
-                    throw new Error(`HTTP error! status: ${response.status}. Make sure you are running a local server ('python -m http.server') and have run 'generate_viz_data.py'.`);
-                }
+                const response = await fetch('../visualization_data.json');
+                if (!response.ok) throw new Error(`HTTP error! status: ${response.status}.`);
                 vizData = await response.json();
                 populateSelector(Object.keys(vizData.similarities));
                 document.getElementById('loading').classList.add('hidden');
@@ -57,20 +55,14 @@
 
         function populateSelector(datasets) {
             const selector = document.getElementById('dataset-selector');
-            datasets.sort().forEach(dataset => {
-                const option = new Option(dataset, dataset);
-                selector.add(option);
-            });
+            datasets.sort().forEach(dataset => selector.add(new Option(dataset, dataset)));
             selector.addEventListener('change', (e) => buildTable(e.target.value));
-            // Build initial table
-            if (datasets.length > 0) {
-                buildTable(datasets[0]);
-            }
+            if (datasets.length > 0) buildTable(datasets[0]);
         }
 
         function buildTable(dataset) {
             const table = document.getElementById('heatmap-table');
-            table.innerHTML = ''; // Clear previous table
+            table.innerHTML = '';
             
             const similarities = vizData.similarities[dataset];
             const probeNames = new Set();
@@ -86,36 +78,29 @@
             });
             
             const sortedProbes = Array.from(probeNames).sort();
-            sortedProbes.forEach(p => simMatrix[p][p] = 1.0); // Diagonal is always 1
+            sortedProbes.forEach(p => simMatrix[p][p] = 1.0);
 
-            // Header
             const thead = document.createElement('thead');
-            let headerRow = `<tr class="text-xs text-gray-700 uppercase bg-gray-100">
-                                <th scope="col" class="px-6 py-3 probe-col">Probe</th>`;
+            let headerRow = `<tr class="text-xs text-gray-700 uppercase bg-gray-100"><th scope="col" class="px-6 py-3 probe-col">Probe</th>`;
             sortedProbes.forEach(probe => headerRow += `<th scope="col" class="px-6 py-3">${probe}</th>`);
-            headerRow += `</tr>`;
-            thead.innerHTML = headerRow;
+            thead.innerHTML = headerRow + `</tr>`;
             table.appendChild(thead);
 
-            // Body
             const tbody = document.createElement('tbody');
             sortedProbes.forEach(p1 => {
-                let bodyRow = `<tr class="bg-white border-b">
-                                <th scope="row" class="px-6 py-4 font-medium text-gray-900 whitespace-nowrap probe-col">${p1}</th>`;
+                let bodyRow = `<tr class="bg-white border-b"><th scope="row" class="px-6 py-4 font-medium text-gray-900 whitespace-nowrap probe-col">${p1}</th>`;
                 sortedProbes.forEach(p2 => {
-                    const sim = simMatrix[p1][p2];
-                    const bgColor = getColorForValue(sim);
-                    bodyRow += `<td class="px-6 py-4 text-center text-white font-mono ${bgColor}">${sim.toFixed(3)}</td>`;
+                    const sim = simMatrix[p1]?.[p2] ?? simMatrix[p2]?.[p1] ?? 0;
+                    const bgColor = `style="${getColorForValue(sim)}"`;
+                    bodyRow += `<td class="px-6 py-4 text-center font-mono" ${bgColor}>${sim.toFixed(3)}</td>`;
                 });
-                bodyRow += `</tr>`;
-                tbody.innerHTML += bodyRow;
+                tbody.innerHTML += bodyRow + `</tr>`;
             });
             table.appendChild(tbody);
         }
 
         function getColorForValue(value) {
-            // Blue scale for similarity (-1 to 1)
-            const intensity = (value + 1) / 2; // Scale -1 to 1 -> 0 to 1
+            const intensity = (value + 1) / 2;
             const b = 100 + Math.floor(120 * intensity);
             const r = 220 - Math.floor(150 * intensity);
             const g = 220 - Math.floor(150 * intensity);

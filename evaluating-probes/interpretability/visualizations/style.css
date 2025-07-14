@@ -1,0 +1,52 @@
+/* interpretability/style.css */
+
+/* General body and container styling for a clean look */
+body {
+    font-family: 'Inter', sans-serif;
+    background-color: #f9fafb; /* A slightly off-white background */
+}
+
+.main-container {
+    max-width: 1600px;
+    margin-left: auto;
+    margin-right: auto;
+}
+
+/* Fix for long table headers */
+#heatmap-table thead th {
+    height: 250px; /* Give space for the rotated text */
+    white-space: nowrap;
+    writing-mode: vertical-rl; /* Rotate text vertically */
+    transform: rotate(180deg); /* Flip the text to be readable */
+    text-align: left;
+    padding-left: 8px;
+    padding-right: 8px;
+    vertical-align: bottom;
+    border-bottom: 2px solid #e5e7eb;
+}
+
+/* Keep the first column header normal */
+#heatmap-table thead th:first-child {
+    height: auto;
+    white-space: normal;
+    writing-mode: horizontal-tb;
+    transform: none;
+    text-align: left;
+    vertical-align: middle;
+}
+
+/* Fix for text visibility in colored cells */
+#heatmap-table td {
+    color: #111827; /* A dark gray for high contrast */
+    font-weight: 500;
+    /* Add a subtle shadow to make text pop against any background */
+    text-shadow: 0 0 3px rgba(255, 255, 255, 0.6);
+}
+
+/* Style for N/A cells to make them less prominent */
+.na-cell {
+    background-color: #f3f4f6 !important; /* Override JS color */
+    color: #9ca3af; /* Lighter text for N/A */
+    font-weight: 400;
+    text-shadow: none;
+}

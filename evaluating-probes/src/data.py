@@ -49,6 +49,15 @@ class Dataset:
             # Ensure target is of integer type for classification
             self.df['target'] = self.df['target'].astype(int)
             self.n_classes = len(self.df['target'].unique())
+            unique_labels, counts = np.unique(self.df['target'], return_counts=True)
+            if any(counts < 2):
+                print(f"  - Warning: Dataset '{self.dataset_name}' has a class with only 1 sample. It cannot be reliably split and will be marked as not trainable.")
+                print(self.dataset_name, "AHHH")
+                self.is_trainable = False
+        
+        elif "Continuous" in self.task_type:
+            self.df['target'] = pd.to_numeric(self.df['target'], errors='coerce')
+            self.df.dropna(subset=['target'], inplace=True)
 
         self._perform_split(test_size, seed)
 
@@ -57,13 +66,13 @@ class Dataset:
         labels_arr = self.df["target"].to_numpy()
 
         stratify_option = None
-        if "Classification" in self.task_type:
-            if len(np.unique(labels_arr)) < len(labels_arr):
-                unique_labels, counts = np.unique(labels_arr, return_counts=True)
-                if all(counts >= 2):
-                     stratify_option = labels_arr
+        # We only attempt to stratify if the dataset has been marked as trainable.
+        if "Classification" in self.task_type and self.is_trainable:
+            stratify_option = labels_arr
         
         indices = np.arange(len(self.df))
+        
+        # This train_test_split call is now safer.
         train_indices, test_indices = train_test_split(
             indices, test_size=test_size, random_state=seed, stratify=stratify_option
         )
@@ -73,11 +82,17 @@ class Dataset:
         self.X_test_text: List[str] = prompts_arr[test_indices].tolist()
         self.y_test: np.ndarray = labels_arr[test_indices]
 
+        # This post-split check remains as a final safeguard.
+        if "Classification" in self.task_type:
+            if len(np.unique(self.y_train)) < 2:
+                self.is_trainable = False
+
     def get_train_set(self) -> Tuple[List[str], np.ndarray]:
         return self.X_train_text, self.y_train
 
     def get_test_set(self) -> Tuple[List[str], np.ndarray]:
         return self.X_test_text, self.y_test
+
 
 def get_available_datasets(data_dir: Path = Path("datasets/cleaned")) -> List[str]:
     """Scans the cleaned data directory for available dataset names."""
