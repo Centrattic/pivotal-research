@@ -1,2 +1,7 @@
 *.pyc
 pivotal_env/*
+evaluating-probes/activation_cache/*
+evaluating-probes/results/*
+evaluating-probes/datasets/cleaned/*
+evaluating-probes/datasets/original/*
+*.zip

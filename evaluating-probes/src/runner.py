@@ -8,6 +8,7 @@ from src.data import Dataset, get_available_datasets, load_combined_classificati
 from src.activations import ActivationManager
 from src.probes import LinearProbe, AttentionProbe
 from src.logger import Logger
+from src.utils import should_skip_dataset
 from configs.probes import PROBE_CONFIGS
 
 def get_probe_architecture(architecture_name: str, d_model: int):
@@ -20,21 +21,34 @@ def get_probe_architecture(architecture_name: str, d_model: int):
 def get_probe_filename_prefix(train_ds, arch_name, layer, component):
     return f"train_on_{train_ds}_{arch_name}_L{layer}_{component}"
 
+def get_included_datasets_classification_all(logger:Logger):
+    included_datasets = []
+    for name in get_available_datasets():
+        try:
+            data = Dataset(name)
+            if ("classification" in data.task_type.lower() and not should_skip_dataset(name, data, logger)):
+                included_datasets.append(name)
+        except Exception as e:
+            if logger:
+                logger.log(f"  - Skipping '{name}': {e}")
+    return included_datasets
+
 def get_combined_activations(
     datasets: List[str], layer: int, component: str, model_name: str, d_model: int, max_len: int, device: str, cache_dir: Path, logger: Logger
 ) -> np.ndarray:
-    """Loads and concatenates cached activations for each binary dataset."""
+    """Loads and concatenates cached activations for each binary dataset, regenerating any stale ones."""
     acts_list = []
     act_manager = ActivationManager(model_name, device, d_model=d_model, max_len=max_len)
     for ds in datasets:
         ds_cache_dir = cache_dir / ds
-        mmap_path = act_manager._get_cache_path(ds_cache_dir, layer, component)
+        # Always use get_activations so that any stale/corrupt cache is repaired automatically!
         ds_data = Dataset(ds)
-        N = len(ds_data.X_train_text)
-        shape = (N, max_len, d_model)
-        logger.log(f"  - Loading cached activations for {ds}: {mmap_path}")
-        arr = np.memmap(mmap_path, dtype=np.float16, mode='r', shape=shape)
-        acts_list.append(np.copy(arr))  # ensure loaded into memory
+        X_train_text, _ = ds_data.get_train_set()
+        logger.log(f"  - Ensuring activations for {ds}: {ds_cache_dir}")
+        arr = act_manager.get_activations(
+            X_train_text, layer, component, use_cache=True, cache_dir=ds_cache_dir, logger=logger
+        )
+        acts_list.append(np.copy(arr))  # Load into memory
     combined = np.concatenate(acts_list, axis=0)
     return combined
 
@@ -54,14 +68,13 @@ def train_probe(
     logger.log("  - Probe not found in cache. Training new probe...")
     probe_save_dir.mkdir(parents=True, exist_ok=True)
 
-    # --- SINGLE_ALL special case ---
+    # SINGLE_ALL special case
     if train_dataset_name == "single_all":
         train_data = load_combined_classification_datasets(seed)
         X_train_text, y_train = train_data.get_train_set()
-        included_datasets = [
-            name for name in get_available_datasets()
-            if "classification" in Dataset(name).task_type.lower() and Dataset(name).n_classes == 2
-        ]
+        
+        included_datasets = get_included_datasets_classification_all(logger)
+
         train_acts = get_combined_activations(
             included_datasets, layer, component, model_name, d_model, train_data.max_len, device, cache_dir, logger
         )
@@ -110,14 +123,13 @@ def evaluate_probe(
     probe = get_probe_architecture(architecture_name, d_model=d_model)
     probe.load_state(probe_state_path, logger)
 
-    # --- SINGLE_ALL special case for eval ---
+    # SINGLE_ALL special case for eval
     if eval_dataset_name == "single_all":
         eval_data = load_combined_classification_datasets(seed)
         X_test_text, y_test = eval_data.get_test_set()
-        included_datasets = [
-            name for name in get_available_datasets()
-            if "classification" in Dataset(name).task_type.lower() and Dataset(name).n_classes == 2
-        ]
+
+        included_datasets = get_included_datasets_classification_all(logger)
+        
         test_acts = get_combined_activations(
             included_datasets, layer, component, model_name, d_model, eval_data.max_len, device, cache_dir, logger
         )

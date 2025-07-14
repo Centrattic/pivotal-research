@@ -1,9 +1,12 @@
 import yaml
 from pathlib import Path
+import numpy as np
+import pandas as pd
 
 from src.runner import train_probe, evaluate_probe
 from src.data import Dataset, get_available_datasets, load_combined_classification_datasets
 from src.logger import Logger
+from src.utils import should_skip_dataset
 from transformer_lens import HookedTransformer
 
 def get_dataset(name, seed):
@@ -58,11 +61,7 @@ def main():
         for dataset_name in sorted(list(all_dataset_names_to_check)):
             try:
                 data = get_dataset(dataset_name, global_seed)
-                if hasattr(data, "max_len") and data.max_len > 512:
-                    logger.log(f"  - ⏭️  INVALID Dataset '{dataset_name}': Max length ({data.max_len}) exceeds 512.")
-                    continue
-                if hasattr(data, "task_type") and "continuous" in data.task_type.strip().lower():
-                    logger.log(f"  - ⏭️  INVALID Dataset '{dataset_name}': Continuous data is not supported.")
+                if should_skip_dataset(dataset_name, data, logger):
                     continue
                 valid_dataset_metadata[dataset_name] = {
                     'task_type': getattr(data, 'task_type', None), 
