@@ -1,16 +1,18 @@
 import yaml
-import itertools
 from pathlib import Path
-from typing import cast, Dict, Any
-import sys
 
 from src.runner import train_probe, evaluate_probe
-from src.data import Dataset, get_available_datasets
+from src.data import Dataset, get_available_datasets, load_combined_classification_datasets
 from src.logger import Logger
 from transformer_lens import HookedTransformer
 
+def get_dataset(name, seed):
+    if name == "single_all":
+        return load_combined_classification_datasets(seed)
+    else:
+        return Dataset(name, seed=seed)
+
 def main():
-    """Main entry point for running all experiments from a config file."""
     with open("configs/main_config.yaml", "r") as f:
         config = yaml.safe_load(f)
 
@@ -18,7 +20,7 @@ def main():
     results_dir = Path("results") / run_name
     cache_dir = Path("activation_cache") / config['model_name']
     results_dir.mkdir(parents=True, exist_ok=True)
-    
+
     logger = Logger(results_dir / "output.log")
 
     try:
@@ -34,20 +36,20 @@ def main():
         logger.log("\n--- Performing Pre-flight Checks and Gathering Jobs ---")
         training_jobs = set()
         all_dataset_names_to_check = set()
-        
+
         for experiment in config['experiments']:
             train_sets = [experiment['train_on']]
             if experiment['train_on'] == "all":
                 train_sets = available_datasets
             all_dataset_names_to_check.update(train_sets)
-            
+
             eval_sets = experiment['evaluate_on']
             if "all" in eval_sets: eval_sets = available_datasets
             all_dataset_names_to_check.update(d for d in eval_sets if d != 'self')
 
             for train_dataset in train_sets:
                 for arch_config in config.get('architectures', []):
-                     for layer in config['layers']:
+                    for layer in config['layers']:
                         for component in config['components']:
                             training_jobs.add((train_dataset, layer, component, arch_config['name'], arch_config['config_name']))
 
@@ -55,17 +57,20 @@ def main():
         valid_dataset_metadata = {}
         for dataset_name in sorted(list(all_dataset_names_to_check)):
             try:
-                data = Dataset(dataset_name, seed=global_seed)
-                if data.max_len > 512:
+                data = get_dataset(dataset_name, global_seed)
+                if hasattr(data, "max_len") and data.max_len > 512:
                     logger.log(f"  - ⏭️  INVALID Dataset '{dataset_name}': Max length ({data.max_len}) exceeds 512.")
                     continue
-                if "Continuous" in data.task_type:
-                     logger.log(f"  - ⏭️  INVALID Dataset '{dataset_name}': Continuous data is not supported.")
-                     continue
-                valid_dataset_metadata[dataset_name] = {'task_type': data.task_type, 'n_classes': data.n_classes}
+                if hasattr(data, "task_type") and "continuous" in data.task_type.strip().lower():
+                    logger.log(f"  - ⏭️  INVALID Dataset '{dataset_name}': Continuous data is not supported.")
+                    continue
+                valid_dataset_metadata[dataset_name] = {
+                    'task_type': getattr(data, 'task_type', None), 
+                    'n_classes': getattr(data, 'n_classes', None)
+                }
             except Exception as e:
                 logger.log(f"  - ❌ ERROR checking dataset '{dataset_name}': {e}")
-        
+
         valid_training_jobs = [job for job in training_jobs if job[0] in valid_dataset_metadata]
 
         # --- Step 2: Training Phase ---
@@ -85,14 +90,14 @@ def main():
         for experiment in config['experiments']:
             train_sets = [experiment['train_on']]
             if experiment['train_on'] == "all": train_sets = available_datasets
-            
+
             for train_dataset in train_sets:
                 if train_dataset not in valid_dataset_metadata: continue
 
                 eval_sets = experiment['evaluate_on']
                 if "all" in eval_sets: eval_sets = available_datasets
                 if "self" in eval_sets: eval_sets = [d if d != "self" else train_dataset for d in eval_sets]
-                
+
                 for eval_dataset in eval_sets:
                     if eval_dataset not in valid_dataset_metadata: continue
 

@@ -1,6 +1,6 @@
 # configs/main_config.yaml
 
-run_name: "pythia_14m_test_run"
+run_name: "pythia_14m_quick_test_run"
 model_name: "EleutherAI/pythia-14m"
 device: "cuda:1"
 cache_activations: True
@@ -15,7 +15,7 @@ experiments:
       - "all" # Standard in-distribution evaluation
   - name: "train_meta_probe_on_all"
     train_on: "single_all"  # Special keyword to combine all classification datasets
-    evaluate_on: ["self"]     # This will evaluate on the combined test set
+    evaluate_on: "single_all"     # This will evaluate on the combined test set. Does ["self"] also work?
 
   # - name: "cross_dataset_sciq_to_truthfulqa"
   #   train_on: "30_sciq_tf"
@@ -23,7 +23,7 @@ experiments:
   #     - "33_truthqa_tf" # Cross-dataset evaluation
 
 # Define the layers and components to extract activations from
-layers: [0, 2, 4, 5] # For EleutherAI/pythia-70m (6 layers total)
+layers: [3] # For EleutherAI/pythia-70m (6 layers total)
 components:
   - "resid_post"
 

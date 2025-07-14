@@ -7,11 +7,12 @@ class ProbeConfig:
     pass
 
 @dataclass
-class LinearProbeConfig(ProbeConfig):
-    """Hyperparameters for the LinearProbe."""
-    lr: float = 0.01
-    epochs: int = 100
-    weight_decay: float = 0.01
+class SkLearnLinearProbeConfig(ProbeConfig):
+    """Hyperparameters for the sklearn LinearProbe."""
+    C: float = 1.0               # Regularization strength (default 1.0)
+    penalty: str = "l2"          # 'l2' or 'none'
+    solver: str = "lbfgs"        # Recommended solver for multiclass
+    max_iter: int = 1000         # More than default to ensure convergence
 
 @dataclass
 class AttentionProbeConfig(ProbeConfig):
@@ -22,8 +23,8 @@ class AttentionProbeConfig(ProbeConfig):
 
 # --- A dictionary to easily access configs by name ---
 PROBE_CONFIGS = {
-    "default_linear": LinearProbeConfig(),
-    "high_lr_linear": LinearProbeConfig(lr=0.1),
-    "long_train_linear": LinearProbeConfig(epochs=250),
+    "default_linear": SkLearnLinearProbeConfig(),
+    "high_reg_linear": SkLearnLinearProbeConfig(C=0.1),
+    "no_reg_linear": SkLearnLinearProbeConfig(penalty="none"),
     "default_attention": AttentionProbeConfig(),
 }

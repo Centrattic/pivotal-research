@@ -2,45 +2,15 @@ import json
 from pathlib import Path
 from dataclasses import asdict
 import numpy as np
-from typing import Optional, Any
+from typing import Optional, Any, List
+
 from src.data import Dataset, get_available_datasets, load_combined_classification_datasets
 from src.activations import ActivationManager
 from src.probes import LinearProbe, AttentionProbe
 from src.logger import Logger
 from configs.probes import PROBE_CONFIGS
 
-# Adding as to not need to load dataset if previously skipped, may not need separate train and eval skips
-prev_train_skip_dataset_name = None
-prev_eval_skip_dataset_name = None
-
-# Define a simple type hint for the logger
-
-def get_combined_activations(
-    datasets, layer, component, model_name, d_model, max_len, device, cache_dir, logger
-):
-    """Loads and concatenates cached activations for each binary dataset."""
-    acts_list = []
-    act_manager = None
-    for ds in datasets:
-        if act_manager is None:
-            act_manager = ActivationManager(model_name, device, d_model=d_model, max_len=max_len)
-        ds_cache_dir = cache_dir / ds
-        # Use only cache=True to avoid recomputation; rely on error if not found
-        logger.log(f"  - Loading cached activations for {ds} ...")
-        # Dummy Dataset instance to get prompt count (or load all shape)
-        ds_data = Dataset(ds)
-        N = len(ds_data.X_train_text)  # assumes always train
-        shape = (N, max_len, d_model)
-        mmap_path = act_manager._get_cache_path(ds_cache_dir, layer, component)
-        arr = np.memmap(mmap_path, dtype=np.float16, mode='r', shape=shape)
-        acts_list.append(np.copy(arr))  # ensure loaded into memory, not just views
-    # Concatenate along 0-axis (dataset/sample axis)
-    combined = np.concatenate(acts_list, axis=0)
-    return combined
-
-
 def get_probe_architecture(architecture_name: str, d_model: int):
-    """Factory function to create a probe instance."""
     if architecture_name == "linear":
         return LinearProbe(d_model=d_model)
     if architecture_name == "attention":
@@ -48,63 +18,71 @@ def get_probe_architecture(architecture_name: str, d_model: int):
     raise ValueError(f"Unknown architecture: {architecture_name}")
 
 def get_probe_filename_prefix(train_ds, arch_name, layer, component):
-    """Creates a unique, descriptive filename base for a trained probe (no aggregation)."""
     return f"train_on_{train_ds}_{arch_name}_L{layer}_{component}"
+
+def get_combined_activations(
+    datasets: List[str], layer: int, component: str, model_name: str, d_model: int, max_len: int, device: str, cache_dir: Path, logger: Logger
+) -> np.ndarray:
+    """Loads and concatenates cached activations for each binary dataset."""
+    acts_list = []
+    act_manager = ActivationManager(model_name, device, d_model=d_model, max_len=max_len)
+    for ds in datasets:
+        ds_cache_dir = cache_dir / ds
+        mmap_path = act_manager._get_cache_path(ds_cache_dir, layer, component)
+        ds_data = Dataset(ds)
+        N = len(ds_data.X_train_text)
+        shape = (N, max_len, d_model)
+        logger.log(f"  - Loading cached activations for {ds}: {mmap_path}")
+        arr = np.memmap(mmap_path, dtype=np.float16, mode='r', shape=shape)
+        acts_list.append(np.copy(arr))  # ensure loaded into memory
+    combined = np.concatenate(acts_list, axis=0)
+    return combined
 
 def train_probe(
     model_name: str, d_model: int, train_dataset_name: str, layer: int, component: str,
     architecture_name: str, config_name: str, device: str, use_cache: bool,
     seed: int, results_dir: Path, cache_dir: Path, logger: Logger
 ):
-    """
-    Trains a single probe and saves its state. Does not perform any evaluation.
-    """
     probe_filename_base = get_probe_filename_prefix(train_dataset_name, architecture_name, layer, component)
     probe_save_dir = results_dir / f"train_{train_dataset_name}"
     probe_state_path = probe_save_dir / f"{probe_filename_base}_state.npz"
 
-    # Check if probe is already trained
     if use_cache and probe_state_path.exists():
         logger.log(f"  - Probe already trained. Skipping: {probe_state_path.name}")
         return
 
-    # If not, train it
     logger.log("  - Probe not found in cache. Training new probe...")
     probe_save_dir.mkdir(parents=True, exist_ok=True)
 
+    # --- SINGLE_ALL special case ---
     if train_dataset_name == "single_all":
-        # Identify all included binary datasets
-        binary_datasets = [name for name in get_available_datasets() 
-                           if "binary" in name.strip().lower()] # binary is sufficient, as continuous does not hav ebinary it in
-        # It's best if load_combined_classification_datasets returns the list it used; 
-        # you can refactor to make that list accessible.
         train_data = load_combined_classification_datasets(seed)
         X_train_text, y_train = train_data.get_train_set()
-        # Concatenate activations:
+        included_datasets = [
+            name for name in get_available_datasets()
+            if "classification" in Dataset(name).task_type.lower() and Dataset(name).n_classes == 2
+        ]
         train_acts = get_combined_activations(
-            binary_datasets, layer, component, model_name, d_model, train_data.max_len, device, cache_dir, logger
+            included_datasets, layer, component, model_name, d_model, train_data.max_len, device, cache_dir, logger
         )
     else:
         train_data = Dataset(train_dataset_name, seed=seed)
         X_train_text, y_train = train_data.get_train_set()
-        
         act_manager = ActivationManager(model_name, device, d_model=d_model, max_len=train_data.max_len)
         train_acts_cache_dir = cache_dir / train_dataset_name
         train_acts = act_manager.get_activations(X_train_text, layer, component, use_cache, train_acts_cache_dir, logger)
-    
+
     probe = get_probe_architecture(architecture_name, d_model=d_model)
     fit_params = asdict(PROBE_CONFIGS[config_name])
     probe.fit(train_acts, y_train, **fit_params)
     probe.save_state(probe_state_path)
     logger.log(f"  - ✅ Probe state saved to {probe_state_path.name}")
 
-
 def evaluate_probe(
     train_dataset_name: str, eval_dataset_name: str, layer: int, component: str,
     architecture_config: dict, aggregation: str, results_dir: Path, logger: Logger,
     seed: int, model_name: str, d_model: int, device: str, use_cache: bool, cache_dir: Path
 ):
-    """Evaluates a pre-trained probe on a (potentially different) dataset."""
     architecture_name = architecture_config['name']
     config_name = architecture_config['config_name']
 
@@ -113,7 +91,6 @@ def evaluate_probe(
     logger.log(f"  - Trained on: {train_dataset_name}, Evaluated on: {eval_dataset_name}")
     logger.log(f"  - Probe: L{layer}_{component}_{architecture_name}, Aggregation: {aggregation}")
 
-    # --- Setup paths and check for cached results ---
     agg_name_for_file = "attention" if architecture_name == "attention" else aggregation
     probe_filename_base = get_probe_filename_prefix(train_dataset_name, architecture_name, layer, component)
     probe_save_dir = results_dir / f"train_{train_dataset_name}"
@@ -130,33 +107,29 @@ def evaluate_probe(
         logger.log(f"  - ❌ ERROR: Required probe state file not found: {probe_state_path.name}. Cannot evaluate.")
         return
 
-    # --- Load probe and run evaluation ---
     probe = get_probe_architecture(architecture_name, d_model=d_model)
     probe.load_state(probe_state_path, logger)
-    
+
+    # --- SINGLE_ALL special case for eval ---
     if eval_dataset_name == "single_all":
-        # Identify all included binary datasets
-        binary_datasets = [name for name in get_available_datasets() 
-                           if "binary" in name.strip().lower()] # binary is sufficient, as continuous does not hav ebinary it in
-        # It's best if load_combined_classification_datasets returns the list it used; 
-        # you can refactor to make that list accessible.
         eval_data = load_combined_classification_datasets(seed)
-        X_test_text, y_test = eval_data.get_train_set()
-        # Concatenate activations:
+        X_test_text, y_test = eval_data.get_test_set()
+        included_datasets = [
+            name for name in get_available_datasets()
+            if "classification" in Dataset(name).task_type.lower() and Dataset(name).n_classes == 2
+        ]
         test_acts = get_combined_activations(
-            binary_datasets, layer, component, model_name, d_model, eval_data.max_len, device, cache_dir, logger
+            included_datasets, layer, component, model_name, d_model, eval_data.max_len, device, cache_dir, logger
         )
-    else: 
+    else:
         eval_data = Dataset(eval_dataset_name, seed=seed)
         X_test_text, y_test = eval_data.get_test_set()
-        
         act_manager = ActivationManager(model_name, device, d_model=d_model, max_len=eval_data.max_len)
         eval_acts_cache_dir = cache_dir / eval_dataset_name
         test_acts = act_manager.get_activations(X_test_text, layer, component, use_cache, eval_acts_cache_dir, logger)
-        
+
     metrics = probe.score(test_acts, y_test, aggregation=agg_name_for_file)
-    
-    # --- Save results ---
+
     metadata = {
         "metrics": metrics, "train_dataset": train_dataset_name, "eval_dataset": eval_dataset_name,
         "layer": layer, "component": component, "architecture": architecture_name,
