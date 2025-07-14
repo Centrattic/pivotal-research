@@ -50,3 +50,13 @@ body {
     font-weight: 400;
     text-shadow: none;
 }
+
+body, html { font-family: 'Inter', sans-serif; }
+.bg-white { background: #fff; }
+.rounded-xl { border-radius: 1.25rem; }
+.shadow-lg { box-shadow: 0 8px 40px rgba(0,0,0,0.08); }
+.main-container { max-width: 1400px; margin-left: auto; margin-right: auto; }
+select, input, .p-2, .p-2\.5 { font-family: inherit; }
+table { border-radius: 12px; overflow: hidden; }
+th, td { border-bottom: 1px solid #e5e7eb; }
+tr:last-child td { border-bottom: none; }
