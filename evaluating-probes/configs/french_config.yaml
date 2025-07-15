@@ -1,17 +1,10 @@
 # configs/main_config.yaml
 
 run_name: "french_probing"
-model_name: "ai-forever/mGPT" # 1.2 B multilignual model
+model_name: "ai-forever/mGPT" # 1.2 B multilignual model, 512 seq length
 device: "cuda:1"
 cache_activations: True
 seed: "42"
-# maxing out tokens at 512, should be fine
-
-# List of experiments to run, named
-experiments:
-  - name: "french probes"
-    train_on: "french_truthqa_tf, eng-french, truthqa_tf"
-    evaluate_on: "french_truthqa_tf, eng-french, truthqa_tf"
 
 # Define the layers and components to extract activations from
 layers: [13] # 24 layers
@@ -19,8 +12,6 @@ components:
   - "resid_post"
 
 # Define the probe architectures and their hyperparameter configs.
-# The 'name' must match a class in probes.py.
-# The 'config_name' must be a key in the PROBE_CONFIGS dict in configs/probes.py.
 architectures:
   - name: "linear"
     config_name: "default_linear"
@@ -30,3 +21,27 @@ architectures:
 # Define the score aggregation methods to test for each architecture
 aggregations:
   - "mean"
+
+# List of experiments to run
+experiments:
+  - name: french_questions
+    train_on: 90_french_truthqa_tf
+    evaluate_on:
+      - 90_french_truthqa_tf
+      - 91_eng-french
+      - 33_truthqa_tf
+
+  - name: eng_french_language
+    train_on: 91_eng-french
+    evaluate_on:
+      - 90_french_truthqa_tf
+      - 91_eng-french
+      - 33_truthqa_tf
+
+  - name: english_questions
+    train_on: 33_truthqa_tf
+    evaluate_on:
+      - 90_french_truthqa_tf
+      - 91_eng-french
+      - 33_truthqa_tf
+
