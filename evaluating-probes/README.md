@@ -68,5 +68,4 @@ https://github.com/Stefan-Heimersheim/runpod_cli/
 
 * skipping meta probe for now, since need more compute to train (working on getting this)
 
-
-AHHHH DEBUG PAINNNNNNN YOULL FIGURE IT OUT
+* to make activation loading faster, chunk by like batches as well, like sizes of 1000 points or something, or actually just by train and test set. That way when loading test you dont have to load all activations from train too and then select.

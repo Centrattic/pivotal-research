@@ -88,7 +88,9 @@ class LinearProbe(BaseProbe):
         X_flat = X.reshape(N, S*D)
 
         # Normalize
-        X_norm = (X_flat - X_flat.mean(axis=0)) / (X_flat.std(axis=0) + 1e-6)
+        self.mu_  = X_flat.mean(axis=0)
+        self.sig_ = X_flat.std(axis=0) + 1e-6
+        X_norm = (X_flat - self.mu_) / self.sig_
 
         if is_classification:
             self.task_type = 'classification'
@@ -107,6 +109,7 @@ class LinearProbe(BaseProbe):
 
         N, S, D = X.shape
         X_flat = X.reshape(N, S*D)
+        X_flat = (X_flat - self.mu_) / self.sig_
         
         if isinstance(self.model, LogisticRegression):
             # For binary, decision_function gives logits. For multiclass, predict_proba is used.
@@ -122,8 +125,8 @@ class LinearProbe(BaseProbe):
         else:
             raise TypeError(f"Unsupported model type for prediction: {type(self.model)}")
     
-        final_score = self._aggregate_activations(logits, aggregation)
-        return final_score
+        # final_score = self._aggregate_activations(logits, aggregation) # not even doing an aggregation right now
+        return logits
     
     def save_state(self, path: Path):
         if isinstance(self.model, LogisticRegression):
@@ -158,7 +161,7 @@ class AttentionProbe(BaseProbe):
         self.theta_q: np.ndarray | None = None
         self.theta_v: np.ndarray | None = None
         self.bias: np.ndarray | None = None
-        with open("configs/main_config.yaml", "r") as f:
+        with open("configs/french_config.yaml", "r") as f:
             config = yaml.safe_load(f)
         self.device = config['device']
 
