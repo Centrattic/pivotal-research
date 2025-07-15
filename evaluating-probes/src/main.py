@@ -8,6 +8,18 @@ from src.data import Dataset, get_available_datasets, load_combined_classificati
 from src.logger import Logger
 from src.utils import should_skip_dataset
 from transformer_lens import HookedTransformer
+import argparse
+
+parser = argparse.ArgumentParser()
+parser.add_argument("-c", "--config")
+parser.add_argument('-e', action='store_true')
+parser.add_argument('-t', action='store_true')
+
+args = parser.parse_args()
+global config_yaml, retrain, reevaluate
+config_yaml = args.config + "_config.yaml"
+retrain = args.t
+reevaluate = args.e
 
 def get_dataset(name, seed):
     if name == "single_all":
@@ -16,8 +28,13 @@ def get_dataset(name, seed):
         return Dataset(name, seed=seed)
 
 def main():
-    with open("configs/french_config.yaml", "r") as f:
-        config = yaml.safe_load(f)
+    global config_yaml, retrain, reevaluate
+
+    try:
+        with open(f"configs/{config_yaml}", "r") as f:
+            config = yaml.safe_load(f)
+    except: 
+        print(f"A config of name {config_yaml} does not exist.")
 
     run_name = config.get('run_name', 'default_run')
     results_dir = Path("results") / run_name
@@ -27,15 +44,15 @@ def main():
     logger = Logger(results_dir / "output.log")
 
     try:
+        # Single model instance
         logger.log(f"Loading model '{config['model_name']}' to get config...")
-        model = HookedTransformer.from_pretrained(config['model_name'], device='cpu')
+        model = HookedTransformer.from_pretrained(config['model_name'], config['device'])
         d_model = model.cfg.d_model
-        del model
 
         global_seed = int(config.get('seed', 42))
         available_datasets = get_available_datasets()
 
-        # --- Step 1: Pre-flight check and gather all unique training jobs ---
+        # Step 1: Pre-flight check and gather all unique training jobs
         logger.log("\n--- Performing Pre-flight Checks and Gathering Jobs ---")
         training_jobs = set()
         all_dataset_names_to_check = set()
@@ -68,23 +85,23 @@ def main():
                     'n_classes': getattr(data, 'n_classes', None)
                 }
             except Exception as e:
-                logger.log(f"  - ❌ ERROR checking dataset '{dataset_name}': {e}")
+                logger.log(f"  - 💀 ERROR checking dataset '{dataset_name}': {e}")
 
         valid_training_jobs = [job for job in training_jobs if job[0] in valid_dataset_metadata]
 
-        # # --- Step 2: Training Phase ---
-        # logger.log("\n" + "="*25 + " TRAINING PHASE " + "="*25)
-        # for i, (train_ds, layer, comp, arch_name, conf_name) in enumerate(valid_training_jobs):
-        #     logger.log("-" * 60)
-        #     logger.log(f"🚀 Training job {i+1}/{len(valid_training_jobs)}: {train_ds}, {arch_name}, L{layer}, {comp}")
-        #     train_probe(
-        #         model_name=config['model_name'], d_model=d_model, train_dataset_name=train_ds,
-        #         layer=layer, component=comp, architecture_name=arch_name, config_name=conf_name,
-        #         device=config['device'], use_cache=config['cache_activations'], seed=global_seed,
-        #         results_dir=results_dir, cache_dir=cache_dir, logger=logger
-        #     )
+        # Step 2: Training Phase
+        logger.log("\n" + "="*25 + " TRAINING PHASE " + "="*25)
+        for i, (train_ds, layer, comp, arch_name, conf_name) in enumerate(valid_training_jobs):
+            logger.log("-" * 60)
+            logger.log(f"🫠 Training job {i+1}/{len(valid_training_jobs)}: {train_ds}, {arch_name}, L{layer}, {comp}")
+            train_probe(
+                model=model, d_model=d_model, train_dataset_name=train_ds,
+                layer=layer, component=comp, architecture_name=arch_name, config_name=conf_name,
+                device=config['device'], use_cache=config['cache_activations'], seed=global_seed,
+                results_dir=results_dir, cache_dir=cache_dir, logger=logger, retrain=retrain
+            )
 
-        # --- Step 3: Evaluation Phase ---
+        # Step 3: Evaluation Phase
         logger.log("\n" + "="*25 + " EVALUATION PHASE " + "="*25)
         for experiment in config['experiments']:
             train_sets = [experiment['train_on']]
@@ -103,7 +120,7 @@ def main():
                     train_meta = valid_dataset_metadata[train_dataset]
                     eval_meta = valid_dataset_metadata[eval_dataset]
                     if train_meta['task_type'] != eval_meta['task_type'] or train_meta['n_classes'] != eval_meta['n_classes']:
-                        logger.log(f"  - ⏭️  Skipping evaluation of probe from '{train_dataset}' on '{eval_dataset}' due to task mismatch.")
+                        logger.log(f"  - 🫡  Skipping evaluation of probe from '{train_dataset}' on '{eval_dataset}' due to task mismatch.")
                         continue
 
                     for arch_config in config.get('architectures', []):
@@ -114,12 +131,12 @@ def main():
                                         train_dataset_name=train_dataset, eval_dataset_name=eval_dataset,
                                         layer=layer, component=component, architecture_config=arch_config,
                                         aggregation=agg, results_dir=results_dir, logger=logger, seed=global_seed,
-                                        model_name=config['model_name'], d_model=d_model, device=config['device'],
-                                        use_cache=config['cache_activations'], cache_dir=cache_dir
+                                        model=model, d_model=d_model, device=config['device'],
+                                        use_cache=config['cache_activations'], cache_dir=cache_dir, reevaluate=reevaluate
                                     )
     finally:
         logger.log("=" * 60)
-        logger.log("✅ Run finished. Closing log file.")
+        logger.log("🥹 Run finished. Closing log file.")
         logger.close()
 
 if __name__ == "__main__":

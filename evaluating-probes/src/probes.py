@@ -3,14 +3,12 @@ import torch
 from pathlib import Path
 from tqdm import tqdm
 from typing import Any, Optional
-import yaml
 
 from sklearn.linear_model import LogisticRegression, LinearRegression
+from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import r2_score, mean_squared_error, accuracy_score, roc_auc_score
-
-class Logger:
-    def log(self, message: Any):
-        pass
+from src.logger import Logger
+import sys
 
 def numpy_softmax(x: np.ndarray, axis: int = -1) -> np.ndarray:
     """A numerically stable softmax implementation using NumPy."""
@@ -61,11 +59,13 @@ class LinearProbe(BaseProbe):
     """
     name: str = "linear"
 
-    def __init__(self, d_model: int):
+    def __init__(self, d_model: int, device):
         self.d_model = d_model
         self.model: Optional[LogisticRegression | LinearRegression] = None
+        self.device = device
+        self.loss_history: list[float] = []
 
-    def _aggregate_activations(self, logits: np.ndarray, aggregation: str) -> np.ndarray:
+    def aggregate_activations(self, logits: np.ndarray, aggregation: str) -> np.ndarray:
         """Aggregates activations from (N, S, D) to (N, D) before feeding to sklearn."""
         # Now aggregate over sequence axis (axis=1)
         if aggregation == "mean":
@@ -87,19 +87,18 @@ class LinearProbe(BaseProbe):
         N, S, D = X.shape
         X_flat = X.reshape(N, S*D)
 
-        # Normalize
-        mu_  = X_flat.mean(axis=0)
-        sig_ = X_flat.std(axis=0) + 1e-6
-        X_norm = (X_flat - mu_) / sig_
+        self.scaler = StandardScaler(with_mean=True, with_std=True)
+        X_scaled = self.scaler.fit_transform(X_flat)
 
         if is_classification:
             self.task_type = 'classification'
+            print(**kwargs, file=sys.stdout, flush=True)
             self.model = LogisticRegression(verbose=3, random_state=42, **kwargs)
         else: # Regression
             self.task_type = 'regression'
             self.model = LinearRegression()
 
-        self.model.fit(X_norm, y)
+        self.model.fit(X_scaled, y)
         # Store for softmax aggregation during prediction
         self.theta_ = self.model.coef_.squeeze()
         return self
@@ -109,21 +108,19 @@ class LinearProbe(BaseProbe):
 
         N, S, D = X.shape
         X_flat = X.reshape(N, S*D)
-        mu_  = X_flat.mean(axis=0)
-        sig_ = X_flat.std(axis=0) + 1e-6
-        X_flat = (X_flat - mu_) / sig_
+        X_scaled = self.scaler.transform(X_flat)
         
         if isinstance(self.model, LogisticRegression):
             # For binary, decision_function gives logits. For multiclass, predict_proba is used.
             if len(self.model.classes_) > 2:
-                probs = self.model.predict_proba(X_flat)
+                probs = self.model.predict_proba(X_scaled)
                 # Convert probabilities to logits
                 logits = np.log(probs / (1 - probs + 1e-9))
                 print(logits)
             else:
-                logits = self.model.decision_function(X_flat)
+                logits = self.model.decision_function(X_scaled)
         elif isinstance(self.model, LinearRegression):
-            logits = self.model.predict(X_flat)
+            logits = self.model.predict(X_scaled)
         else:
             raise TypeError(f"Unsupported model type for prediction: {type(self.model)}")
     
@@ -131,98 +128,206 @@ class LinearProbe(BaseProbe):
         return logits
     
     def save_state(self, path: Path):
-        if isinstance(self.model, LogisticRegression):
-            np.savez(path, coef=self.model.coef_, intercept=self.model.intercept_,
-                    task_type=self.task_type, classes=getattr(self.model, 'classes_', None))
-        else:
-            raise TypeError(f"Unsupported model type for prediction: {type(self.model)}")
+        assert self.model is not None
 
+        np.savez(
+            path,
+            coef=self.model.coef_, intercept=self.model.intercept_,
+            task_type=self.task_type,
+            classes=getattr(self.model, "classes_", None),
+            scaler_mean=self.scaler.mean_,
+            scaler_scale=self.scaler.scale_,
+        )
 
     def load_state(self, path: Path, logger: Logger):
         data = np.load(path, allow_pickle=True)
-        self.task_type = str(data['task_type'])
-        
-        if self.task_type == 'classification':
+        self.task_type = str(data["task_type"])
+        if self.task_type == "classification":
             self.model = LogisticRegression()
-            self.model.classes_ = data['classes']
+            self.model.classes_ = data["classes"]
         else:
             self.model = LinearRegression()
-        
-        self.model.coef_ = data['coef']
-        self.model.intercept_ = data['intercept']
-        self.theta_ = self.model.coef_.squeeze()
-        logger.log(f"  - Loaded pre-trained '{self.name}' probe ({self.task_type}) from {path}")
+        self.model.coef_ = data["coef"]
+        self.model.intercept_ = data["intercept"]
+
+        # rebuild scaler
+        self.scaler = StandardScaler(with_mean=True, with_std=True)
+        self.scaler.mean_  = data["scaler_mean"]
+        self.scaler.scale_ = data["scaler_scale"]
+        logger.log(f"  - Loaded probe (with StandardScaler) from {path}")
+
 
 class AttentionProbe(BaseProbe):
-    # This class remains a custom PyTorch implementation as requested.
-    # Its internal logic is unchanged from the previous version.
+    """
+    Single-head attention probe matching the settings from SAE-Probes
+    Key choices:
+      • token-wise layer-norm on inputs
+      • softmax temperature = 1/√d, as SAE paper recommended
+      • Adam (no weight-decay) with optional warm-up
+      • mini-batch training
+    """
     name: str = "attention"
-    
-    def __init__(self, d_model: int):
-        self.d_model = d_model
-        self.theta_q: np.ndarray | None = None
-        self.theta_v: np.ndarray | None = None
-        self.bias: np.ndarray | None = None
-        with open("configs/french_config.yaml", "r") as f:
-            config = yaml.safe_load(f)
-        self.device = config['device']
 
-    def fit(self, X: np.ndarray, y: np.ndarray, lr: float = 0.01, epochs: int = 100, weight_decay: float = 1e-2):
-        is_classification = np.issubdtype(y.dtype, np.integer)
-        if is_classification:
-            self.task_type = 'classification'
-            self.n_classes = len(np.unique(y))
-            out_features = self.n_classes if self.n_classes > 2 else 1
-            loss_fn = torch.nn.CrossEntropyLoss() if self.n_classes > 2 else torch.nn.BCEWithLogitsLoss()
+    def __init__(self, d_model: int, device):
+        self.d_model = d_model
+
+        # learnable parameters (populated in `fit`)
+        self.theta_q: Optional[np.ndarray] = None
+        self.theta_v: Optional[np.ndarray] = None
+        self.bias: Optional[np.ndarray] = None
+        self.device = device
+
+        # recorded every *epoch*  → dumped by runner
+        self.loss_history: list[float] = []
+
+    def fit(  # noqa: PLR0913, N802
+        self,
+        X: np.ndarray,
+        y: np.ndarray,
+        *,
+        epochs: int = 30,
+        batch_size: int = 512,
+        lr: float = 1e-3,
+        warmup_steps: int = 0,
+    ):
+        """
+        Parameters
+        warmup_steps : int
+            If >0, use linear LR warm-up for this many *optimizer steps*.
+        """
+        N, S, D = X.shape
+        assert D == self.d_model, "d_model mismatch"
+
+        classification = np.issubdtype(y.dtype, np.integer)
+        if classification:
+            self.task_type = "classification"
+            n_classes = len(np.unique(y))
+            out_features = n_classes if n_classes > 2 else 1
+            loss_fn = (
+                torch.nn.CrossEntropyLoss()
+                if n_classes > 2
+                else torch.nn.BCEWithLogitsLoss()
+            )
         else:
-            self.task_type = 'regression'
-            self.n_classes = None
+            self.task_type = "regression"
             out_features = 1
             loss_fn = torch.nn.MSELoss()
 
-        device = self.device if torch.cuda.is_available() else "cpu" # funny logic lol, but correct effect
-        theta_q = torch.nn.Parameter(torch.randn(self.d_model, device=device) * 0.02)
-        theta_v = torch.nn.Parameter(torch.randn(out_features, self.d_model, device=device) * 0.02)
-        bias = torch.nn.Parameter(torch.zeros(out_features, device=device))
-        optimizer = torch.optim.AdamW([theta_q, theta_v, bias], lr=lr, weight_decay=weight_decay)
-        X_t, y_t = torch.from_numpy(X).float().to(device), torch.from_numpy(y).to(device)
+        device = self.device if torch.cuda.is_available() else "cpu"
+        theta_q = torch.nn.Parameter(
+            torch.randn(D, device=device) * 0.02
+        )                                              # (D,)
+        theta_v = torch.nn.Parameter(
+            torch.randn(out_features, D, device=device) * 0.02
+        )                                              # (C, D) or (1, D)
+        bias = torch.nn.Parameter(torch.zeros(out_features, device=device))  # (C,) or (1,)
 
-        for _ in tqdm(range(epochs), desc="  - Fitting Probe", leave=False):
-            optimizer.zero_grad()
-            attn_scores = torch.einsum('nsd,d->ns', X_t, theta_q)
-            attn_weights = torch.softmax(attn_scores, dim=1)
-            value_scores = torch.einsum('nsd,cd->nsc', X_t, theta_v)
-            aggregated_scores = torch.einsum('ns,nsc->nc', attn_weights, value_scores)
-            predictions = (aggregated_scores + bias).squeeze()
-            loss = loss_fn(predictions, y_t.long() if is_classification and self.n_classes > 2 else y_t.float()) # not issue at runtime, for type safety should fix
-            loss.backward()
-            optimizer.step()
+        optim = torch.optim.Adam([theta_q, theta_v, bias], lr=lr, weight_decay=0.0)
 
-        self.theta_q, self.theta_v, self.bias = theta_q.detach().cpu().numpy(), theta_v.detach().cpu().numpy(), bias.detach().cpu().numpy()
+        if warmup_steps > 0:
+            sched = torch.optim.lr_scheduler.LinearLR(
+                optim, start_factor=0.0, total_iters=warmup_steps
+            )
+        else:
+            sched = None
+
+        # tensors
+        X_t = torch.from_numpy(X).float().to(device)
+        y_t = torch.from_numpy(y).to(device)
+
+        sqrt_d = np.sqrt(D)
+        self.loss_history = []
+
+        for epoch in range(epochs):
+            epoch_loss = 0.0
+            # shuffle indices each epoch
+            for idx in torch.randperm(N).split(batch_size):
+                optim.zero_grad()
+
+                x_b = X_t[idx]                                     # (B, S, D)
+                y_b = y_t[idx]
+
+                # --- SAE trick: token-wise layer-norm --------------------
+                x_b = torch.nn.functional.layer_norm(x_b, (D,))
+
+                # attention
+                attn_scores = torch.einsum("bsd,d->bs", x_b, theta_q) / sqrt_d
+                attn_weights = torch.softmax(attn_scores, dim=1)          # (B, S)
+
+                value_scores = torch.einsum("bsd,cd->bsc", x_b, theta_v)   # (B, S, C)
+                aggregated = torch.einsum("bs,bsc->bc", attn_weights, value_scores)
+
+                preds = (aggregated + bias).squeeze()                     # (B,) or (B, C)
+
+                loss = loss_fn(
+                    preds,
+                    y_b.long() if classification and out_features > 1 else y_b.float(),
+                )
+                loss.backward()
+                optim.step()
+                if sched:
+                    sched.step()
+
+                epoch_loss += loss.item() * idx.size(0)
+
+            # mean loss for the epoch
+            self.loss_history.append(epoch_loss / N)
+
+        # ---------------------------------------------------------------- #
+        # Save learned weights in NumPy format for CPU inference
+        # ---------------------------------------------------------------- #
+        self.theta_q = theta_q.detach().cpu().numpy()
+        self.theta_v = theta_v.detach().cpu().numpy()
+        self.bias = bias.detach().cpu().numpy()
+
         return self
 
+    # --------------------------------------------------------------------- #
     def predict(self, X: np.ndarray, aggregation: str = "attention") -> np.ndarray:
-        assert self.theta_q is not None and self.theta_v is not None and self.bias is not None, "Probe not fitted yet"
-        
-        attn_scores = np.einsum('nsd,d->ns', X, self.theta_q)
-        attn_weights = numpy_softmax(attn_scores, axis=1)
-        
-        is_multiclass = self.task_type == 'classification' and self.n_classes > 2
-        if is_multiclass:
-            value_scores = np.einsum('nsd,cd->nsc', X, self.theta_v)
-            aggregated_scores = np.einsum('ns,nsc->nc', attn_weights, value_scores)
-        else:
-            value_scores = np.einsum('nsd,d->ns', X, self.theta_v.squeeze())
-            aggregated_scores = np.einsum('ns,ns->n', attn_weights, value_scores)
-        
-        return (aggregated_scores + self.bias).squeeze()
+        """
+        NumPy inference that mirrors the PyTorch forward-pass.
+        `aggregation` is ignored (only one mode).
+        """
+        assert (
+            self.theta_q is not None and self.theta_v is not None and self.bias is not None
+        ), "Probe not fitted"
 
+        # token-wise LN in NumPy
+        μ = X.mean(axis=-1, keepdims=True)
+        σ = X.std(axis=-1, keepdims=True) + 1e-6
+        X_norm = (X - μ) / σ                                                  # (N, S, D)
+
+        attn_scores = np.einsum("nsd,d->ns", X_norm, self.theta_q) / np.sqrt(self.d_model)
+        attn_w = numpy_softmax(attn_scores, axis=1)                           # (N, S)
+
+        if self.task_type == "classification" and self.theta_v.shape[0] > 1:
+            value_scores = np.einsum("nsd,cd->nsc", X_norm, self.theta_v)     # (N,S,C)
+            agg_scores = np.einsum("ns,nsc->nc", attn_w, value_scores)        # (N,C)
+        else:
+            value_scores = np.einsum("nsd,d->ns", X_norm, self.theta_v.squeeze())  # (N,S)
+            agg_scores = np.einsum("ns,ns->n", attn_w, value_scores)               # (N,)
+
+        return (agg_scores + self.bias).squeeze()
+
+    # --------------------------------------------------------------------- #
     def save_state(self, path: Path):
-        np.savez(path, theta_q=self.theta_q, theta_v=self.theta_v, bias=self.bias, name=self.name, task_type=self.task_type, n_classes=self.n_classes or -1)
+        np.savez(
+            path,
+            theta_q=self.theta_q,
+            theta_v=self.theta_v,
+            bias=self.bias,
+            name=self.name,
+            task_type=self.task_type,
+            n_classes=(self.theta_v.shape[0] if self.task_type == "classification" else -1),
+        )
 
     def load_state(self, path: Path, logger: Logger):
         data = np.load(path)
-        self.theta_q, self.theta_v, self.bias = data['theta_q'], data['theta_v'], data['bias']
-        self.task_type = str(data['task_type'])
-        self.n_classes = int(data['n_classes']) if self.task_type == 'classification' else None
-        logger.log(f"  - Loaded pre-trained '{self.name}' probe ({self.task_type}) from {path}")
+        self.theta_q = data["theta_q"]
+        self.theta_v = data["theta_v"]
+        self.bias = data["bias"]
+        self.task_type = str(data["task_type"])
+        self.n_classes = (
+            int(data["n_classes"]) if self.task_type == "classification" else None
+        )
+        logger.log(f"  - Loaded '{self.name}' probe ({self.task_type}) from {path}")

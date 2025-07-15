@@ -8,14 +8,14 @@ from src.data import Dataset, get_available_datasets, load_combined_classificati
 from src.activations import ActivationManager
 from src.probes import LinearProbe, AttentionProbe
 from src.logger import Logger
-from src.utils import should_skip_dataset
+from src.utils import should_skip_dataset, dump_loss_history
 from configs.probes import PROBE_CONFIGS
 
-def get_probe_architecture(architecture_name: str, d_model: int):
+def get_probe_architecture(architecture_name: str, d_model: int, device):
     if architecture_name == "linear":
-        return LinearProbe(d_model=d_model)
+        return LinearProbe(d_model=d_model, device=device)
     if architecture_name == "attention":
-        return AttentionProbe(d_model=d_model)
+        return AttentionProbe(d_model=d_model, device=device)
     raise ValueError(f"Unknown architecture: {architecture_name}")
 
 def get_probe_filename_prefix(train_ds, arch_name, layer, component):
@@ -35,7 +35,7 @@ def get_included_datasets_classification_all(logger:Logger):
 
 def get_combined_activations(
     datasets: List[str], layer: int, component: str,
-    model_name: str, d_model: int, final_max_len: int, device: str,
+    model: str, d_model: int, final_max_len: int, device: str,
     cache_dir: Path, logger: Logger
 ) -> np.ndarray:
     """
@@ -49,7 +49,7 @@ def get_combined_activations(
         ds_cache_dir = cache_dir / ds
         logger.log(f"  - Ensuring activations for {ds}: {ds_cache_dir} (max_len={ds_max_len})")
         # Use correct max_len for this dataset
-        act_manager = ActivationManager(model_name, device, d_model=d_model, max_len=ds_max_len)
+        act_manager = ActivationManager(model, device, d_model=d_model, max_len=ds_max_len)
         X_train_text, _ = ds_data.get_train_set()
         arr = act_manager.get_activations( # should never recalculate activations
             X_train_text, layer, component, use_cache=True, cache_dir=ds_cache_dir, logger=logger
@@ -65,15 +65,15 @@ def get_combined_activations(
     return combined
 
 def train_probe(
-    model_name: str, d_model: int, train_dataset_name: str, layer: int, component: str,
+    model, d_model: int, train_dataset_name: str, layer: int, component: str,
     architecture_name: str, config_name: str, device: str, use_cache: bool,
-    seed: int, results_dir: Path, cache_dir: Path, logger: Logger
+    seed: int, results_dir: Path, cache_dir: Path, logger: Logger, retrain: bool
 ):
     probe_filename_base = get_probe_filename_prefix(train_dataset_name, architecture_name, layer, component)
     probe_save_dir = results_dir / f"train_{train_dataset_name}"
     probe_state_path = probe_save_dir / f"{probe_filename_base}_state.npz"
 
-    if use_cache and probe_state_path.exists():
+    if use_cache and probe_state_path.exists() and not retrain:
         logger.log(f"  - Probe already trained. Skipping: {probe_state_path.name}")
         return
 
@@ -88,31 +88,36 @@ def train_probe(
         included_datasets = get_included_datasets_classification_all(logger)
 
         train_acts = get_combined_activations(
-            included_datasets, layer, component, model_name, d_model, train_data.max_len, device, cache_dir, logger
+            included_datasets, layer, component, model, d_model, train_data.max_len, device, cache_dir, logger
         )
     else:
         train_data = Dataset(train_dataset_name, seed=seed)
         X_train_text, y_train = train_data.get_train_set()
-        act_manager = ActivationManager(model_name, device, d_model=d_model, max_len=train_data.max_len)
+        act_manager = ActivationManager(model, device, d_model=d_model, max_len=train_data.max_len)
         train_acts_cache_dir = cache_dir / train_dataset_name
         train_acts = act_manager.get_activations(X_train_text, layer, component, use_cache, train_acts_cache_dir, logger)
 
-    probe = get_probe_architecture(architecture_name, d_model=d_model)
+    probe = get_probe_architecture(architecture_name, d_model=d_model, device=device)
     fit_params = asdict(PROBE_CONFIGS[config_name])
     probe.fit(train_acts, y_train, **fit_params)
     probe.save_state(probe_state_path)
-    logger.log(f"  - ✅ Probe state saved to {probe_state_path.name}")
+
+    # Save loss history
+    log_path = probe_state_path.with_name(f"{probe_filename_base}_train_log.json")
+    dump_loss_history(probe.loss_history, log_path, logger)
+
+    logger.log(f"  - 🔥 Probe state saved to {probe_state_path.name}")
 
 def evaluate_probe(
     train_dataset_name: str, eval_dataset_name: str, layer: int, component: str,
     architecture_config: dict, aggregation: str, results_dir: Path, logger: Logger,
-    seed: int, model_name: str, d_model: int, device: str, use_cache: bool, cache_dir: Path
+    seed: int, model, d_model: int, device: str, use_cache: bool, cache_dir: Path, reevaluate: bool
 ):
     architecture_name = architecture_config['name']
     config_name = architecture_config['config_name']
 
     logger.log("-" * 60)
-    logger.log(f"🚀 Evaluating Probe:")
+    logger.log(f"🤔 Evaluating Probe:")
     logger.log(f"  - Trained on: {train_dataset_name}, Evaluated on: {eval_dataset_name}")
     logger.log(f"  - Probe: L{layer}_{component}_{architecture_name}, Aggregation: {aggregation}")
 
@@ -122,17 +127,17 @@ def evaluate_probe(
     probe_state_path = probe_save_dir / f"{probe_filename_base}_state.npz"
     eval_results_path = probe_save_dir / f"eval_on_{eval_dataset_name}__{probe_filename_base}_{agg_name_for_file}_results.json"
 
-    if use_cache and eval_results_path.exists():
+    if use_cache and eval_results_path.exists() and not reevaluate:
         with open(eval_results_path, 'r') as f:
             cached_data = json.load(f)
-        logger.log(f"  - ✅ Loaded cached evaluation result. Metrics: {cached_data['metrics']}")
+        logger.log(f"  - 😁 Loaded cached evaluation result. Metrics: {cached_data['metrics']}")
         return
 
     if not probe_state_path.exists():
-        logger.log(f"  - ❌ ERROR: Required probe state file not found: {probe_state_path.name}. Cannot evaluate.")
+        logger.log(f"  - 😭 ERROR: Required probe state file not found: {probe_state_path.name}. Cannot evaluate.")
         return
 
-    probe = get_probe_architecture(architecture_name, d_model=d_model)
+    probe = get_probe_architecture(architecture_name, d_model=d_model, device=device)
     probe.load_state(probe_state_path, logger)
 
     # SINGLE_ALL special case for eval
@@ -143,12 +148,12 @@ def evaluate_probe(
         included_datasets = get_included_datasets_classification_all(logger)
         
         test_acts = get_combined_activations(
-            included_datasets, layer, component, model_name, d_model, eval_data.max_len, device, cache_dir, logger
+            included_datasets, layer, component, model, d_model, eval_data.max_len, device, cache_dir, logger
         )
     else:
         eval_data = Dataset(eval_dataset_name, seed=seed)
         X_test_text, y_test = eval_data.get_test_set()
-        act_manager = ActivationManager(model_name, device, d_model=d_model, max_len=eval_data.max_len)
+        act_manager = ActivationManager(model, device, d_model=d_model, max_len=eval_data.max_len)
         eval_acts_cache_dir = cache_dir / eval_dataset_name
         test_acts = act_manager.get_activations(X_test_text, layer, component, use_cache, eval_acts_cache_dir, logger)
 
@@ -161,4 +166,4 @@ def evaluate_probe(
     }
     with open(eval_results_path, "w") as f:
         json.dump(metadata, f, indent=2)
-    logger.log(f"  - ✅ Success! New evaluation saved. Metrics: {metrics}")
+    logger.log(f"  - ❤️‍🔥 Success! New evaluation saved. Metrics: {metrics}")

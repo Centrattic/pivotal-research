@@ -8,8 +8,8 @@ from typing import List
 from src.logger import Logger
 
 class ActivationManager:
-    def __init__(self, model_name: str, device: str, d_model: int, max_len:int):
-        self.model = HookedTransformer.from_pretrained(model_name, device=device,dtype=torch.float16)
+    def __init__(self, model: HookedTransformer, device: str, d_model: int, max_len:int):
+        self.model = model
         self.tokenizer = self.model.tokenizer
         
         # Assertion to handle the optional type
@@ -38,7 +38,7 @@ class ActivationManager:
         use_cache: bool,
         cache_dir: Path,
         logger: Logger,
-        batch_size: int = 4,
+        batch_size: int = 1,
     ) -> np.ndarray:
         
         mmap_path = self._get_cache_path(cache_dir, layer, component)
@@ -49,11 +49,11 @@ class ActivationManager:
             try:
                 # Try to load the file, but be prepared for a shape mismatch incase old activation files
                 logger.log(f"  - Loading activations from cache: {mmap_path}")
-                read_only_array = np.memmap(mmap_path, dtype=np.float16, mode='r', shape=shape)
+                read_only_array = np.memmap(mmap_path, mode='r', shape=shape)
                 return read_only_array # remove np.copy() for now
             except ValueError as e:
                 # This error means the file on disk has a different size than we expect.
-                logger.log(f"  - ⚠️  Warning: Stale cache file detected for {mmap_path}. Deleting and regenerating. Error: {e}")
+                logger.log(f"  - 😢 Warning: Stale cache file detected for {mmap_path}. Deleting and regenerating. Error: {e}")
                 mmap_path.unlink() # Delete the corrupt/stale file
 
         logger.log("  - Generating activations...")
@@ -61,7 +61,7 @@ class ActivationManager:
         mmap_file = None
         if use_cache:
             mmap_path.parent.mkdir(parents=True, exist_ok=True)
-            mmap_file = np.memmap(mmap_path, dtype=np.float16, mode='w+', shape=shape)
+            mmap_file = np.memmap(mmap_path, mode='w+', shape=shape)
 
         all_acts = []
         N = len(texts)
@@ -74,11 +74,11 @@ class ActivationManager:
                 truncation=True, max_length=self.max_len
             ).to(self.device)
 
-            with torch.cuda.amp.autocast(dtype=self.model.dtype):
-                with torch.no_grad():
-                    _, cache = self.model.run_with_cache(tokens.input_ids, names_filter=[hook_name],device='cpu')
+            with torch.no_grad():
+                # send activations to CPU immediately once extracted to not overload GPU
+                _, cache = self.model.run_with_cache(tokens.input_ids, names_filter=[hook_name], device='cpu')
 
-            chunk = cache[hook_name].to(torch.float16).numpy() # .cpu()
+            chunk = cache[hook_name].cpu().numpy() # .cpu()
             
             if use_cache:
                 assert mmap_file is not None

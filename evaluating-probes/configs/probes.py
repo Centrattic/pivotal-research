@@ -9,16 +9,16 @@ class ProbeConfig:
 @dataclass
 class SkLearnLinearProbeConfig(ProbeConfig):
     """Hyperparameters for the sklearn LinearProbe."""
-    C: float = 1.0               # Regularization strength (default 1.0)
+    C: float = 3.0               # Regularization strength (default 1.0)
     penalty: str = "l2"          # 'l2' or 'none'
     solver: str = "lbfgs"        # Recommended solver for multiclass
-    max_iter: int = 1000         # More than default to ensure convergence
+    max_iter: int = 10000         # More than default to ensure convergence
 
 @dataclass
 class AttentionProbeConfig(ProbeConfig):
     """Hyperparameters for the AttentionProbe."""
     lr: float = 0.01
-    epochs: int = 100
+    epochs: int = 1000
     weight_decay: float = 0.0
 
 # --- A dictionary to easily access configs by name ---

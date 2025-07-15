@@ -1,5 +1,9 @@
 
 import numpy as np
+import json
+from typing import List
+from src.logger import Logger
+from pathlib import Path
 
 def should_skip_dataset(dataset_name, data, logger=None):
     """ This defines conditions for datasets we should always skip. We have separate conditions for skipping a dataset for evaluation if you trained on it. """
@@ -25,3 +29,13 @@ def should_skip_dataset(dataset_name, data, logger=None):
                 if logger: logger.log(f"  - ⏭️  INVALID Dataset '{dataset_name}': At least one class has <2 samples (counts: {dict(zip(unique, counts))}).")
                 return True
     return False
+
+
+def dump_loss_history(losses: List[float], out_path: Path, logger: Logger | None = None):
+     """
+     Write `[loss0, loss1, ...]` as pretty-printed JSON.
+     """
+     with open(out_path, "w") as fp:
+         json.dump(losses, fp, indent=2)
+     if logger:
+         logger.log(f"  - 😋 Loss history saved in {out_path.name}")
