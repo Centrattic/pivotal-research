@@ -9,7 +9,7 @@ from src.logger import Logger
 
 class ActivationManager:
     def __init__(self, model_name: str, device: str, d_model: int, max_len:int):
-        self.model = HookedTransformer.from_pretrained(model_name, device=device)
+        self.model = HookedTransformer.from_pretrained(model_name, device=device,dtype=torch.float16)
         self.tokenizer = self.model.tokenizer
         
         # Assertion to handle the optional type
@@ -38,7 +38,7 @@ class ActivationManager:
         use_cache: bool,
         cache_dir: Path,
         logger: Logger,
-        batch_size: int = 32,
+        batch_size: int = 4,
     ) -> np.ndarray:
         
         mmap_path = self._get_cache_path(cache_dir, layer, component)
@@ -74,8 +74,11 @@ class ActivationManager:
                 truncation=True, max_length=self.max_len
             ).to(self.device)
 
-            _, cache = self.model.run_with_cache(tokens.input_ids, names_filter=[hook_name])
-            chunk = cache[hook_name].cpu().to(torch.float16).numpy()
+            with torch.cuda.amp.autocast(dtype=self.model.dtype):
+                with torch.no_grad():
+                    _, cache = self.model.run_with_cache(tokens.input_ids, names_filter=[hook_name],device='cpu')
+
+            chunk = cache[hook_name].to(torch.float16).numpy() # .cpu()
             
             if use_cache:
                 assert mmap_file is not None

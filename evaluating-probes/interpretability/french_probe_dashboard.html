@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>French-Probe Dashboard</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.plot.ly/plotly-2.32.0.min.js"></script>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body class="bg-gray-50 p-4">
+  <div class="mb-4">
+    <a href="index.html"
+       class="px-4 py-2 bg-blue-600 text-white rounded-lg shadow hover:bg-blue-700">
+       ← Back to Index
+    </a>
+  </div>
+
+  <div class="max-w-6xl mx-auto bg-white p-6 rounded-xl shadow">
+    <h1 class="text-3xl font-bold mb-4">French-Probing Dashboard</h1>
+
+    <label class="block mb-2 text-sm font-medium"
+           for="layer-select">Select Model Layer:</label>
+    <select id="layer-select"
+            class="mb-6 bg-gray-50 border border-gray-300 text-sm rounded-lg p-2.5">
+      <option value="13">Layer 13</option>
+      <option value="22">Layer 22</option>
+    </select>
+
+    <!-- Tabs -->
+    <div class="flex gap-4 mb-6">
+      <button data-tab="vectors"   class="tab-btn px-3 py-1 bg-gray-200 rounded">Vectors</button>
+      <button data-tab="cosine"    class="tab-btn px-3 py-1">Cosine Similarity</button>
+      <button data-tab="auroc"     class="tab-btn px-3 py-1">AUROC</button>
+    </div>
+
+    <!-- Content panes -->
+    <div id="pane-vectors" class="tab-pane"></div>
+    <div id="pane-cosine"  class="tab-pane hidden"></div>
+    <div id="pane-auroc"   class="tab-pane hidden"></div>
+  </div>
+
+<script>
+let DATA = null;
+
+function showPane(name){
+  document.querySelectorAll('.tab-pane').forEach(p=>p.classList.add('hidden'));
+  document.getElementById(`pane-${name}`).classList.remove('hidden');
+  document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('bg-gray-200'));
+  document.querySelector(`[data-tab="${name}"]`).classList.add('bg-gray-200');
+  render(name);
+}
+
+document.addEventListener('DOMContentLoaded', async () => {
+  DATA = await fetch('french_probe_data.json').then(r => r.json());
+  document.querySelectorAll('.tab-btn').forEach(btn =>
+    btn.addEventListener('click', e => showPane(e.target.dataset.tab))
+  );
+  document.getElementById('layer-select')
+          .addEventListener('change', () => render(document.querySelector('.tab-btn.bg-gray-200').dataset.tab));
+  showPane('vectors');
+});
+
+// ---------- renderers -----------------
+function render(tab){
+  const layer = document.getElementById('layer-select').value;
+  const blob  = DATA.layers[layer];
+
+  if(tab === 'vectors'){
+    const pane = document.getElementById('pane-vectors');
+    pane.innerHTML = '';
+    const tbl = document.createElement('table');
+    tbl.className = 'text-sm';
+    tbl.innerHTML = `<tr><th class="text-left pr-4">Probe</th><th>|θ|</th><th>First 5 coeffs</th></tr>`;
+    Object.entries(blob.vectors).forEach(([name, vec])=>{
+      const norm = Math.sqrt(vec.reduce((s,x)=>s+x*x,0)).toFixed(2);
+      const first = vec.slice(0,5).map(x=>x.toFixed(2)).join(', ');
+      tbl.innerHTML += `<tr><td class="pr-4 font-mono">${name}</td><td>${norm}</td><td class="font-mono">${first}</td></tr>`;
+    });
+    pane.appendChild(tbl);
+  }
+
+  if(tab === 'cosine'){
+    const probes = Object.keys(blob.vectors);
+    const n = probes.length;
+    const mat = Array.from({length:n}, _=>Array(n).fill(null));
+    blob.cosine.forEach(({p1,p2,sim})=>{
+      const i = probes.indexOf(p1), j = probes.indexOf(p2);
+      if(i>-1 && j>-1){ mat[i][j] = mat[j][i] = sim; }
+    });
+    // fill diagonal
+    for(let i=0;i<n;i++) mat[i][i]=1;
+
+    const pane = document.getElementById('pane-cosine');
+    Plotly.newPlot(pane, [{
+      z: mat, x: probes, y: probes,
+      type:'heatmap', colorscale:'RdBu', zmid:0
+    }], {margin:{l:120,b:120}, title:`Cosine similarity (Layer ${layer})`});
+  }
+
+  if(tab === 'auroc'){
+    const labels = Object.keys(blob.auroc);
+    const scores = labels.map(l => blob.auroc[l]);
+
+    const pane = document.getElementById('pane-auroc');
+    Plotly.newPlot(pane, [{
+      x: scores, y: labels,
+      type:'bar', orientation:'h', marker:{color:'#60a5fa'}
+    }], {margin:{l:180}, xaxis:{range:[0,1]}, title:`AUROC (Layer ${layer})`});
+  }
+}
+</script>
+</body>
+</html>

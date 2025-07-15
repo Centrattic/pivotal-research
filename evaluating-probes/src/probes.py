@@ -88,9 +88,9 @@ class LinearProbe(BaseProbe):
         X_flat = X.reshape(N, S*D)
 
         # Normalize
-        self.mu_  = X_flat.mean(axis=0)
-        self.sig_ = X_flat.std(axis=0) + 1e-6
-        X_norm = (X_flat - self.mu_) / self.sig_
+        mu_  = X_flat.mean(axis=0)
+        sig_ = X_flat.std(axis=0) + 1e-6
+        X_norm = (X_flat - mu_) / sig_
 
         if is_classification:
             self.task_type = 'classification'
@@ -109,7 +109,9 @@ class LinearProbe(BaseProbe):
 
         N, S, D = X.shape
         X_flat = X.reshape(N, S*D)
-        X_flat = (X_flat - self.mu_) / self.sig_
+        mu_  = X_flat.mean(axis=0)
+        sig_ = X_flat.std(axis=0) + 1e-6
+        X_flat = (X_flat - mu_) / sig_
         
         if isinstance(self.model, LogisticRegression):
             # For binary, decision_function gives logits. For multiclass, predict_proba is used.

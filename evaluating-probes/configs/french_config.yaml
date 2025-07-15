@@ -2,7 +2,7 @@
 
 run_name: "french_probing"
 model_name: "ai-forever/mGPT" # 1.2 B multilignual model, 512 seq length
-device: "cpu"
+device: "cuda:1"
 cache_activations: True
 seed: "42"
 

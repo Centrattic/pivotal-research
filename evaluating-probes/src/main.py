@@ -72,17 +72,17 @@ def main():
 
         valid_training_jobs = [job for job in training_jobs if job[0] in valid_dataset_metadata]
 
-        # --- Step 2: Training Phase ---
-        logger.log("\n" + "="*25 + " TRAINING PHASE " + "="*25)
-        for i, (train_ds, layer, comp, arch_name, conf_name) in enumerate(valid_training_jobs):
-            logger.log("-" * 60)
-            logger.log(f"🚀 Training job {i+1}/{len(valid_training_jobs)}: {train_ds}, {arch_name}, L{layer}, {comp}")
-            train_probe(
-                model_name=config['model_name'], d_model=d_model, train_dataset_name=train_ds,
-                layer=layer, component=comp, architecture_name=arch_name, config_name=conf_name,
-                device=config['device'], use_cache=config['cache_activations'], seed=global_seed,
-                results_dir=results_dir, cache_dir=cache_dir, logger=logger
-            )
+        # # --- Step 2: Training Phase ---
+        # logger.log("\n" + "="*25 + " TRAINING PHASE " + "="*25)
+        # for i, (train_ds, layer, comp, arch_name, conf_name) in enumerate(valid_training_jobs):
+        #     logger.log("-" * 60)
+        #     logger.log(f"🚀 Training job {i+1}/{len(valid_training_jobs)}: {train_ds}, {arch_name}, L{layer}, {comp}")
+        #     train_probe(
+        #         model_name=config['model_name'], d_model=d_model, train_dataset_name=train_ds,
+        #         layer=layer, component=comp, architecture_name=arch_name, config_name=conf_name,
+        #         device=config['device'], use_cache=config['cache_activations'], seed=global_seed,
+        #         results_dir=results_dir, cache_dir=cache_dir, logger=logger
+        #     )
 
         # --- Step 3: Evaluation Phase ---
         logger.log("\n" + "="*25 + " EVALUATION PHASE " + "="*25)
