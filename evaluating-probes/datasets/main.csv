@@ -88,3 +88,5 @@ number,source,name,tag,save_name,Probe from,Probe to,Data type,probe from extrac
 87,is_spam.csv,is_spam,Spam Text Message,is_spam.csv,Message,Category,Binary Classification,Message,"Category=='spam'",simple
 88,news_class.csv,news_class,News Category Classification,news_class.csv,Text,Label,Multiclass Classification,Text,"Label.map({0: 'politics', 1: 'sport', 2: 'technology', 3: 'entertainment', 4:'business'})",simple
 89,sci_cat.csv,sci_cat,Science Type Classification,sci_cat.csv,Comment,Topic,Multiclass Classification,Comment,Topic,simple
+90,truthful-qa-gen.parquet,french_truthqa_tf,French True/False Question Answering,french_truthqa_tf.csv,"question, incorrect_answers","correct_answers",Binary Classification,,,translate_french_mcq_balancer
+91,eng-french.txt,eng-french,English vs. French,eng-french.csv,"english, french","english,french",Binary Classification,,,eng_french_balancer

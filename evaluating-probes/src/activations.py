@@ -45,11 +45,12 @@ class ActivationManager:
         shape = (len(texts), self.max_len, self.d_model)
         
         if use_cache and mmap_path.exists():
+            # mmap_path.unlink() # for now, just regenerating all
             try:
                 # Try to load the file, but be prepared for a shape mismatch incase old activation files
                 logger.log(f"  - Loading activations from cache: {mmap_path}")
                 read_only_array = np.memmap(mmap_path, dtype=np.float16, mode='r', shape=shape)
-                return np.copy(read_only_array)
+                return read_only_array # remove np.copy() for now
             except ValueError as e:
                 # This error means the file on disk has a different size than we expect.
                 logger.log(f"  - ⚠️  Warning: Stale cache file detected for {mmap_path}. Deleting and regenerating. Error: {e}")

@@ -67,3 +67,6 @@ https://github.com/Stefan-Heimersheim/runpod_cli/
 - there is even a lot of variance in length across dataset which I am unclear-ish on how to handle
 
 * skipping meta probe for now, since need more compute to train (working on getting this)
+
+
+AHHHH DEBUG PAINNNNNNN YOULL FIGURE IT OUT

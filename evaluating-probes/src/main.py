@@ -16,7 +16,7 @@ def get_dataset(name, seed):
         return Dataset(name, seed=seed)
 
 def main():
-    with open("configs/main_config.yaml", "r") as f:
+    with open("configs/french_config.yaml", "r") as f:
         config = yaml.safe_load(f)
 
     run_name = config.get('run_name', 'default_run')
