@@ -76,8 +76,8 @@ class Dataset:
             self.y_train = self.y_train.astype(np.int32)
             self.y_test = self.y_test.astype(np.int32)
         elif "continuous" in self.task_type or "regression" in self.task_type:
-            self.y_train = self.y_train.astype(np.float32)
-            self.y_test = self.y_test.astype(np.float32)
+            self.y_train = self.y_train.astype(np.float16)
+            self.y_test = self.y_test.astype(np.float16)
 
         # Debug: print type and first few targets
         print(f"{self.dataset_name}: y_train task type: {self.task_type} dtype: {self.y_train.dtype}, sample: {self.y_train[:5]} max_len {self.max_len}")

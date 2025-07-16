@@ -9,6 +9,8 @@ from src.logger import Logger
 from src.utils import should_skip_dataset
 from transformer_lens import HookedTransformer
 import argparse
+import torch
+import os
 
 parser = argparse.ArgumentParser()
 parser.add_argument("-c", "--config")
@@ -21,6 +23,10 @@ config_yaml = args.config + "_config.yaml"
 retrain = args.t
 reevaluate = args.e
 
+# To force code to run on cuda:1, if exists
+os.environ["CUDA_VISIBLE_DEVICES"] = "1"
+torch.cuda.set_device(1)
+
 def get_dataset(name, seed):
     if name == "single_all":
         return load_combined_classification_datasets(seed)
@@ -28,6 +34,7 @@ def get_dataset(name, seed):
         return Dataset(name, seed=seed)
 
 def main():
+    torch.cuda.empty_cache()
     global config_yaml, retrain, reevaluate
 
     try:
@@ -135,6 +142,8 @@ def main():
                                         use_cache=config['cache_activations'], cache_dir=cache_dir, reevaluate=reevaluate
                                     )
     finally:
+        del model
+        torch.cuda.empty_cache()
         logger.log("=" * 60)
         logger.log("🥹 Run finished. Closing log file.")
         logger.close()

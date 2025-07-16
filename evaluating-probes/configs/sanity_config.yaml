@@ -14,7 +14,7 @@ architectures:
   # - name: "linear"
   #   config_name: "default_linear"
   - name: "attention"
-    config_name: "default_attention"
+    config_name: "two_stage_defaults"
 
 aggregations:
   - "mean"

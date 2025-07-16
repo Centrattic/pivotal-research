@@ -31,42 +31,41 @@ class ActivationManager:
         return cache_dir / f"{hook_safe_name}.mmap"
 
     def get_activations(
-        self,
-        texts: List[str],
-        layer: int,
-        component: str,
-        use_cache: bool,
-        cache_dir: Path,
-        logger: Logger,
-        batch_size: int = 1,
-    ) -> np.ndarray:
-        
+    self,
+    texts: List[str],
+    layer: int,
+    component: str,
+    use_cache: bool,
+    cache_dir: Path,
+    logger: Logger,
+    batch_size: int = 1
+) -> np.ndarray:
+        torch.cuda.empty_cache()
+    
         mmap_path = self._get_cache_path(cache_dir, layer, component)
+        dtype = np.float16  # use float16
         shape = (len(texts), self.max_len, self.d_model)
         
         if use_cache and mmap_path.exists():
-            # mmap_path.unlink() # for now, just regenerating all
             try:
-                # Try to load the file, but be prepared for a shape mismatch incase old activation files
                 logger.log(f"  - Loading activations from cache: {mmap_path}")
-                read_only_array = np.memmap(mmap_path, mode='r', shape=shape)
-                return read_only_array # remove np.copy() for now
+                read_only_array = np.memmap(mmap_path, dtype=dtype, mode='r', shape=shape)
+                return read_only_array
             except ValueError as e:
-                # This error means the file on disk has a different size than we expect.
                 logger.log(f"  - 😢 Warning: Stale cache file detected for {mmap_path}. Deleting and regenerating. Error: {e}")
-                mmap_path.unlink() # Delete the corrupt/stale file
+                mmap_path.unlink()
 
         logger.log("  - Generating activations...")
-        
+
         mmap_file = None
         if use_cache:
             mmap_path.parent.mkdir(parents=True, exist_ok=True)
-            mmap_file = np.memmap(mmap_path, mode='w+', shape=shape)
+            mmap_file = np.memmap(mmap_path, dtype=dtype, mode='w+', shape=shape)
 
         all_acts = []
         N = len(texts)
         hook_name = self._get_hook_name(layer, component)
-        
+
         for i in tqdm(range(0, N, batch_size), desc="  - Activation Extraction"):
             batch_texts = texts[i:i + batch_size]
             tokens = self.tokenizer(
@@ -75,29 +74,21 @@ class ActivationManager:
             ).to(self.device)
 
             with torch.no_grad():
-                # send activations to CPU immediately once extracted to not overload GPU
                 _, cache = self.model.run_with_cache(tokens.input_ids, names_filter=[hook_name], device='cpu')
 
-            chunk = cache[hook_name].cpu().numpy() # .cpu()
-            
+            chunk = cache[hook_name].cpu().to(torch.float16).numpy()  # ensure float
+
             if use_cache:
                 assert mmap_file is not None
                 mmap_file[i:i + len(batch_texts)] = chunk
             else:
                 all_acts.append(chunk)
-            
+
             del cache
             torch.cuda.empty_cache()
 
         if use_cache:
-            assert mmap_file is not None
             mmap_file.flush()
             return mmap_file
         else:
             return np.concatenate(all_acts, axis=0)
-
-
-
-
-
-

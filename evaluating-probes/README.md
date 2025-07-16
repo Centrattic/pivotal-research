@@ -73,3 +73,11 @@ https://github.com/Stefan-Heimersheim/runpod_cli/
 * Integrate https://github.com/Lightning-AI/pytorch-lightning
 
 * add flags to main to overwrite existing training, and/or existing evaluations
+* automatically store datasets in S3 bucket
+
+
+## Memory tips
+* dont drag grads too far (torch.nograd, also loss.item() vs loss), dont keep grads around
+* small batch size
+* that shit
+* del model from cuda at the end of every using it, and clear cache, try to clear gpu entirely so it doesnt hold old stuffs

@@ -54,296 +54,317 @@ class BaseProbe:
 
 class LinearProbe(BaseProbe):
     """
-    Linear / logistic probe that **trains on token-level activations**.
+    Token-level linear / logistic probe.
 
-    * Training set:          (N, S, D) → (N × S, D)
-    * Prediction procedure:  (N, S, D) → token logits → aggregate back to (N,…)
+    * Stage-1:  train on **non-padded tokens**  (N×S_valid, D)
+    * Stage-2:  aggregate token logits back to sequence level
     """
 
-    name: str = "linear"
+    name = "linear"
+
+    # --------------------------------------------------------------------- #
+    def __init__(self, d_model: int, device: str):
+        self.d_model = d_model
+        self.device  = device
+
+        self.model:  Optional[LogisticRegression | LinearRegression] = None
+        self.scaler: Optional[StandardScaler]                        = None
+        self.task_type: str = ""
+
+    # --------------------------------------------------------------------- #
+    @staticmethod
+    def _pad_mask(X: np.ndarray) -> np.ndarray:
+        """
+        Return a bool mask  (N, S)  where True means “this token row is *not*
+        padding” (i.e. at least one dimension is non-zero).
+        """
+        return (X != 0).any(axis=2)
+
+    # --------------------------------------------------------------------- #
+    def _aggregate(self, logits: np.ndarray, mode: str) -> np.ndarray:
+        if mode == "mean":
+            return logits.mean(axis=1)
+        if mode == "max":
+            return logits.max(axis=1)
+        if mode == "last":
+            return logits[np.arange(len(logits)), (logits != 0).sum(1) - 1]
+        if mode == "softmax":
+            w = np.exp(logits - logits.max(axis=1, keepdims=True))
+            w /= w.sum(axis=1, keepdims=True) + 1e-9
+            return (logits * w).sum(axis=1)
+        raise ValueError(f"Unknown aggregation '{mode}'")
+
+    # --------------------------------------------------------------------- #
+    def fit(self, X: np.ndarray, y: np.ndarray, **lr_kwargs):
+        """
+        X : (N, S, D)  activations
+        y : (N,)       integer labels or floats
+        """
+        N, S, D = X.shape
+        assert D == self.d_model, "d_model mismatch"
+
+        pad_mask   = self._pad_mask(X)            # (N, S)
+        mask_flat  = pad_mask.reshape(-1)         # (N·S,)
+        X_tokens   = X.reshape(-1, D)[mask_flat]  # keep only real tokens
+        y_tokens   = np.repeat(y, S)[mask_flat]
+
+        # scale
+        self.scaler = StandardScaler(with_mean=False)   # sparse-friendly
+        X_scaled    = self.scaler.fit_transform(X_tokens)
+
+        # model
+        if np.issubdtype(y.dtype, np.integer):
+            self.task_type = "classification"
+            self.model = LogisticRegression(
+                max_iter=10_000,
+                class_weight="balanced",
+                random_state=42,
+                **lr_kwargs,
+            )
+        else:
+            self.task_type = "regression"
+            self.model = LinearRegression(**lr_kwargs)
+
+        self.model.fit(X_scaled, y_tokens)
+        return self
+
+    # --------------------------------------------------------------------- #
+    def predict(self, X: np.ndarray, aggregation: str = "mean") -> np.ndarray:
+        assert self.model is not None and self.scaler is not None
+
+        N, S, D      = X.shape
+        pad_mask      = self._pad_mask(X)
+        mask_flat     = pad_mask.reshape(-1)
+        X_tokens_flat = X.reshape(-1, D)[mask_flat]
+
+        # scale + token-level logits
+        X_scaled      = self.scaler.transform(X_tokens_flat)
+        if self.task_type == "classification":
+            if len(getattr(self.model, "classes_", [0, 1])) == 2:
+                tok_logits = self.model.decision_function(X_scaled)
+            else:
+                probs      = self.model.predict_proba(X_scaled)[:, 1]
+                tok_logits = np.log(probs / (1 - probs + 1e-9))
+        else:
+            tok_logits = self.model.predict(X_scaled)
+
+        # put logits back into full (N,S) array, zeros for padding
+        token_logits = np.zeros((N * S,), dtype=tok_logits.dtype)
+        token_logits[mask_flat] = tok_logits
+        token_logits = token_logits.reshape(N, S)
+
+        # sequence-level aggregation
+        return self._aggregate(token_logits, aggregation)
+
+
+# --------------------------------------------------------------------------- #
+# DEBUG AttentionProbe with infinite prints
+# --------------------------------------------------------------------------- #
+import pandas as pd
+import sys
+
+class AttentionProbe(BaseProbe):
+    """
+    Two-stage logistic probe with *very noisy* debugging prints.
+    DO NOT use in production – this is only for inspecting the data flow.
+    """
+
+    name: str = "attention"
 
     def __init__(self, d_model: int, device: str):
         self.d_model = d_model
         self.device = device
 
-        self.model: Optional[LogisticRegression | LinearRegression] = None
-        self.scaler: Optional[StandardScaler] = None
-        self.loss_history: list[float] = []          # still tracked by runner
+        # stage-1
+        self.scaler_tok: Optional[StandardScaler] = None
+        self.lr_tok: Optional[LogisticRegression | LinearRegression] = None
 
-    def aggregate_logits(self, logits: np.ndarray, aggregation: str) -> np.ndarray:
-        """
-        Aggregates token-level logits back to sequence-level.
+        # stage-2
+        self.scaler_seq: Optional[StandardScaler] = None
+        self.lr_seq: Optional[LogisticRegression | LinearRegression] = None
 
-        `logits` shape:
-            • binary   → (N, S)
-            • multicls → (N, S, C)
-        """
-        if aggregation == "mean":
-            return logits.mean(axis=1)
-        if aggregation == "max":
-            return logits.max(axis=1)
-        if aggregation == "last":
-            return logits[:, -1]
-        if aggregation == "softmax":
-            w = np.exp(logits - np.max(logits, axis=1, keepdims=True))
-            w = w / (w.sum(axis=1, keepdims=True) + 1e-9)
-            return (logits * w).sum(axis=1)
+        self.task_type: str = ""
+        self.loss_history = []
 
-        raise ValueError(f"Unknown aggregation: {aggregation}")
+    # --------------------------------------------------------------------- #
+    def _print_df(self, arr: np.ndarray, name: str, head_rows: int = 5, head_cols: int = 5):
+        """Pretty-print a small slice of an ndarray as a DataFrame."""
+        r, c = arr.shape
+        df = pd.DataFrame(arr[:head_rows, :head_cols])
+        print(f"\n===== {name}  shape={arr.shape}  =====", file=sys.stdout, flush=True)
+        print(df, file=sys.stdout, flush=True)
 
-    def fit(self, X: np.ndarray, y: np.ndarray, **kwargs):
-        """
-        X : ndarray (N, S, D)
-        y : ndarray (N,)   – integer classes or floats
-        """
+    # --------------------------------------------------------------------- #
+    def fit(
+        self,
+        X: np.ndarray,  # (N, S, D)
+        y: np.ndarray,  # (N,)
+        *,
+        stage1_kwargs: dict[str, Any] | None = None,
+        stage2_kwargs: dict[str, Any] | None = None,
+    ):
+        stage1_kwargs = stage1_kwargs or {}
+        stage2_kwargs = stage2_kwargs or {}
+
+        N, S, D = X.shape
         is_classification = np.issubdtype(y.dtype, np.integer)
 
-        N, S, D = X.shape
-        assert D == self.d_model, "d_model mismatch"
+        # ------------- Stage-1: token-level --------------------------------
+        X_tok = X.reshape(N * S, D)
+        y_tok = np.repeat(y, S)
 
-        # flatten tokens into rows
-        X_tokens = X.reshape(N * S, D)               # (N·S, D)
-        y_tokens = np.repeat(y, S)                   # duplicate labels
+        self._print_df(X_tok, "RAW  X_tok")
 
-        # scaling
-        self.scaler = StandardScaler()
-        X_scaled = self.scaler.fit_transform(X_tokens)
+        self.scaler_tok = StandardScaler()
+        X_tok_scaled = self.scaler_tok.fit_transform(X_tok)
 
-        # model 
+        self._print_df(X_tok_scaled, "SCALED  X_tok")
+
         if is_classification:
             self.task_type = "classification"
-            print(kwargs, file=sys.stdout, flush=True)
-            self.model = LogisticRegression(verbose=3, random_state=42, **kwargs)
+            self.lr_tok = LogisticRegression(max_iter=10_000, **stage1_kwargs)
         else:
             self.task_type = "regression"
-            self.model = LinearRegression()
+            self.lr_tok = LinearRegression(**stage1_kwargs)
 
-        self.model.fit(X_scaled, y_tokens)
-        self.theta_ = self.model.coef_.squeeze()     # saved for analysis
-        return self
+        self.lr_tok.fit(X_tok_scaled, y_tok)
 
-    def predict(self, X: np.ndarray, aggregation: str = "mean") -> np.ndarray:
-        """
-        Returns sequence-level logits / predictions after aggregating over
-        tokens with `aggregation`.
-        """
-        assert self.model is not None and self.scaler is not None, "Probe not trained."
-
-        N, S, D = X.shape
-        X_tokens = X.reshape(N * S, D)
-        X_scaled = self.scaler.transform(X_tokens)
-
-        # token-level logits / outputs
-        if isinstance(self.model, LogisticRegression):
-            if len(self.model.classes_) > 2:             # multiclass
-                probs = self.model.predict_proba(X_scaled)
-                token_logits = np.log(probs / (1 - probs + 1e-9))  # (N·S, C)
-            else:                                        # binary
-                token_logits = self.model.decision_function(X_scaled)  # (N·S,)
-        elif isinstance(self.model, LinearRegression):
-            token_logits = self.model.predict(X_scaled)  # (N·S,) or (N·S, C?)
+        # token logits
+        if is_classification and len(self.lr_tok.classes_) == 2:
+            token_logits = self.lr_tok.decision_function(X_tok_scaled).reshape(N, S)
+        elif is_classification:
+            probs = self.lr_tok.predict_proba(X_tok_scaled).reshape(N, S, -1)
+            token_logits = np.log(probs / (1 - probs + 1e-9))[..., 1]
         else:
-            raise TypeError(f"Unsupported model: {type(self.model)}")
+            token_logits = self.lr_tok.predict(X_tok_scaled).reshape(N, S)
 
-        # reshape back to (N, S, …) then aggregate
-        if token_logits.ndim == 1:                       # binary scalar logit
-            token_logits = token_logits.reshape(N, S)
-        else:                                            # (N·S, C)
-            token_logits = token_logits.reshape(N, S, -1)
+        self._print_df(token_logits, "TOKEN  logits")
 
-        return self.aggregate_logits(token_logits, aggregation)
+        # ------------- Stage-2: sequence-level -----------------------------
+        self.scaler_seq = StandardScaler()
+        X_seq_scaled = self.scaler_seq.fit_transform(token_logits)
 
-    def save_state(self, path: Path):
-        assert self.model is not None and self.scaler is not None
-        np.savez(
-            path,
-            coef=self.model.coef_,
-            intercept=self.model.intercept_,
-            task_type=self.task_type,
-            classes=getattr(self.model, "classes_", None),
-            scaler_mean=self.scaler.mean_,
-            scaler_scale=self.scaler.scale_,
-        )
+        self._print_df(X_seq_scaled, "SCALED  X_seq (token logits)")
 
-    def load_state(self, path: Path, logger: "Logger"):
-        data = np.load(path, allow_pickle=True)
-
-        self.task_type = str(data["task_type"])
-        if self.task_type == "classification":
-            self.model = LogisticRegression()
-            self.model.classes_ = data["classes"]
+        if is_classification:
+            self.lr_seq = LogisticRegression(max_iter=10_000, **stage2_kwargs)
         else:
-            self.model = LinearRegression()
+            self.lr_seq = LinearRegression(**stage2_kwargs)
 
-        self.model.coef_ = data["coef"]
-        self.model.intercept_ = data["intercept"]
+        self.lr_seq.fit(X_seq_scaled, y)
 
-        # rebuild scaler
-        self.scaler = StandardScaler()
-        self.scaler.mean_ = data["scaler_mean"]
-        self.scaler.scale_ = data["scaler_scale"]
-
-        logger.log(f"  - Loaded probe (token-level) from {path}")
-
-
-class AttentionProbe(BaseProbe):
-    """
-    Single-head attention probe matching the SAE-Probe implementation.
-    Trains on token-level activations and records per-epoch losses.
-
-    Key choices:
-      • token-wise layer-norm on inputs
-      • softmax temperature = 1/√d
-      • Adam (no weight-decay) with optional warm-up
-      • mini-batch training
-    """
-    name: str = "attention"
-
-    def __init__(self, d_model: int, device):
-        self.d_model = d_model
-        self.device = device
-        self.theta_q: Optional[np.ndarray] = None
-        self.theta_v: Optional[np.ndarray] = None
-        self.bias:    Optional[np.ndarray] = None
-        self.loss_history: list[float] = []
-
-    def fit(  # noqa: PLR0913, N802
-        self,
-        X: np.ndarray,
-        y: np.ndarray,
-        *,
-        epochs: int = 30,
-        batch_size: int = 512,
-        lr: float = 1e-3,
-        weight_decay: float = 0.0,
-        warmup_steps: int = 0,
-    ):
-        """Token-level mini-batch training with Adam."""
-        N, S, D = X.shape
-        classification = np.issubdtype(y.dtype, np.integer)
-
-        # task-specific head
-        if classification:
-            n_classes = len(np.unique(y))
-            out_features = n_classes if n_classes > 2 else 1
-            loss_fn = (
-                torch.nn.CrossEntropyLoss()
-                if n_classes > 2
-                else torch.nn.BCEWithLogitsLoss()
+        # ---- final diagnostics ------------------------------------------
+        if is_classification:
+            final_logits = self.lr_seq.decision_function(X_seq_scaled)
+            y_prob = 1 / (1 + np.exp(-final_logits))
+            print(
+                "\n===== FINAL sequence logits  (first 10) =====",
+                file=sys.stdout,
+                flush=True,
             )
+            print(final_logits[:10], file=sys.stdout, flush=True)
+            print(
+                "===== FINAL sequence probs   (first 10) =====",
+                file=sys.stdout,
+                flush=True,
+            )
+            print(y_prob[:10], file=sys.stdout, flush=True)
         else:
-            out_features = 1
-            loss_fn = torch.nn.MSELoss()
-            self.task_type = "regression"
+            preds = self.lr_seq.predict(X_seq_scaled)
+            print(
+                "\n===== FINAL sequence preds   (first 10) =====",
+                file=sys.stdout,
+                flush=True,
+            )
+            print(preds[:10], file=sys.stdout, flush=True)
 
-        if classification:
-            self.task_type = "classification"
-            self.n_classes = out_features if out_features > 1 else 2
-        else:
-            self.n_classes = None
-
-        # parameters
-        device = self.device if torch.cuda.is_available() else "cpu"
-        theta_q = torch.nn.Parameter(torch.randn(D, device=device) * 0.02)
-        theta_v = torch.nn.Parameter(torch.randn(out_features, D, device=device) * 0.02)
-
-        p = y.mean()         # empirical positive rate
-        bias_val = np.log(p / (1 - p + 1e-9))  # avoid div-by-zero
-        bias = torch.nn.Parameter(torch.full((out_features,), bias_val, device=device))
-
-        optim = torch.optim.Adam(
-            [theta_q, theta_v, bias], lr=lr, weight_decay=weight_decay
-        )
-        sched = (
-            torch.optim.lr_scheduler.LinearLR(optim, start_factor=0.0, total_iters=warmup_steps)
-            if warmup_steps > 0
-            else None
-        )
-
-        X_t = torch.from_numpy(X).float().to(device)
-        y_t = torch.from_numpy(y).to(device)
-        sqrt_d = np.sqrt(D)
-
-        self.loss_history = []
-        for _ in range(epochs):
-            epoch_loss = 0.0
-            for idx in torch.randperm(N).split(batch_size):
-                optim.zero_grad()
-
-                x_b = torch.nn.functional.layer_norm(X_t[idx], (D,))
-                y_b = y_t[idx]
-
-                attn_scores = torch.einsum("bsd,d->bs", x_b, theta_q) / sqrt_d
-                attn_w = torch.softmax(attn_scores, dim=1)
-
-                value_scores = torch.einsum("bsd,cd->bsc", x_b, theta_v)
-                agg = torch.einsum("bs,bsc->bc", attn_w, value_scores)
-                preds = (agg + bias).squeeze()
-
-                loss = loss_fn(
-                    preds,
-                    y_b.long() if classification and out_features > 1 else y_b.float(),
-                )
-                loss.backward()
-                optim.step()
-                if sched:
-                    sched.step()
-
-                epoch_loss += loss.item() * idx.size(0)
-
-            self.loss_history.append(epoch_loss / N)
-
-        # save learned weights
-        self.theta_q = theta_q.detach().cpu().numpy()
-        self.theta_v = theta_v.detach().cpu().numpy()
-        self.bias = bias.detach().cpu().numpy()
         return self
 
-    def predict(self, X: np.ndarray, aggregation: str = "attention") -> np.ndarray:
-        """
-        NumPy inference that mirrors the PyTorch forward-pass.
-        `aggregation` is ignored (only one mode).
-        """
+    # --------------------------------------------------------------------- #
+    def predict(self, X: np.ndarray, aggregation: str = "two_stage") -> np.ndarray:
+        # (same as previous version – no extra prints here)
         assert (
-            self.theta_q is not None and self.theta_v is not None and self.bias is not None
-        ), "Probe not fitted"
+            self.lr_tok is not None
+            and self.scaler_tok is not None
+            and self.lr_seq is not None
+            and self.scaler_seq is not None
+        ), "Probe not fitted."
 
-        # token-wise LN in NumPy
-        μ = X.mean(axis=-1, keepdims=True)
-        σ = X.std(axis=-1, keepdims=True) + 1e-6
-        X_norm = (X - μ) / σ                                                  # (N, S, D)
+        N, S, D = X.shape
+        X_tok = X.reshape(N * S, D)
+        X_tok_scaled = self.scaler_tok.transform(X_tok)
 
-        attn_scores = np.einsum("nsd,d->ns", X_norm, self.theta_q) / np.sqrt(self.d_model)
-        attn_w = numpy_softmax(attn_scores, axis=1)                           # (N, S)
-
-        if self.task_type == "classification" and self.theta_v.shape[0] > 1:
-            value_scores = np.einsum("nsd,cd->nsc", X_norm, self.theta_v)     # (N,S,C)
-            agg_scores = np.einsum("ns,nsc->nc", attn_w, value_scores)        # (N,C)
+        if self.task_type == "classification" and len(self.lr_tok.classes_) == 2:
+            token_logits = self.lr_tok.decision_function(X_tok_scaled).reshape(N, S)
+        elif self.task_type == "classification":
+            probs = self.lr_tok.predict_proba(X_tok_scaled).reshape(N, S, -1)
+            token_logits = np.log(probs / (1 - probs + 1e-9))[..., 1]
         else:
-            value_scores = np.einsum("nsd,d->ns", X_norm, self.theta_v.squeeze())  # (N,S)
-            agg_scores = np.einsum("ns,ns->n", attn_w, value_scores)               # (N,)
+            token_logits = self.lr_tok.predict(X_tok_scaled).reshape(N, S)
 
-        return (agg_scores + self.bias).squeeze()
+        X_seq_scaled = self.scaler_seq.transform(token_logits)
+        if self.task_type == "classification":
+            return self.lr_seq.decision_function(X_seq_scaled)
+        else:
+            return self.lr_seq.predict(X_seq_scaled)
+
+    # save_state / load_state identical to previous two-stage version …
+
 
     # --------------------------------------------------------------------- #
     def save_state(self, path: Path):
+        assert (
+            self.lr_tok is not None
+            and self.lr_seq is not None
+            and self.scaler_tok is not None
+            and self.scaler_seq is not None
+        )
         np.savez(
             path,
-            theta_q=self.theta_q,
-            theta_v=self.theta_v,
-            bias=self.bias,
-            name=self.name,
             task_type=self.task_type,
-            n_classes=(self.theta_v.shape[0] if self.task_type == "classification" else -1),
+            # stage‑1
+            tok_coef=self.lr_tok.coef_,
+            tok_int=self.lr_tok.intercept_,
+            tok_classes=getattr(self.lr_tok, "classes_", None),
+            tok_mu=self.scaler_tok.mean_,
+            tok_sigma=self.scaler_tok.scale_,
+            # stage‑2
+            seq_coef=self.lr_seq.coef_,
+            seq_int=self.lr_seq.intercept_,
+            seq_classes=getattr(self.lr_seq, "classes_", None),
+            seq_mu=self.scaler_seq.mean_,
+            seq_sigma=self.scaler_seq.scale_,
         )
 
+    # --------------------------------------------------------------------- #
     def load_state(self, path: Path, logger: Logger):
-        data = np.load(path)
-        self.theta_q = data["theta_q"]
-        self.theta_v = data["theta_v"]
-        self.bias = data["bias"]
+        data = np.load(path, allow_pickle=True)
         self.task_type = str(data["task_type"])
-        self.n_classes = (
-            int(data["n_classes"]) if self.task_type == "classification" else None
-        )
-        logger.log(f"  - Loaded '{self.name}' probe ({self.task_type}) from {path}")
+
+        # stage‑1
+        if self.task_type == "classification":
+            self.lr_tok = LogisticRegression()
+            self.lr_tok.classes_ = data["tok_classes"]
+        else:
+            self.lr_tok = LinearRegression()
+        self.lr_tok.coef_ = data["tok_coef"]
+        self.lr_tok.intercept_ = data["tok_int"]
+
+        self.scaler_tok = StandardScaler()
+        self.scaler_tok.mean_ = data["tok_mu"]
+        self.scaler_tok.scale_ = data["tok_sigma"]
+
+        # stage‑2
+        if self.task_type == "classification":
+            self.lr_seq = LogisticRegression()
+            self.lr_seq.classes_ = data["seq_classes"]
+        else:
+            self.lr_seq = LinearRegression()
+        self.lr_seq.coef_ = data["seq_coef"]
+        self.lr_seq.intercept_ = data["seq_int"]
+
+        self.scaler_seq = StandardScaler()
+        self.scaler_seq.mean_ = data["seq_mu"]
+        self.scaler_seq.scale_ = data["seq_sigma"]
+
+        logger.log(f"  - Loaded two‑stage AttentionProbe from {path}")
