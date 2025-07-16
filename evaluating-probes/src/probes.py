@@ -3,6 +3,8 @@ import torch
 from pathlib import Path
 from tqdm import tqdm
 from typing import Any, Optional
+import pandas as pd
+import sys
 
 from sklearn.linear_model import LogisticRegression, LinearRegression
 from sklearn.preprocessing import StandardScaler
@@ -38,8 +40,12 @@ class BaseProbe:
         
         is_multiclass = predictions.ndim == 2 and predictions.shape[1] > 1
         if not is_multiclass: # Binary
-            y_prob = 1 / (1 + np.exp(-predictions.squeeze()))
+            y_prob = predictions # 1 / (1 + np.exp(-predictions.squeeze()))
+            print(f"PROBS", file=sys.stdout, flush=True)
+            print(y_prob, file=sys.stdout, flush=True)
             y_hat = (y_prob > 0.5).astype(int)
+            print(y_hat, file=sys.stdout, flush=True)
+            print(y, file=sys.stdout, flush=True)
             auc = roc_auc_score(y, y_prob) if len(np.unique(y)) > 1 else 0.5
         else: # Multiclass
             y_prob = numpy_softmax(predictions, axis=1)
@@ -54,15 +60,10 @@ class BaseProbe:
 
 class LinearProbe(BaseProbe):
     """
-    Token-level linear / logistic probe.
-
-    * Stage-1:  train on **non-padded tokens**  (N×S_valid, D)
-    * Stage-2:  aggregate token logits back to sequence level
+    Token-level (one agg option) linear / logistic probe.
     """
-
     name = "linear"
 
-    # --------------------------------------------------------------------- #
     def __init__(self, d_model: int, device: str):
         self.d_model = d_model
         self.device  = device
@@ -70,17 +71,16 @@ class LinearProbe(BaseProbe):
         self.model:  Optional[LogisticRegression | LinearRegression] = None
         self.scaler: Optional[StandardScaler]                        = None
         self.task_type: str = ""
+        self.loss_history = []
 
-    # --------------------------------------------------------------------- #
     @staticmethod
     def _pad_mask(X: np.ndarray) -> np.ndarray:
         """
         Return a bool mask  (N, S)  where True means “this token row is *not*
         padding” (i.e. at least one dimension is non-zero).
         """
-        return (X != 0).any(axis=2)
+        return (X > 0.00001).any(axis=2)
 
-    # --------------------------------------------------------------------- #
     def _aggregate(self, logits: np.ndarray, mode: str) -> np.ndarray:
         if mode == "mean":
             return logits.mean(axis=1)
@@ -94,74 +94,129 @@ class LinearProbe(BaseProbe):
             return (logits * w).sum(axis=1)
         raise ValueError(f"Unknown aggregation '{mode}'")
 
-    # --------------------------------------------------------------------- #
+    def _print_df(self, arr: np.ndarray, name: str, head_rows: int = 5, head_cols: int = 5):
+        import pandas as pd
+        df = pd.DataFrame(arr[:head_rows, -head_cols:])
+        print(f"\n===== {name}  shape={arr.shape}  =====", file=sys.stdout, flush=True)
+        print(df, file=sys.stdout, flush=True)
+
     def fit(self, X: np.ndarray, y: np.ndarray, **lr_kwargs):
-        """
-        X : (N, S, D)  activations
-        y : (N,)       integer labels or floats
-        """
         N, S, D = X.shape
         assert D == self.d_model, "d_model mismatch"
 
-        pad_mask   = self._pad_mask(X)            # (N, S)
-        mask_flat  = pad_mask.reshape(-1)         # (N·S,)
-        X_tokens   = X.reshape(-1, D)[mask_flat]  # keep only real tokens
-        y_tokens   = np.repeat(y, S)[mask_flat]
+        print(f"\n===== LinearProbe.fit: X shape={X.shape}, y shape={y.shape} =====", file=sys.stdout, flush=True)
+
+        # pad_mask = self._pad_mask(X)   # (N, S)
+        # num_valid = pad_mask.sum(axis=1)
+        # print(f"\nNon-padded tokens per sequence (first 10): {num_valid[:10]}", file=sys.stdout, flush=True)
+        # print(f"Sequences with all padding: {(num_valid == 0).sum()} / {N}", file=sys.stdout, flush=True)
+
+        # Mean-pool over valid (non-padding) tokens for each sequence
+        X_seq = np.zeros((N, D), dtype=X.dtype)
+        for i in range(N):
+            # print(f"HELLLP + {X[i]}", file=sys.stdout, flush=True)
+            X_seq[i] = X[i][-1] # .mean(axis=0) # last token X[i][-1] vs. take the mean
+
+        self._print_df(X_seq, "Sequence-level mean (X_seq)", head_cols=min(40, D))
 
         # scale
-        self.scaler = StandardScaler(with_mean=False)   # sparse-friendly
-        X_scaled    = self.scaler.fit_transform(X_tokens)
+        self.scaler = StandardScaler(with_mean=True)
+        X_scaled    = self.scaler.fit_transform(X_seq)
+        print(f"\nScaled X_seq: shape={X_scaled.shape}", file=sys.stdout, flush=True)
+        self._print_df(X_scaled, "X_scaled", head_cols=min(10, D))
 
         # model
         if np.issubdtype(y.dtype, np.integer):
             self.task_type = "classification"
             self.model = LogisticRegression(
-                max_iter=10_000,
-                class_weight="balanced",
-                random_state=42,
+                verbose=1,
                 **lr_kwargs,
             )
         else:
             self.task_type = "regression"
             self.model = LinearRegression(**lr_kwargs)
 
-        self.model.fit(X_scaled, y_tokens)
+        print(f"\nFitting {self.task_type} model on {X_scaled.shape[0]} sequences...", file=sys.stdout, flush=True)
+        self.model.fit(X_scaled, y)
+        print("Model fitting done.", file=sys.stdout, flush=True)
         return self
 
-    # --------------------------------------------------------------------- #
     def predict(self, X: np.ndarray, aggregation: str = "mean") -> np.ndarray:
         assert self.model is not None and self.scaler is not None
 
-        N, S, D      = X.shape
-        pad_mask      = self._pad_mask(X)
-        mask_flat     = pad_mask.reshape(-1)
-        X_tokens_flat = X.reshape(-1, D)[mask_flat]
+        N, S, D = X.shape
+        print(f"\n===== LinearProbe.predict: X shape={X.shape} =====", file=sys.stdout, flush=True)
 
-        # scale + token-level logits
-        X_scaled      = self.scaler.transform(X_tokens_flat)
+        pad_mask = self._pad_mask(X)
+        num_valid = pad_mask.sum(axis=1)
+        print(f"\nNon-padded tokens per sequence (first 10): {num_valid[:10]}", file=sys.stdout, flush=True)
+
+        X_seq = np.zeros((N, D), dtype=X.dtype)
+        for i in range(N):
+            X_seq[i] = X[i][-1] # [pad_mask[i]].mean(axis=0) oh i see why that was failing, diff aggs
+
+        print(f"X_seq (predict): shape={X_seq.shape}", file=sys.stdout, flush=True)
+
+        X_scaled = self.scaler.transform(X_seq)
+        print(f"X_scaled (predict): shape={X_scaled.shape}", file=sys.stdout, flush=True)
+
         if self.task_type == "classification":
             if len(getattr(self.model, "classes_", [0, 1])) == 2:
-                tok_logits = self.model.decision_function(X_scaled)
+                # seq_logits = self.model.decision_function(X_scaled)
+                seq_logits = self.model.predict_proba(X_scaled)[:, 1]
             else:
-                probs      = self.model.predict_proba(X_scaled)[:, 1]
-                tok_logits = np.log(probs / (1 - probs + 1e-9))
+                probs = self.model.predict_proba(X_scaled)[:, 1]
+                seq_logits = np.log(probs / (1 - probs + 1e-9))
         else:
-            tok_logits = self.model.predict(X_scaled)
+            seq_logits = self.model.predict(X_scaled)
 
-        # put logits back into full (N,S) array, zeros for padding
-        token_logits = np.zeros((N * S,), dtype=tok_logits.dtype)
-        token_logits[mask_flat] = tok_logits
-        token_logits = token_logits.reshape(N, S)
+        print(f"Sequence-level logits/preds: shape={seq_logits.shape}", file=sys.stdout, flush=True)
+        print(f"First 10 sequence outputs: {seq_logits[:10]}", file=sys.stdout, flush=True)
+        return seq_logits
+    
+    def save_state(self, path: Path):
+        """Save model and scaler parameters to disk."""
+        assert self.model is not None and self.scaler is not None
 
-        # sequence-level aggregation
-        return self._aggregate(token_logits, aggregation)
+        # Prepare dictionary for saving
+        save_dict = dict(
+            task_type=self.task_type,
+            coef=self.model.coef_,
+            intercept=self.model.intercept_,
+            mu = self.scaler.mean_,
+            sigma=self.scaler.scale_,
+        )
+        if self.task_type == "classification" and hasattr(self.model, "classes_"):
+            save_dict["classes"] = self.model.classes_
 
+        np.savez(path, **save_dict)
+        print(f"Saved LinearProbe to {path}", file=sys.stdout, flush=True)
 
-# --------------------------------------------------------------------------- #
-# DEBUG AttentionProbe with infinite prints
-# --------------------------------------------------------------------------- #
-import pandas as pd
-import sys
+    def load_state(self, path: Path, logger: Logger = None):
+        """Load model and scaler parameters from disk."""
+        data = np.load(path, allow_pickle=True)
+        self.task_type = str(data["task_type"])
+
+        # Restore model
+        if self.task_type == "classification":
+            self.model = LogisticRegression()
+            if "classes" in data:
+                self.model.classes_ = data["classes"]
+        else:
+            self.model = LinearRegression()
+
+        self.model.coef_ = data["coef"]
+        self.model.intercept_ = data["intercept"]
+
+        # Restore scaler
+        self.scaler = StandardScaler()
+        self.scaler.mean_ = data["mu"]
+        self.scaler.scale_ = data["sigma"]
+
+        if logger:
+            logger.log(f"  - Loaded LinearProbe from {path}")
+        else:
+            print(f"Loaded LinearProbe from {path}", file=sys.stdout, flush=True)
 
 class AttentionProbe(BaseProbe):
     """
@@ -186,7 +241,6 @@ class AttentionProbe(BaseProbe):
         self.task_type: str = ""
         self.loss_history = []
 
-    # --------------------------------------------------------------------- #
     def _print_df(self, arr: np.ndarray, name: str, head_rows: int = 5, head_cols: int = 5):
         """Pretty-print a small slice of an ndarray as a DataFrame."""
         r, c = arr.shape
@@ -194,7 +248,6 @@ class AttentionProbe(BaseProbe):
         print(f"\n===== {name}  shape={arr.shape}  =====", file=sys.stdout, flush=True)
         print(df, file=sys.stdout, flush=True)
 
-    # --------------------------------------------------------------------- #
     def fit(
         self,
         X: np.ndarray,  # (N, S, D)
@@ -209,7 +262,6 @@ class AttentionProbe(BaseProbe):
         N, S, D = X.shape
         is_classification = np.issubdtype(y.dtype, np.integer)
 
-        # ------------- Stage-1: token-level --------------------------------
         X_tok = X.reshape(N * S, D)
         y_tok = np.repeat(y, S)
 
@@ -222,7 +274,7 @@ class AttentionProbe(BaseProbe):
 
         if is_classification:
             self.task_type = "classification"
-            self.lr_tok = LogisticRegression(max_iter=10_000, **stage1_kwargs)
+            self.lr_tok = LogisticRegression(**stage1_kwargs)
         else:
             self.task_type = "regression"
             self.lr_tok = LinearRegression(**stage1_kwargs)
@@ -240,20 +292,20 @@ class AttentionProbe(BaseProbe):
 
         self._print_df(token_logits, "TOKEN  logits")
 
-        # ------------- Stage-2: sequence-level -----------------------------
+        # Stage-2: sequence-level
         self.scaler_seq = StandardScaler()
         X_seq_scaled = self.scaler_seq.fit_transform(token_logits)
 
         self._print_df(X_seq_scaled, "SCALED  X_seq (token logits)")
 
         if is_classification:
-            self.lr_seq = LogisticRegression(max_iter=10_000, **stage2_kwargs)
+            self.lr_seq = LogisticRegression(verbose=1, **stage2_kwargs)
         else:
             self.lr_seq = LinearRegression(**stage2_kwargs)
 
         self.lr_seq.fit(X_seq_scaled, y)
 
-        # ---- final diagnostics ------------------------------------------
+        # final diagnostics
         if is_classification:
             final_logits = self.lr_seq.decision_function(X_seq_scaled)
             y_prob = 1 / (1 + np.exp(-final_logits))
@@ -280,9 +332,7 @@ class AttentionProbe(BaseProbe):
 
         return self
 
-    # --------------------------------------------------------------------- #
     def predict(self, X: np.ndarray, aggregation: str = "two_stage") -> np.ndarray:
-        # (same as previous version – no extra prints here)
         assert (
             self.lr_tok is not None
             and self.scaler_tok is not None
@@ -308,10 +358,6 @@ class AttentionProbe(BaseProbe):
         else:
             return self.lr_seq.predict(X_seq_scaled)
 
-    # save_state / load_state identical to previous two-stage version …
-
-
-    # --------------------------------------------------------------------- #
     def save_state(self, path: Path):
         assert (
             self.lr_tok is not None
@@ -336,7 +382,6 @@ class AttentionProbe(BaseProbe):
             seq_sigma=self.scaler_seq.scale_,
         )
 
-    # --------------------------------------------------------------------- #
     def load_state(self, path: Path, logger: Logger):
         data = np.load(path, allow_pickle=True)
         self.task_type = str(data["task_type"])

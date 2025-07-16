@@ -10,6 +10,7 @@ from src.probes import LinearProbe, AttentionProbe
 from src.logger import Logger
 from src.utils import should_skip_dataset, dump_loss_history
 from configs.probes import PROBE_CONFIGS
+import torch
 
 def get_probe_architecture(architecture_name: str, d_model: int, device):
     if architecture_name == "linear":
@@ -35,26 +36,33 @@ def get_included_datasets_classification_all(logger:Logger):
 
 def get_combined_activations(
     datasets: List[str], layer: int, component: str,
-    model: str, d_model: int, final_max_len: int, device: str,
-    cache_dir: Path, logger: Logger
+    model: Any, d_model: int, final_max_len: int, device: str,
+    cache_dir: Path, logger: Logger,
+    seed: int,  # <-- ADDED
+    split: str  # <-- ADDED ('train' or 'test')
 ) -> np.ndarray:
-    """
-    Loads and concatenates (with zero padding) cached activations for each dataset.
-    Each dataset can have its own max_len; result is (N_total, final_max_len, d_model).
-    """
+    """..."""
     acts_list = []
     for ds in datasets:
-        ds_data = Dataset(ds)
+        # Pass the correct seed to ensure consistent splits
+        ds_data = Dataset(ds, seed=seed)
         ds_max_len = ds_data.max_len
         ds_cache_dir = cache_dir / ds
-        logger.log(f"  - Ensuring activations for {ds}: {ds_cache_dir} (max_len={ds_max_len})")
-        # Use correct max_len for this dataset
+        logger.log(f"  - Ensuring activations for {ds} ({split} split): {ds_cache_dir} (max_len={ds_max_len})")
+        
         act_manager = ActivationManager(model, device, d_model=d_model, max_len=ds_max_len)
-        X_train_text, _ = ds_data.get_train_set()
-        arr = act_manager.get_activations( # should never recalculate activations
-            X_train_text, layer, component, use_cache=True, cache_dir=ds_cache_dir, logger=logger
-        )  # shape (N, ds_max_len, d_model)
-        # Zero-pad to final_max_len if needed
+        
+        # Get the correct split's text data
+        if split == 'train':
+            texts, _ = ds_data.get_train_set()
+        elif split == 'test':
+            texts, _ = ds_data.get_test_set()
+        else:
+            raise ValueError(f"Invalid split '{split}'. Must be 'train' or 'test'.")
+            
+        arr = act_manager.get_activations(
+            texts, layer, component, use_cache=True, cache_dir=ds_cache_dir, logger=logger
+        )
         if ds_max_len < final_max_len:
             pad_width = ((0, 0), (0, final_max_len - ds_max_len), (0, 0))
             arr = np.pad(arr, pad_width, mode='constant', constant_values=0)
@@ -88,7 +96,8 @@ def train_probe(
         included_datasets = get_included_datasets_classification_all(logger)
 
         train_acts = get_combined_activations(
-            included_datasets, layer, component, model, d_model, train_data.max_len, device, cache_dir, logger
+            included_datasets, layer, component, model, d_model, train_data.max_len, device, cache_dir, logger, 
+            seed=seed, split='train'
         )
     else:
         train_data = Dataset(train_dataset_name, seed=seed)
@@ -97,8 +106,17 @@ def train_probe(
         train_acts_cache_dir = cache_dir / train_dataset_name
         train_acts = act_manager.get_activations(X_train_text, layer, component, use_cache, train_acts_cache_dir, logger)
 
+        import sys
+        print(X_train_text[:10],file=sys.stdout,
+                flush=True )
+        print(y_train[:10], file=sys.stdout,
+                flush=True)
+
     probe = get_probe_architecture(architecture_name, d_model=d_model, device=device)
     fit_params = asdict(PROBE_CONFIGS[config_name])
+    
+    # train_acts = torch.ones(train_acts.shape) * y_train.reshape(len(y_train),1, 1)
+
     probe.fit(train_acts, y_train, **fit_params)
     probe.save_state(probe_state_path)
 
@@ -148,16 +166,25 @@ def evaluate_probe(
         included_datasets = get_included_datasets_classification_all(logger)
         
         test_acts = get_combined_activations(
-            included_datasets, layer, component, model, d_model, eval_data.max_len, device, cache_dir, logger
+            included_datasets, layer, component, model, d_model, eval_data.max_len, device, cache_dir, logger,
+            seed = seed, split='test'
         )
     else:
-        eval_data = Dataset(eval_dataset_name, seed=seed)
-        X_test_text, y_test = eval_data.get_test_set()
-        act_manager = ActivationManager(model, device, d_model=d_model, max_len=eval_data.max_len)
-        eval_acts_cache_dir = cache_dir / eval_dataset_name
-        test_acts = act_manager.get_activations(X_test_text, layer, component, use_cache, eval_acts_cache_dir, logger)
+        # eval_data = Dataset(eval_dataset_name, seed=seed)
+        # X_test_text, y_test = eval_data.get_test_set()
+        # act_manager = ActivationManager(model, device, d_model=d_model, max_len=eval_data.max_len)
+        # eval_acts_cache_dir = cache_dir / eval_dataset_name
+        # test_acts = act_manager.get_activations(X_test_text, layer, component, use_cache, eval_acts_cache_dir, logger)
+    
+    # test_acts = torch.ones(test_acts.shape) * y_test
 
-    metrics = probe.score(test_acts, y_test, aggregation=agg_name_for_file)
+        train_data = Dataset(train_dataset_name, seed=seed)
+        X_train_text, y_train = train_data.get_train_set()
+        act_manager = ActivationManager(model, device, d_model=d_model, max_len=train_data.max_len)
+        train_acts_cache_dir = cache_dir / train_dataset_name
+        train_acts = act_manager.get_activations(X_train_text, layer, component, use_cache, train_acts_cache_dir, logger)
+
+    metrics = probe.score(train_acts, y_train, aggregation=agg_name_for_file)
 
     metadata = {
         "metrics": metrics, "train_dataset": train_dataset_name, "eval_dataset": eval_dataset_name,

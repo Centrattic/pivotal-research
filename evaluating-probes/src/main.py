@@ -24,8 +24,8 @@ retrain = args.t
 reevaluate = args.e
 
 # To force code to run on cuda:1, if exists
-os.environ["CUDA_VISIBLE_DEVICES"] = "1"
-torch.cuda.set_device(1)
+# os.environ["CUDA_VISIBLE_DEVICES"] = "1"
+# torch.cuda.set_device(1)
 
 def get_dataset(name, seed):
     if name == "single_all":
@@ -84,7 +84,9 @@ def main():
         valid_dataset_metadata = {}
         for dataset_name in sorted(list(all_dataset_names_to_check)):
             try:
+                logger.log(dataset_name)
                 data = get_dataset(dataset_name, global_seed)
+                # logger.log("got here)")
                 if should_skip_dataset(dataset_name, data, logger):
                     continue
                 valid_dataset_metadata[dataset_name] = {

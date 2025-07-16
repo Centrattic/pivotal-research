@@ -90,3 +90,4 @@ number,source,name,tag,save_name,Probe from,Probe to,Data type,probe from extrac
 89,sci_cat.csv,sci_cat,Science Type Classification,sci_cat.csv,Comment,Topic,Multiclass Classification,Comment,Topic,simple
 90,truthful-qa-gen.parquet,french_truthqa_tf,French True/False Question Answering,french_truthqa_tf.csv,"question, incorrect_answers","correct_answers",Binary Classification,,,translate_french_mcq_balancer
 91,eng-french.txt,eng-french,English vs. French,eng-french.csv,"english, french","english,french",Binary Classification,,,eng_french_balancer
+92,test.csv,letter,Letter Testing,letter.csv,,,Binary Classification,,,

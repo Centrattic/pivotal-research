@@ -84,6 +84,6 @@ def process(row: dict, source_file: str) -> pd.DataFrame:
         })
     
     out_df = out_df.drop_duplicates().reset_index(drop=True)
-    out_df = pd.concat([out_df.head(1000), out_df.tail(1000)]) # 2000 is so much more manageable for activation cache and activation loading
+    out_df = pd.concat([out_df.head(500), out_df.tail(500)]) # 2000 is so much more manageable for activation cache and activation loading
 
     return out_df

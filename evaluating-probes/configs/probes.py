@@ -9,10 +9,10 @@ class ProbeConfig:
 @dataclass
 class SkLearnLinearProbeConfig(ProbeConfig):
     """Hyperparameters for the sklearn LinearProbe."""
-    C: float = 1.0               # Regularization strength (default 1.0)
+    C: float = 1              # Regularization strength (default 1.0), higher reg if more params than data samples (magic of reg?)
     penalty: str = "l2"          # 'l2' or 'none'
     solver: str = "lbfgs"        # Recommended solver for multiclass
-    max_iter: int = 1000         # More than default to ensure convergence
+    max_iter: int = 2000         # More than default to ensure convergence
     class_weight="balanced"
 
 @dataclass

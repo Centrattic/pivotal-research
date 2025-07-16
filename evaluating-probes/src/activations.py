@@ -15,7 +15,7 @@ class ActivationManager:
         # Assertion to handle the optional type
         assert self.tokenizer is not None, "Tokenizer not found on the model."
 
-        self.tokenizer.padding_side = "right"
+        self.tokenizer.padding_side = "left" # so can pick last token
         self.tokenizer.truncation_side = "left"
         self.device = device
         self.d_model = d_model
@@ -74,9 +74,11 @@ class ActivationManager:
             ).to(self.device)
 
             with torch.no_grad():
-                _, cache = self.model.run_with_cache(tokens.input_ids, names_filter=[hook_name], device='cpu')
+                _, cache = self.model.run_with_cache(tokens.input_ids, names_filter=[hook_name],
+                                                     device=self.device)
 
-            chunk = cache[hook_name].cpu().to(torch.float16).numpy()  # ensure float
+            chunk = cache[hook_name]                      # (B, S, D)   float32 on CPU
+            chunk = (chunk).cpu().to(torch.float16).numpy()
 
             if use_cache:
                 assert mmap_file is not None

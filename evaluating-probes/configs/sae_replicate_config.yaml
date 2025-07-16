@@ -1,12 +1,12 @@
 # configs/main_config.yaml
 
-run_name: "sanity_testing"
-model_name: "gemma-2-9b" # 1.2 B multilignual model, 512 seq length
+run_name: "sae_replicate_config"
+model_name: "gpt2-small" # 1.2 B multilignual model, 512 seq length
 device: "cuda"
 cache_activations: True
 seed: "42"
 
-layers: [20] # Where SAE probes found layers peform the best
+layers: [5] # Where SAE probes found layers peform the best
 components:
   - "resid_post"
 

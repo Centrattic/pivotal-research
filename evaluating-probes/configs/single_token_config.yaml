@@ -1,6 +1,4 @@
-# configs/main_config.yaml
-
-run_name: "french_probing_gpt2_fixed_padding"
+run_name: "single_token_testing"
 model_name: "gpt2" # 1.2 B multilignual model, 512 seq length
 device: "cuda:1"
 cache_activations: True
@@ -21,18 +19,7 @@ aggregations:
 
 # List of experiments to run
 experiments:
-  # - name: french_questions
-  #   train_on: 90_french_truthqa_tf
-  #   evaluate_on:
-  #     - 90_french_truthqa_tf
-
-  - name: eng_french_language
-    train_on: 91_eng-french
+  - name: letter_testing
+    train_on: 92_letter
     evaluate_on:
-      - 91_eng-french
-
-  # - name: english_questions
-  #   train_on: 33_truthqa_tf
-  #   evaluate_on:
-  #     - 33_truthqa_tf
-
+      - 92_letter
