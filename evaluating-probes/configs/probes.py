@@ -7,34 +7,35 @@ class ProbeConfig:
     pass
 
 @dataclass
-class SkLearnLinearProbeConfig(ProbeConfig):
-    """Hyperparameters for the sklearn LinearProbe."""
-    C: float = 1              # Regularization strength (default 1.0), higher reg if more params than data samples (magic of reg?)
-    penalty: str = "l2"          # 'l2' or 'none'
-    solver: str = "lbfgs"        # Recommended solver for multiclass
-    max_iter: int = 2000         # More than default to ensure convergence
-    class_weight="balanced"
+class PytorchLinearProbeConfig(ProbeConfig):
+    """Hyperparameters for the PyTorch LinearProbe."""
+    lr: float = 1e-3
+    epochs: int = 50
+    batch_size: int = 64
+    weight_decay: float = 0.0
+    # Add more as needed
 
 @dataclass
-class AttentionProbeConfig(ProbeConfig):
-    """Hyperparameters for the AttentionProbe."""
-    lr: float = 0.01
-    epochs: int = 1000
+class PytorchAttentionProbeConfig(ProbeConfig):
+    """Hyperparameters for the PyTorch AttentionProbe."""
+    lr: float = 1e-3
+    epochs: int = 50
+    batch_size: int = 64
     weight_decay: float = 0.0
+    # Add more as needed
 
 @dataclass
 class TwoStageConfig(ProbeConfig):
     stage1_kwargs: dict = field(default_factory=dict)
     stage2_kwargs: dict = field(default_factory=dict)
 
-
-
 # --- A dictionary to easily access configs by name ---
 PROBE_CONFIGS = {
-    "default_linear": SkLearnLinearProbeConfig(),
-    "high_reg_linear": SkLearnLinearProbeConfig(C=0.1),
-    "no_reg_linear": SkLearnLinearProbeConfig(penalty="none"),
-    "default_attention": AttentionProbeConfig(),
+    "default_linear": PytorchLinearProbeConfig(),
+    "high_reg_linear": PytorchLinearProbeConfig(weight_decay=1e-2),
+    "no_reg_linear": PytorchLinearProbeConfig(weight_decay=0.0),
+    "default_attention": PytorchAttentionProbeConfig(),
+    "high_reg_attention": PytorchAttentionProbeConfig(weight_decay=1e-2),
+    "no_reg_attention": PytorchAttentionProbeConfig(weight_decay=0.0),
     "two_stage_defaults": TwoStageConfig(),
-
 }

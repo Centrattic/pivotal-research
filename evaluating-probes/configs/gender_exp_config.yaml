@@ -15,6 +15,9 @@ architectures:
   - name: "linear"
     aggregation: "mean"
     config_name: "default_linear"
+  - name: "attention"
+    aggregation: "attention"
+    config_name: "default_attention"
 
 # List of experiments to run
 experiments:

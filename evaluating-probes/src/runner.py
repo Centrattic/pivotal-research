@@ -12,14 +12,15 @@ from configs.probes import PROBE_CONFIGS
 from dataclasses import asdict
 import torch
 
-def get_probe_architecture(architecture_name: str, d_model: int, device):
+def get_probe_architecture(architecture_name: str, d_model: int, device, aggregation: str = "mean"):
     if architecture_name == "linear":
-        return LinearProbe(d_model=d_model, device=device)
+        return LinearProbe(d_model=d_model, device=device, aggregation=aggregation)
     if architecture_name == "attention":
         return AttentionProbe(d_model=d_model, device=device)
     raise ValueError(f"Unknown architecture: {architecture_name}")
 
 def get_probe_filename_prefix(train_ds, arch_name, aggregation, layer, component):
+    # For attention probes, aggregation is not used in the model, but we keep it in filename for consistency
     return f"train_on_{train_ds}_{arch_name}_{aggregation}_L{layer}_{component}"
 
 # def get_included_datasets_classification_all(logger:Logger):
@@ -89,10 +90,9 @@ def train_probe(
     train_ds = Dataset(train_dataset_name, model=model, device=device, seed=seed)  # uses default cache_root
     train_acts, y_train = train_ds.get_train_set_activations(layer, component)
 
-
-    probe = get_probe_architecture(architecture_name, d_model=d_model, device=device)
+    probe = get_probe_architecture(architecture_name, d_model=d_model, device=device, aggregation=aggregation)
     fit_params = asdict(PROBE_CONFIGS[config_name])
-    probe.fit(train_acts, y_train, aggregation, **fit_params)
+    probe.fit(train_acts, y_train, **fit_params)
 
     probe_save_dir.mkdir(parents=True, exist_ok=True)
     probe.save_state(probe_state_path)
@@ -105,6 +105,7 @@ def evaluate_probe(
 ):
     architecture_name = architecture_config["name"]
     config_name = architecture_config["config_name"]
+    # For attention probes, we use "attention" as the aggregation name in results
     agg_name = "attention" if architecture_name == "attention" else aggregation
 
     probe_filename_base = get_probe_filename_prefix(train_dataset_name, architecture_name, aggregation, layer, component)
@@ -117,14 +118,14 @@ def evaluate_probe(
         return
 
     # Load probe
-    probe = get_probe_architecture(architecture_name, d_model=d_model, device=device)
-    probe.load_state(probe_state_path, logger)
+    probe = get_probe_architecture(architecture_name, d_model=d_model, device=device, aggregation=aggregation)
+    probe.load_state(probe_state_path)
 
     # load activations via Dataset 
     eval_ds = Dataset(eval_dataset_name, model=model, device=device, seed=seed)
     test_acts, y_test = eval_ds.get_test_set_activations(layer, component)
 
-    metrics = probe.score(test_acts, y_test, aggregation=agg_name)
+    metrics = probe.score(test_acts, y_test)
     with open(eval_results_path, "w") as f:
         import json
         json.dump({"metrics": metrics}, f, indent=2)
