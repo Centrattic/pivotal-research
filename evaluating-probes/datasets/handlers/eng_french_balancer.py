@@ -50,7 +50,7 @@ def _decide_languages(df: pd.DataFrame) -> tuple[str, str]:
     else:
         return "col2", "col1"     # col2 = EN, col1 = FR
 
-def process(row: dict, source_file: str, n_en: int = 25000, n_fr: int = 25000) -> pd.DataFrame:
+def process(row: dict, source_file: str, n_en: int = 10000, n_fr: int = 10000) -> pd.DataFrame:
     """
     Returns a DataFrame with randomly chosen English/French prompts.
     Only includes prompts with > 20 characters.
@@ -97,6 +97,13 @@ def process(row: dict, source_file: str, n_en: int = 25000, n_fr: int = 25000) -
 
     out_df = pd.concat([en_df, fr_df]).reset_index(drop=True)
     out_df = out_df.sample(frac=1, random_state=42).reset_index(drop=True)  # shuffle
+    
+    # Keep one of the complete duplicates.
+    out_df = out_df.drop_duplicates(keep='first').reset_index(drop=True)
+
+    # Drop both of the opposite duplicates, unclear which is correct.
+    out_df = out_df.drop_duplicates(subset=["prompt"], keep=False).reset_index(drop=True)
+
 
     return out_df
 

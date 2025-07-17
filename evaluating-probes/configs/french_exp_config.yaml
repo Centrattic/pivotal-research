@@ -1,0 +1,25 @@
+# configs/main_config.yaml
+
+run_name: "french_experiment_gemma"
+model_name: "gemma-2-9b" # 1.2 B multilignual model, 512 seq length
+device: "cuda:1"
+cache_activations: True
+seed: "42"
+
+layers: [20] # Where SAE probes found layers peform the best
+components:
+  - "resid_post"
+
+architectures:
+  - name: "linear"
+    aggregation: "last"
+    config_name: "default_linear"
+  # - name: "attention"
+  #   config_name: "default_attention"
+
+# List of experiments to run
+experiments:
+  - name: eng_french_language
+    train_on: 91_eng-french
+    evaluate_on:
+      - 91_eng-french

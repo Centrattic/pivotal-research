@@ -86,3 +86,6 @@ https://github.com/Stefan-Heimersheim/runpod_cli/
 
 UNDERSTAND THIS: 
 * why is train + test together for 4_hist_fig_ismale 36941, but cache only saves like 36916 hashes or something? There is some train-test overlap -- if so, this is weird!!
+
+
+* there appear to be exactly 2 datapoints that are hash duplicates 

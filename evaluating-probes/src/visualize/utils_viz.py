@@ -73,32 +73,31 @@ def plot_logit_diffs_by_gender(
 
     plt.show()
 
-
-
 def plot_class_logit_distributions(
     all_top_logits,          # list of [ [token(str), logit(float)], ... ] per sample
     all_labels,              # list of 0 or 1 per sample (0=male, 1=female)
-    correct_token_for_class, # dict, e.g. {0: "male", 1: "female"}
+    correct_token_for_class, # dict, e.g. {0: " Male", 1: " Female"}
     class_names = {0: "male", 1: "female"},
     bins=50,
     run_name="run",
     save_path=None,
 ):
     """
-    all_top_logits: List of list of (token, logit) pairs per sample (top 10)
+    all_top_logits: List of list of (token, logit) pairs per sample (top k)
     all_labels: list of int (0 or 1) for each sample
-    correct_token_for_class: dict mapping class idx to class token
+    correct_token_for_class: dict mapping class idx to class token (exact match)
     """
     # Collect all logits for correct class tokens, per class
     class_logits = {0: [], 1: []}
     for top_logits, label in zip(all_top_logits, all_labels):
         for token, logit in top_logits:
-            token_str = token.strip().lower()
+            # Exact match (including spaces and case)
             for class_idx, class_token in correct_token_for_class.items():
-                if token_str == class_token:
+                if token == class_token:
                     class_logits[class_idx].append(logit)
     
     # Plot histograms
+    import matplotlib.pyplot as plt
     plt.figure(figsize=(8, 4))
     for class_idx, name in class_names.items():
         plt.hist(
@@ -114,6 +113,7 @@ def plot_class_logit_distributions(
     if save_path:
         plt.tight_layout()
         plt.savefig(save_path)
+    plt.show()
 
 if __name__ == '__main__':
     diff_file = "./results/gender_experiment_gemma/runthrough_4_hist_fig_ismale/logit_diff_gender-pred_model_check.csv"

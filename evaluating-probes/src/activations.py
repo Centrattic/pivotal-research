@@ -126,6 +126,7 @@ class ActivationManager:
         act_path: Path,
         hash_path: Path,
         shape_path: Path,
+        bs: int = 1,
     ):
         if not missing:
             return
@@ -141,7 +142,6 @@ class ActivationManager:
 
         # --- extract activations for the new prompts ---
         hook = f"blocks.{layer}.hook_{component}"
-        bs = 8
         for s in tqdm(range(0, N_new, bs), desc=f"Extract L{layer} {component}"):
             batch_prompts = list(new_prompts[s : s + bs])
             toks = self.tokenizer(batch_prompts, return_tensors="pt", padding="max_length", truncation=True, max_length=self.max_len)

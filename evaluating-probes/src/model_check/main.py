@@ -78,7 +78,11 @@ def main():
         logit_diffs = []
         csv_rows = []
 
-        correct_tokens = {0: "male", 1: "female"}
+        male_token = " Male"
+        female_token = " Female"
+
+        male_token_id = tokenizer.encode(male_token, add_special_tokens=False)[0]
+        female_token_id = tokenizer.encode(female_token, add_special_tokens=False)[0]
 
         for orig_prompt, prompt, label in tqdm(zip(X_test, check_prompts, y_test)):
             inputs = tokenizer(prompt, return_tensors='pt')
@@ -88,32 +92,31 @@ def main():
                 outputs = model(**inputs)
                 logits = outputs.logits
 
-            # Only last token's logits
             last_token_logits = logits[0, -1]
-            values, indices = torch.topk(last_token_logits, 10)
-            tokens = [tokenizer.decode([ix]).strip() for ix in indices.tolist()]
-            logit_pairs = list(zip(tokens, values.tolist()))
-            all_top_logits.append(logit_pairs)
-            # print(all_top_logits)
-
-            # Sum logits for correct/incorrect class token in top 10 only
-            correct_class = correct_tokens[label]
-            incorrect_class = correct_tokens[1 - label]
-            sum_correct = sum(v for t, v in logit_pairs if t.strip().lower() == correct_class)
-            sum_incorrect = sum(v for t, v in logit_pairs if t.strip().lower() == incorrect_class)
-            logit_diff = sum_correct - sum_incorrect
+            logit_male = last_token_logits[male_token_id].item()
+            logit_female = last_token_logits[female_token_id].item()
+            logit_diff = logit_male - logit_female
             logit_diffs.append(logit_diff)
-            # Save original prompt, logit_diff, and label
             csv_rows.append({
                 "prompt": orig_prompt,
                 "logit_diff": logit_diff,
                 "label": label
             })
 
+            # print(logit_diff)
+
         # Visualization
         plot_dir = Path(f"results/{run_name}/runthrough_{ds_name}")
         plot_dir.mkdir(parents=True, exist_ok=True)
         plot_path = plot_dir / f"logit_hist_{check['name']}_model_check.png"
+
+        # Save CSV
+        csv_path = plot_dir / f"logit_diff_{check['name']}_model_check.csv"
+        pd.DataFrame(csv_rows).to_csv(csv_path, index=False)
+        print(f"Saved CSV of logit diffs to: {csv_path}")
+
+        correct_tokens = {0: " Male", 1: " Female"}
+
         plot_class_logit_distributions(
             all_top_logits,
             all_labels=y_test,
@@ -121,11 +124,6 @@ def main():
             run_name=run_name,
             save_path=plot_path
         )
-
-        # Save CSV
-        csv_path = plot_dir / f"logit_diff_{check['name']}_model_check.csv"
-        pd.DataFrame(csv_rows).to_csv(csv_path, index=False)
-        print(f"Saved CSV of logit diffs to: {csv_path}")
 
 if __name__ == "__main__":
     main()
