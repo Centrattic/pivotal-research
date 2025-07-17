@@ -37,7 +37,7 @@ def plot_logit_diffs_by_gender(
         return prompt.strip()
 
     # Extract names and look up gender
-    diffs["name"] = diffs["prompt"].apply(extract_name).apply(strip_lower)
+    diffs["name"] = diffs["prompt"] # .apply(extract_name).apply(strip_lower)
     print(diffs['name'])
     diffs["is_male"] = diffs["name"].map(gender_map)
     print(diffs["is_male"])
@@ -116,5 +116,5 @@ def plot_class_logit_distributions(
         plt.savefig(save_path)
 
 if __name__ == '__main__':
-    diff_file = "./results/male_dataset_gemma/runthrough_4_hist_fig_ismale/logit_diff_male_model_check.csv"
+    diff_file = "./results/gender_experiment_gemma/runthrough_4_hist_fig_ismale/logit_diff_gender-pred_model_check.csv"
     plot_logit_diffs_by_gender(diff_file)

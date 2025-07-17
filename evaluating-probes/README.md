@@ -75,9 +75,14 @@ https://github.com/Stefan-Heimersheim/runpod_cli/
 * add flags to main to overwrite existing training, and/or existing evaluations
 * automatically store datasets in S3 bucket
 * debug getting things to run on CUDA 1 SOBBB
+* evntually add model check and dataset sizing as flags to the overall main for convenience, and for ease of running experiments in the future
 
 ## Memory tips
 * dont drag grads too far (torch.nograd, also loss.item() vs loss), dont keep grads around
 * small batch size
 * that shit
 * del model from cuda at the end of every using it, and clear cache, try to clear gpu entirely so it doesnt hold old stuffs
+
+
+UNDERSTAND THIS: 
+* why is train + test together for 4_hist_fig_ismale 36941, but cache only saves like 36916 hashes or something? There is some train-test overlap -- if so, this is weird!!

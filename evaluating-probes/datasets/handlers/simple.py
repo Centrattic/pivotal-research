@@ -45,6 +45,11 @@ def process(row, source_file_or_df):
         "prompt_len": from_series.str.len(), 
         "target": to_series
     })
-    out_df = out_df.drop_duplicates().reset_index(drop=True)
+
+    # Keep one of the complete duplicates.
+    out_df = out_df.drop_duplicates(keep='first').reset_index(drop=True)
+
+    # Drop both of the opposite duplicates, unclear which is correct.
+    out_df = out_df.drop_duplicates(subset=["prompt"], keep=False).reset_index(drop=True)
 
     return out_df

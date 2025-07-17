@@ -64,10 +64,11 @@ def main():
         prompt_template = check['check_prompt']
         model_name = check['hf_model_name']
         run_name = config.get("run_name", "run")
+        device = config.get("device")
         print("Loading HuggingFace model:", model_name)
         model, tokenizer = load_hf_model_and_tokenizer(model_name)
 
-        ds = Dataset(ds_name)
+        ds = Dataset(ds_name, model=model, device=device)
         X_test, y_test = ds.get_test_set()
         check_prompts = prepare_check_prompts(X_test, prompt_template)
         max_len = recompute_max_len(check_prompts)
@@ -79,7 +80,7 @@ def main():
 
         correct_tokens = {0: "male", 1: "female"}
 
-        for prompt, label in tqdm(zip(check_prompts, y_test)):
+        for orig_prompt, prompt, label in tqdm(zip(X_test, check_prompts, y_test)):
             inputs = tokenizer(prompt, return_tensors='pt')
             if torch.cuda.is_available():
                 inputs = {k: v.cuda() for k, v in inputs.items()}
@@ -93,6 +94,7 @@ def main():
             tokens = [tokenizer.decode([ix]).strip() for ix in indices.tolist()]
             logit_pairs = list(zip(tokens, values.tolist()))
             all_top_logits.append(logit_pairs)
+            # print(all_top_logits)
 
             # Sum logits for correct/incorrect class token in top 10 only
             correct_class = correct_tokens[label]
@@ -101,7 +103,12 @@ def main():
             sum_incorrect = sum(v for t, v in logit_pairs if t.strip().lower() == incorrect_class)
             logit_diff = sum_correct - sum_incorrect
             logit_diffs.append(logit_diff)
-            csv_rows.append({"prompt": prompt, "logit_diff": logit_diff})
+            # Save original prompt, logit_diff, and label
+            csv_rows.append({
+                "prompt": orig_prompt,
+                "logit_diff": logit_diff,
+                "label": label
+            })
 
         # Visualization
         plot_dir = Path(f"results/{run_name}/runthrough_{ds_name}")

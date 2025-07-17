@@ -42,7 +42,7 @@ def dump_mmap_to_csv(
     #         print(f"  wrote {written:,}/{total_vals:,} values",
     #               file=sys.stdout, flush=True)
 
-    # print(f"✅  Full CSV written → {csv_out}", file=sys.stdout, flush=True)
+    # print(f" Full CSV written → {csv_out}", file=sys.stdout, flush=True)
 
     # --- preview -------------------------------------------------------- #
     preview_path = csv_out.with_suffix(".preview.txt")

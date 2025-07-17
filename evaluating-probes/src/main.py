@@ -26,11 +26,11 @@ reevaluate = args.e
 # To force code to run on cuda:1, if exists
 # os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 
-def get_dataset(name, seed):
-    if name == "single_all":
-        return load_combined_classification_datasets(seed)
-    else:
-        return Dataset(name, seed=seed)
+def get_dataset(name, model, device, seed):
+    # if name == "single_all":
+    #     return load_combined_classification_datasets(seed)
+    # else:
+    return Dataset(name, model=model, device=device, seed=seed)
 
 def main():
     torch.cuda.empty_cache()
@@ -52,7 +52,8 @@ def main():
     try:
         # Single model instance
         logger.log(f"Loading model '{config['model_name']}' to get config...")
-        model = HookedTransformer.from_pretrained(config['model_name'], config['device'])
+        device = config.get("device")
+        model = HookedTransformer.from_pretrained(config['model_name'], device)
         d_model = model.cfg.d_model
 
         global_seed = int(config.get('seed', 42))
@@ -84,7 +85,7 @@ def main():
         for dataset_name in sorted(list(all_dataset_names_to_check)):
             try:
                 logger.log(dataset_name)
-                data = get_dataset(dataset_name, global_seed)
+                data = get_dataset(dataset_name, model, device, global_seed)
                 # logger.log("got here)")
                 if should_skip_dataset(dataset_name, data, logger):
                     continue

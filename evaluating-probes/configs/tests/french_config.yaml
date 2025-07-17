@@ -1,8 +1,8 @@
 # configs/main_config.yaml
 
-run_name: "sanity_testing"
+run_name: "french_high_reliability_gemma"
 model_name: "gemma-2-9b" # 1.2 B multilignual model, 512 seq length
-device: "cuda"
+device: "cuda:1"
 cache_activations: True
 seed: "42"
 
@@ -12,17 +12,14 @@ components:
 
 architectures:
   - name: "linear"
+    aggregation: "last"
     config_name: "default_linear"
   # - name: "attention"
-  #   config_name: "two_stage_defaults"
-
-aggregations:
-  - "mean"
+  #   config_name: "default_attention"
 
 # List of experiments to run
 experiments:
-  - name: english_questions
-    train_on: 33_truthqa_tf
+  - name: eng_french_language
+    train_on: 91_eng-french
     evaluate_on:
-      - 33_truthqa_tf
-
+      - 91_eng-french
