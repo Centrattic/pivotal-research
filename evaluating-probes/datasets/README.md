@@ -25,6 +25,7 @@ Missing from SAE probing paper:
 * only using train for openqa
 * lots of sets in compound_words.csv are maybe lost because they are tokenized. Should I download Wes Sparse Probing tokenizer and decode them?
 * 89,cancer_cat.csv,cancer_cat,Cancer Doc Classification,cancer_cat.csv,a,"0",Multiclass Classification,a,"0",simple, faield 
+* fix 92 test one at some point lol
 
 Thoughts? If making this easy for probing library, upload all your datasets to hugging face so you can just use HF datasets~ For now, don't load in datasets not on Hugging Face! Can you upload a folder of datasets or something? Ah even on hugging face you want to be able to parse them, this is taking portions of other peoples' cant do that
 

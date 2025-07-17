@@ -74,7 +74,7 @@ https://github.com/Stefan-Heimersheim/runpod_cli/
 
 * add flags to main to overwrite existing training, and/or existing evaluations
 * automatically store datasets in S3 bucket
-
+* debug getting things to run on CUDA 1 SOBBB
 
 ## Memory tips
 * dont drag grads too far (torch.nograd, also loss.item() vs loss), dont keep grads around

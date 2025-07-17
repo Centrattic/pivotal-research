@@ -73,25 +73,18 @@ class LinearProbe(BaseProbe):
         self.task_type: str = ""
         self.loss_history = []
 
-    @staticmethod
-    def _pad_mask(X: np.ndarray) -> np.ndarray:
-        """
-        Return a bool mask  (N, S)  where True means “this token row is *not*
-        padding” (i.e. at least one dimension is non-zero).
-        """
-        return (X > 0.00001).any(axis=2)
-
-    def _aggregate(self, logits: np.ndarray, mode: str) -> np.ndarray:
+    def aggregate(self, logits: np.ndarray, mode: str) -> np.ndarray:
+        # Applies to sequences one at a time
         if mode == "mean":
-            return logits.mean(axis=1)
+            return logits.mean(axis=0)
         if mode == "max":
-            return logits.max(axis=1)
+            return logits.max(axis=0)
         if mode == "last":
-            return logits[np.arange(len(logits)), (logits != 0).sum(1) - 1]
+            return logits[-1]
         if mode == "softmax":
-            w = np.exp(logits - logits.max(axis=1, keepdims=True))
-            w /= w.sum(axis=1, keepdims=True) + 1e-9
-            return (logits * w).sum(axis=1)
+            w = np.exp(logits - logits.max(axis=0, keepdims=True))
+            w /= w.sum(axis=0, keepdims=True) + 1e-9
+            return (logits * w).sum(axis=0)
         raise ValueError(f"Unknown aggregation '{mode}'")
 
     def _print_df(self, arr: np.ndarray, name: str, head_rows: int = 5, head_cols: int = 5):
@@ -100,22 +93,16 @@ class LinearProbe(BaseProbe):
         print(f"\n===== {name}  shape={arr.shape}  =====", file=sys.stdout, flush=True)
         print(df, file=sys.stdout, flush=True)
 
-    def fit(self, X: np.ndarray, y: np.ndarray, **lr_kwargs):
+    def fit(self, X: np.ndarray, y: np.ndarray, agg: str, **lr_kwargs):
         N, S, D = X.shape
         assert D == self.d_model, "d_model mismatch"
 
         print(f"\n===== LinearProbe.fit: X shape={X.shape}, y shape={y.shape} =====", file=sys.stdout, flush=True)
 
-        # pad_mask = self._pad_mask(X)   # (N, S)
-        # num_valid = pad_mask.sum(axis=1)
-        # print(f"\nNon-padded tokens per sequence (first 10): {num_valid[:10]}", file=sys.stdout, flush=True)
-        # print(f"Sequences with all padding: {(num_valid == 0).sum()} / {N}", file=sys.stdout, flush=True)
-
-        # Mean-pool over valid (non-padding) tokens for each sequence
         X_seq = np.zeros((N, D), dtype=X.dtype)
         for i in range(N):
             # print(f"HELLLP + {X[i]}", file=sys.stdout, flush=True)
-            X_seq[i] = X[i][-1] # .mean(axis=0) # last token X[i][-1] vs. take the mean
+            X_seq[i] = self.aggregate(X[i], mode=agg) # ensure same agg!
 
         self._print_df(X_seq, "Sequence-level mean (X_seq)", head_cols=min(40, D))
 
@@ -141,19 +128,15 @@ class LinearProbe(BaseProbe):
         print("Model fitting done.", file=sys.stdout, flush=True)
         return self
 
-    def predict(self, X: np.ndarray, aggregation: str = "mean") -> np.ndarray:
+    def predict(self, X: np.ndarray, agg: str = "mean") -> np.ndarray:
         assert self.model is not None and self.scaler is not None
 
         N, S, D = X.shape
         print(f"\n===== LinearProbe.predict: X shape={X.shape} =====", file=sys.stdout, flush=True)
 
-        pad_mask = self._pad_mask(X)
-        num_valid = pad_mask.sum(axis=1)
-        print(f"\nNon-padded tokens per sequence (first 10): {num_valid[:10]}", file=sys.stdout, flush=True)
-
         X_seq = np.zeros((N, D), dtype=X.dtype)
         for i in range(N):
-            X_seq[i] = X[i][-1] # [pad_mask[i]].mean(axis=0) oh i see why that was failing, diff aggs
+            X_seq[i] = self.aggregate(X[i], mode=agg) # [pad_mask[i]].mean(axis=0) oh i see why that was failing, diff aggs
 
         print(f"X_seq (predict): shape={X_seq.shape}", file=sys.stdout, flush=True)
 
@@ -252,6 +235,7 @@ class AttentionProbe(BaseProbe):
         self,
         X: np.ndarray,  # (N, S, D)
         y: np.ndarray,  # (N,)
+        agg: str = "attention",
         *,
         stage1_kwargs: dict[str, Any] | None = None,
         stage2_kwargs: dict[str, Any] | None = None,

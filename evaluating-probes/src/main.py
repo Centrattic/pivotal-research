@@ -25,7 +25,6 @@ reevaluate = args.e
 
 # To force code to run on cuda:1, if exists
 # os.environ["CUDA_VISIBLE_DEVICES"] = "1"
-# torch.cuda.set_device(1)
 
 def get_dataset(name, seed):
     if name == "single_all":
@@ -78,7 +77,7 @@ def main():
                 for arch_config in config.get('architectures', []):
                     for layer in config['layers']:
                         for component in config['components']:
-                            training_jobs.add((train_dataset, layer, component, arch_config['name'], arch_config['config_name']))
+                            training_jobs.add((train_dataset, layer, component, arch_config['name'], arch_config['aggregation'], arch_config['config_name']))
 
         # Check all datasets that will be used for either training or evaluation
         valid_dataset_metadata = {}
@@ -100,13 +99,13 @@ def main():
 
         # Step 2: Training Phase
         logger.log("\n" + "="*25 + " TRAINING PHASE " + "="*25)
-        for i, (train_ds, layer, comp, arch_name, conf_name) in enumerate(valid_training_jobs):
+        for i, (train_ds, layer, comp, arch_name, arch_agg, conf_name) in enumerate(valid_training_jobs):
             logger.log("-" * 60)
             logger.log(f"🫠 Training job {i+1}/{len(valid_training_jobs)}: {train_ds}, {arch_name}, L{layer}, {comp}")
             train_probe(
                 model=model, d_model=d_model, train_dataset_name=train_ds,
                 layer=layer, component=comp, architecture_name=arch_name, config_name=conf_name,
-                device=config['device'], use_cache=config['cache_activations'], seed=global_seed,
+                device=config['device'], aggregation=arch_agg, use_cache=config['cache_activations'], seed=global_seed,
                 results_dir=results_dir, cache_dir=cache_dir, logger=logger, retrain=retrain
             )
 
@@ -135,14 +134,13 @@ def main():
                     for arch_config in config.get('architectures', []):
                         for layer in config['layers']:
                             for component in config['components']:
-                                for agg in config.get('aggregations', []):
-                                    evaluate_probe(
-                                        train_dataset_name=train_dataset, eval_dataset_name=eval_dataset,
-                                        layer=layer, component=component, architecture_config=arch_config,
-                                        aggregation=agg, results_dir=results_dir, logger=logger, seed=global_seed,
-                                        model=model, d_model=d_model, device=config['device'],
-                                        use_cache=config['cache_activations'], cache_dir=cache_dir, reevaluate=reevaluate
-                                    )
+                                evaluate_probe(
+                                    train_dataset_name=train_dataset, eval_dataset_name=eval_dataset,
+                                    layer=layer, component=component, architecture_config=arch_config,
+                                    aggregation=arch_config['aggregation'], results_dir=results_dir, logger=logger, seed=global_seed,
+                                    model=model, d_model=d_model, device=config['device'],
+                                    use_cache=config['cache_activations'], cache_dir=cache_dir, reevaluate=reevaluate
+                                )
     finally:
         del model
         torch.cuda.empty_cache()

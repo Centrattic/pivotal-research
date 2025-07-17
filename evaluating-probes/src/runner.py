@@ -19,8 +19,8 @@ def get_probe_architecture(architecture_name: str, d_model: int, device):
         return AttentionProbe(d_model=d_model, device=device)
     raise ValueError(f"Unknown architecture: {architecture_name}")
 
-def get_probe_filename_prefix(train_ds, arch_name, layer, component):
-    return f"train_on_{train_ds}_{arch_name}_L{layer}_{component}"
+def get_probe_filename_prefix(train_ds, arch_name, aggregation, layer, component):
+    return f"train_on_{train_ds}_{arch_name}_{aggregation}_L{layer}_{component}"
 
 def get_included_datasets_classification_all(logger:Logger):
     included_datasets = []
@@ -74,10 +74,10 @@ def get_combined_activations(
 
 def train_probe(
     model, d_model: int, train_dataset_name: str, layer: int, component: str,
-    architecture_name: str, config_name: str, device: str, use_cache: bool,
+    architecture_name: str, aggregation: str, config_name: str, device: str, use_cache: bool,
     seed: int, results_dir: Path, cache_dir: Path, logger: Logger, retrain: bool
 ):
-    probe_filename_base = get_probe_filename_prefix(train_dataset_name, architecture_name, layer, component)
+    probe_filename_base = get_probe_filename_prefix(train_dataset_name, architecture_name, aggregation, layer, component)
     probe_save_dir = results_dir / f"train_{train_dataset_name}"
     probe_state_path = probe_save_dir / f"{probe_filename_base}_state.npz"
 
@@ -117,7 +117,7 @@ def train_probe(
     
     # train_acts = torch.ones(train_acts.shape) * y_train.reshape(len(y_train),1, 1)
 
-    probe.fit(train_acts, y_train, **fit_params)
+    probe.fit(train_acts, y_train, aggregation, **fit_params)
     probe.save_state(probe_state_path)
 
     # Save loss history
@@ -139,11 +139,11 @@ def evaluate_probe(
     logger.log(f"  - Trained on: {train_dataset_name}, Evaluated on: {eval_dataset_name}")
     logger.log(f"  - Probe: L{layer}_{component}_{architecture_name}, Aggregation: {aggregation}")
 
-    agg_name_for_file = "attention" if architecture_name == "attention" else aggregation
+    agg_name = "attention" if architecture_name == "attention" else aggregation
     probe_filename_base = get_probe_filename_prefix(train_dataset_name, architecture_name, layer, component)
     probe_save_dir = results_dir / f"train_{train_dataset_name}"
     probe_state_path = probe_save_dir / f"{probe_filename_base}_state.npz"
-    eval_results_path = probe_save_dir / f"eval_on_{eval_dataset_name}__{probe_filename_base}_{agg_name_for_file}_results.json"
+    eval_results_path = probe_save_dir / f"eval_on_{eval_dataset_name}__{probe_filename_base}_{agg_name}_results.json"
 
     if use_cache and eval_results_path.exists() and not reevaluate:
         with open(eval_results_path, 'r') as f:
@@ -184,12 +184,12 @@ def evaluate_probe(
         train_acts_cache_dir = cache_dir / train_dataset_name
         train_acts = act_manager.get_activations(X_train_text, layer, component, use_cache, train_acts_cache_dir, logger)
 
-    metrics = probe.score(train_acts, y_train, aggregation=agg_name_for_file)
+    metrics = probe.score(train_acts, y_train, aggregation=agg_name)
 
     metadata = {
         "metrics": metrics, "train_dataset": train_dataset_name, "eval_dataset": eval_dataset_name,
         "layer": layer, "component": component, "architecture": architecture_name,
-        "aggregation": agg_name_for_file, "config": asdict(PROBE_CONFIGS[config_name]), "seed": seed,
+        "aggregation": agg_name, "config": asdict(PROBE_CONFIGS[config_name]), "seed": seed,
     }
     with open(eval_results_path, "w") as f:
         json.dump(metadata, f, indent=2)

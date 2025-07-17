@@ -10,12 +10,11 @@ components:
 
 architectures:
   - name: "linear"
+    aggregation: "last"
     config_name: "default_linear"
   # - name: "attention"
   #   config_name: "default_attention"
 
-aggregations:
-  - "mean"
 
 # List of experiments to run
 experiments:
@@ -23,3 +22,9 @@ experiments:
     train_on: 4_hist_fig_ismale
     evaluate_on:
       - 4_hist_fig_ismale
+
+model_check:
+  - name: male
+    hf_model_name: "google/gemma-2-9b-it"
+    check_on: "4_hist_fig_ismale"
+    check_prompt: "In one word, {prompt}’s gender was:"

@@ -71,10 +71,12 @@ class ActivationManager:
             tokens = self.tokenizer(
                 batch_texts, return_tensors="pt", padding="max_length",
                 truncation=True, max_length=self.max_len
-            ).to(self.device)
+            )
+            # print(self.device, "DEVIC ENAME")
+            tokens = {k: v.to(self.device) for k, v in tokens.items()}
 
             with torch.no_grad():
-                _, cache = self.model.run_with_cache(tokens.input_ids, names_filter=[hook_name],
+                _, cache = self.model.run_with_cache(tokens['input_ids'], names_filter=[hook_name],
                                                      device=self.device)
 
             chunk = cache[hook_name]                      # (B, S, D)   float32 on CPU

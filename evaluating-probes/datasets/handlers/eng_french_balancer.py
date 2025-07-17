@@ -50,40 +50,53 @@ def _decide_languages(df: pd.DataFrame) -> tuple[str, str]:
     else:
         return "col2", "col1"     # col2 = EN, col1 = FR
 
-# ---------------------------------------------------------------------
-# main entry point
-# ---------------------------------------------------------------------
-def process(row: dict, source_file: str) -> pd.DataFrame:
+def process(row: dict, source_file: str, n_en: int = 25000, n_fr: int = 25000) -> pd.DataFrame:
     """
-    Compatible with your dataset-loader framework: returns
-      prompt | prompt_len | target     (French=1, English=0)
-    The incoming `row` (config) is ignored for this dataset.
+    Returns a DataFrame with randomly chosen English/French prompts.
+    Only includes prompts with > 20 characters.
+    Allows user to specify number of English and French samples.
+
+    Args:
+        row: (unused, for framework compatibility)
+        source_file: Path to TSV file.
+        n_en: Number of English samples to include.
+        n_fr: Number of French samples to include.
+
+    Returns:
+        DataFrame with columns: prompt | prompt_len | target
     """
     df_raw = _load_tsv(source_file)
-
     english_col, french_col = _decide_languages(df_raw)
 
-    prompts, targets = [], []
+    prompts, targets, prompt_lens = [], [], []
 
+    # Iterate through rows, generate both prompt directions per row
     for en, fr in tqdm(
         df_raw[[english_col, french_col]].itertuples(index=False),
         total=len(df_raw),
         desc="Building prompts",
     ):
-        if random.random() < 0.5:
+        if len(en) > 20:
             prompts.append(en)
-            targets.append(0)          # English → 0
-        else:
+            targets.append(0)
+            prompt_lens.append(len(en))
+        if len(fr) > 20:
             prompts.append(fr)
-            targets.append(1)          # French  → 1
+            targets.append(1)
+            prompt_lens.append(len(fr))
 
     out_df = pd.DataFrame({
-            "prompt":     prompts,
-            "prompt_len": [len(p) for p in prompts],
-            "target":     targets,
-        })
-    
-    out_df = out_df.drop_duplicates().reset_index(drop=True)
-    out_df = pd.concat([out_df.head(500), out_df.tail(500)]) # 2000 is so much more manageable for activation cache and activation loading
+        "prompt": prompts,
+        "prompt_len": prompt_lens,
+        "target": targets,
+    }).drop_duplicates().reset_index(drop=True)
+
+    # Sample n_en English and n_fr French prompts
+    en_df = out_df[out_df["target"] == 0].sample(n=min(n_en, (out_df["target"] == 0).sum()), random_state=42)
+    fr_df = out_df[out_df["target"] == 1].sample(n=min(n_fr, (out_df["target"] == 1).sum()), random_state=42)
+
+    out_df = pd.concat([en_df, fr_df]).reset_index(drop=True)
+    out_df = out_df.sample(frac=1, random_state=42).reset_index(drop=True)  # shuffle
 
     return out_df
+
