@@ -69,9 +69,12 @@ class Dataset:
         # Initialize split attributes
         self.X_train_text = None
         self.y_train = None
+        self.X_val_text = None
+        self.y_val = None
         self.X_test_text = None
         self.y_test = None
         self.train_indices = None
+        self.val_indices = None
         self.test_indices = None
 
         try: 
@@ -86,27 +89,35 @@ class Dataset:
         except: 
             print("Using dataset class to fetch text, not manage activations.")
 
-    def split_data(self, test_size: float = 0.15, seed: int = None):
-        """Split the data into train and test sets. Can be called multiple times to override splits."""
+    def split_data(self, train_size: float = 0.75, val_size: float = 0.10, test_size: float = 0.15, seed: int = None):
+        """
+        Split the data into train, val, and test sets. Can be called multiple times to override splits.
+        Default: 75% train, 10% val, 15% test.
+        """
         if seed is None:
             seed = 42  # Default seed
-        
-        tr_idx, te_idx = train_test_split(
-            np.arange(len(self.df)), 
-            test_size=test_size, 
-            random_state=seed, 
-            stratify=self.y if self.n_classes else None, 
-            shuffle=True
+        assert abs(train_size + val_size + test_size - 1.0) < 1e-6, "Splits must sum to 1.0"
+        n = len(self.df)
+        indices = np.arange(n)
+        # First split off test
+        trval_idx, te_idx = train_test_split(
+            indices, test_size=test_size, random_state=seed, stratify=self.y if self.n_classes else None, shuffle=True
         )
-        
+        # Now split train/val
+        val_relative = val_size / (train_size + val_size)
+        tr_idx, va_idx = train_test_split(
+            trval_idx, test_size=val_relative, random_state=seed, stratify=self.y[trval_idx] if self.n_classes else None, shuffle=True
+        )
         self.train_indices = tr_idx
+        self.val_indices = va_idx
         self.test_indices = te_idx
         self.X_train_text = self.X[tr_idx].tolist()
         self.y_train = self.y[tr_idx]
+        self.X_val_text = self.X[va_idx].tolist()
+        self.y_val = self.y[va_idx]
         self.X_test_text = self.X[te_idx].tolist()
         self.y_test = self.y[te_idx]
-        
-        print(f"Split data: {len(self.X_train_text)} train, {len(self.X_test_text)} test")
+        print(f"Split data: {len(self.X_train_text)} train, {len(self.X_val_text)} val, {len(self.X_test_text)} test")
 
     def get_activations_for_texts(self, texts: List[str], layer: int, component: str):
         """Get activations for an arbitrary list of texts."""
@@ -121,6 +132,11 @@ class Dataset:
             raise ValueError("Data not split yet. Call split_data() first.")
         return self.X_train_text, self.y_train
 
+    def get_val_set(self):
+        if self.X_val_text is None:
+            raise ValueError("Data not split yet. Call split_data() first.")
+        return self.X_val_text, self.y_val
+
     def get_test_set(self):
         if self.X_test_text is None:
             raise ValueError("Data not split yet. Call split_data() first.")
@@ -132,6 +148,12 @@ class Dataset:
             raise ValueError("Data not split yet. Call split_data() first.")
         acts = self.act_manager.get_activations_for_texts(self.X_train_text, layer, component)
         return acts, self.y_train
+
+    def get_val_set_activations(self, layer: int, component: str):
+        if self.X_val_text is None:
+            raise ValueError("Data not split yet. Call split_data() first.")
+        acts = self.act_manager.get_activations_for_texts(self.X_val_text, layer, component)
+        return acts, self.y_val
 
     def get_test_set_activations(self, layer: int, component: str):
         if self.X_test_text is None:

@@ -6,6 +6,7 @@ class ProbeConfig:
     """Base class for probe configurations."""
     pass
 
+# These don't really matter now that we're using find best fit
 @dataclass
 class PytorchLinearProbeConfig(ProbeConfig):
     """Hyperparameters for the PyTorch LinearProbe."""

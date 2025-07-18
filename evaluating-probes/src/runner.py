@@ -78,7 +78,7 @@ def train_probe(
     model, d_model: int, train_dataset_name: str, layer: int, component: str,
     architecture_name: str, aggregation: str, config_name: str, device: str, use_cache: bool,
     seed: int, results_dir: Path, cache_dir: Path, logger: Logger, retrain: bool,
-    test_size: float = 0.15,
+    train_size: float = 0.75, val_size: float = 0.10, test_size: float = 0.15,
 ):
     probe_filename_base = get_probe_filename_prefix(train_dataset_name, architecture_name, aggregation, layer, component)
     probe_save_dir = results_dir / f"train_{train_dataset_name}"
@@ -89,12 +89,13 @@ def train_probe(
     logger.log("  - Training new probe …")
 
     train_ds = Dataset(train_dataset_name, model=model, device=device, seed=seed)  # uses default cache_root
-    train_ds.split_data(test_size=test_size, seed=seed)  # Split the data
+    train_ds.split_data(train_size=train_size, val_size=val_size, test_size=test_size, seed=seed)  # Split the data
     train_acts, y_train = train_ds.get_train_set_activations(layer, component)
+    val_acts, y_val = train_ds.get_val_set_activations(layer, component)
 
     probe = get_probe_architecture(architecture_name, d_model=d_model, device=device, aggregation=aggregation)
     fit_params = asdict(PROBE_CONFIGS[config_name])
-    probe.fit(train_acts, y_train, **fit_params)
+    probe.find_best_fit(train_acts, y_train, val_acts, y_val)
 
     probe_save_dir.mkdir(parents=True, exist_ok=True)
     probe.save_state(probe_state_path)

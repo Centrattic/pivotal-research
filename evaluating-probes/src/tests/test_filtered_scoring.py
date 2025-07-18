@@ -51,13 +51,13 @@ def test_filtered_scoring():
         
         # Check that filtered metrics are different from regular metrics
         if filtered_metrics.get("filtered", False):
-            print("✅ Filtered scoring worked!")
+            print("😄 Filtered scoring worked!")
             print(f"   Original size: {filtered_metrics['original_size']}")
             print(f"   Filtered size: {filtered_metrics['filtered_size']}")
             print(f"   Removed: {filtered_metrics['removed_count']}")
             print(f"   Filtering %: {filtered_metrics['filtering_percentage']:.1f}%")
         else:
-            print("❌ Filtered scoring failed")
+            print("😢 Filtered scoring failed")
 
 if __name__ == "__main__":
     test_filtered_scoring() 
