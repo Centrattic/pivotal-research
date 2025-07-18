@@ -91,12 +91,12 @@ def main():
             if not runthrough_dir.exists():
                 all_checks_done = False
                 break
-        if not all_checks_done:
-            logger.log("\n=== Running model_check before main pipeline ===")
-            run_model_check(config)
-            logger.log("=== model_check complete ===\n")
-        else:
-            logger.log("\n=== Skipping model_check: all runthrough directories already exist ===\n")
+        # if not all_checks_done:
+        logger.log("\n=== Running model_check before main pipeline ===")
+        run_model_check(config)
+        logger.log("=== model_check complete ===\n")
+        # else:
+        #     logger.log("\n=== Skipping model_check: all runthrough directories already exist ===\n")
 
 
     try:

@@ -10,105 +10,98 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import re
 
-def plot_logit_diffs_by_gender(
-    diff_file: str, 
-    gender_file: str = "./datasets/cleaned/4_hist_fig_ismale.csv",
-    save_path: str = "logit_diffs_by_gender_hist.png"
+def plot_logit_diffs_by_class(
+    diff_file: str,
+    class_names: dict,
+    save_path: str = "logit_diffs_by_class_hist.png",
+    main_diff: tuple = None,
+    bins: int = 50,
+    x_range: tuple = (-10, 10),
 ):
     """
-    Plots histogram of logit diffs colored by gender, matching names from prompts to gender file.
-
+    Plots histogram of logit differences for each class or for a specified pair.
     Args:
-        diff_file: Path to the CSV with prompt and logit_diff columns.
-        gender_file: Path to the CSV with columns 'name' and 'is_male' (1=male, 0=female)
+        diff_file: Path to the CSV with logit columns (e.g., logit_French, logit_English).
+        class_names: dict mapping class idx to class name (e.g., {0: 'French', 1: 'English'})
         save_path: Path to save the histogram image.
+        main_diff: tuple (idx1, idx2) to plot logit_class1 - logit_class2. If None and two classes, uses (0,1).
+        bins: Number of bins for the histogram.
     """
-    # Load data
     diffs = pd.read_csv(diff_file)
-    gender_df = pd.read_csv(gender_file)
-    gender_map = dict(zip(gender_df["prompt"], gender_df["target"]))
-
-    # Regex to extract the person name
-    def extract_name(prompt):
-        m = re.match(r'^In one word, (.+?)[\’\']s gender was:', prompt)
-        return m.group(1).strip() if m else None
-
-    def strip_lower(prompt):
-        return prompt.strip()
-
-    # Extract names and look up gender
-    diffs["name"] = diffs["prompt"] # .apply(extract_name).apply(strip_lower)
-    print(diffs['name'])
-    diffs["is_male"] = diffs["name"].map(gender_map)
-    print(diffs["is_male"])
-    diffs["gender"] = diffs["is_male"].map({True: "Male", False: "Female"})
-    
-    missing = diffs[diffs["is_male"].isnull()]
-    if not missing.empty:
-        print("Warning: Could not determine gender for names:", missing["name"].tolist())
-    
-    # Plot histogram
-    fig, ax = plt.subplots(figsize=(8, 5))
-    colors = {"Male": "tab:blue", "Female": "tab:orange"}
-
-    for gender in ["Male", "Female"]:
-        sub = diffs[diffs["gender"] == gender]
-        ax.hist(
-            sub["logit_diff"], 
-            bins=30, 
-            alpha=0.7, 
-            label=gender, 
-            color=colors[gender],
+    class_keys = list(class_names.keys())
+    if main_diff is None:
+        if len(class_keys) == 2:
+            main_diff = (class_keys[0], class_keys[1])
+        else:
+            raise ValueError("main_diff must be specified for more than 2 classes.")
+    idx1, idx2 = main_diff
+    name1 = class_names[idx1]
+    name2 = class_names[idx2]
+    logit_col1 = f"logit_{name1}"
+    logit_col2 = f"logit_{name2}"
+    if logit_col1 not in diffs.columns or logit_col2 not in diffs.columns:
+        raise ValueError(f"Logit columns {logit_col1} and/or {logit_col2} not found in {diff_file}")
+    logit_diff = diffs[logit_col1] - diffs[logit_col2]
+    # Overlay by true label
+    import matplotlib.pyplot as plt
+    plt.figure(figsize=(8, 5))
+    color_cycle = plt.rcParams['axes.prop_cycle'].by_key()['color']
+    for i, (idx, name) in enumerate(class_names.items()):
+        mask = diffs['label'] == idx
+        plt.hist(
+            logit_diff[mask],
+            bins=bins,
+            range=x_range,
+            alpha=0.7,
+            label=f"{name} (N={mask.sum()})",
+            color=color_cycle[i % len(color_cycle)],
             edgecolor="black"
         )
-    
-    ax.set_xlabel("Logit difference")
-    ax.set_ylabel("Count")
-    ax.set_title("Logit difference histogram by gender")
-    ax.set_yscale("log")
-    ax.legend()
+    plt.xlabel(f"Logit difference: {name1} - {name2}")
+    plt.ylabel("Count")
+    plt.title(f"Logit difference histogram: {name1} vs {name2}")
+    plt.yscale("log")
+    plt.legend()
     plt.tight_layout()
     plt.savefig(save_path, dpi=150)
     print(f"Saved histogram to {save_path}")
+    plt.close()
 
-    plt.show()
 
 def plot_class_logit_distributions(
-    all_top_logits,          # list of [ [token(str), logit(float)], ... ] per sample
-    all_labels,              # list of 0 or 1 per sample (0=male, 1=female)
-    correct_token_for_class, # dict, e.g. {0: " Male", 1: " Female"}
-    class_names = {0: "male", 1: "female"},
-    bins=50,
+    all_top_logits,          # list of dicts: each dict maps class idx to logit value
+    all_labels,              # list of int class indices per sample
+    class_names,             # dict, e.g. {0: "French", 1: "English"}
+    bins=20,
+    x_range=(-10, 10),
     run_name="run",
     save_path=None,
 ):
     """
-    all_top_logits: List of list of (token, logit) pairs per sample (top k)
-    all_labels: list of int (0 or 1) for each sample
-    correct_token_for_class: dict mapping class idx to class token (exact match)
+    Plots the distribution of the logit for the correct class for each true label.
     """
-    # Collect all logits for correct class tokens, per class
-    class_logits = {0: [], 1: []}
-    for top_logits, label in zip(all_top_logits, all_labels):
-        for token, logit in top_logits:
-            # Exact match (including spaces and case)
-            for class_idx, class_token in correct_token_for_class.items():
-                if token == class_token:
-                    class_logits[class_idx].append(logit)
-    
-    # Plot histograms
     import matplotlib.pyplot as plt
     plt.figure(figsize=(8, 4))
-    for class_idx, name in class_names.items():
-        plt.hist(
-            class_logits[class_idx],
-            bins=bins,
-            alpha=0.7,
-            label=f"{name} (N={len(class_logits[class_idx])})"
-        )
-    plt.xlabel("Logit Value for Class Token")
+    color_cycle = plt.rcParams['axes.prop_cycle'].by_key()['color']
+    for i, (idx, name) in enumerate(class_names.items()):
+        # Collect logits for samples where the true label == idx
+        class_logits = [
+            logit_dict[idx]
+            for logit_dict, label in zip(all_top_logits, all_labels)
+            if idx in logit_dict and label == idx
+        ]
+        if class_logits:
+            plt.hist(
+                class_logits,
+                bins=bins,
+                range=x_range,
+                alpha=0.7,
+                label=f"{name} (N={len(class_logits)})",
+                color=color_cycle[i % len(color_cycle)]
+            )
+    plt.xlabel("Logit Value for True Class")
     plt.ylabel("Frequency")
-    plt.title(f"Logit Distributions for Class Tokens\n({run_name})")
+    plt.title(f"Logit Distributions for True Classes\n({run_name})")
     plt.legend()
     if save_path:
         plt.tight_layout()

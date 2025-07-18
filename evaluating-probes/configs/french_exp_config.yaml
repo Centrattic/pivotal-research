@@ -26,3 +26,10 @@ experiments:
     score:
       - all
       - filtered # only relevant if you've done a model check already
+
+model_check:
+  - name: french-pred
+    hf_model_name: "google/gemma-2-9b-it"
+    check_on: "91_eng-french"
+    check_prompt: 'In one word, the statement "{prompt}" is in the language of:'
+    class_names: {0: "French", 1: "English"}

@@ -29,7 +29,25 @@ class BaseProbe:
 
     def fit(self, X: np.ndarray, y: np.ndarray, mask: Optional[np.ndarray] = None, 
             epochs: int = 20, lr: float = 1e-3, batch_size: int = 512, weight_decay: float = 0.0, 
-            verbose: bool = True, early_stopping: bool = True, patience: int = 5, min_delta: float = 0.0):
+            verbose: bool = True, early_stopping: bool = True, patience: int = 5, min_delta: float = 0.0,
+            use_weighted_loss: bool = True, use_weighted_sampler: bool = False):
+        """
+        Train the probe model.
+        Args:
+            X: Input features, shape (N, seq, d_model)
+            y: Labels, shape (N,) or (N, num_classes)
+            mask: Optional mask, shape (N, seq)
+            epochs: Number of epochs
+            lr: Learning rate
+            batch_size: Batch size
+            weight_decay: Weight decay
+            verbose: Print progress
+            early_stopping: Use early stopping
+            patience: Early stopping patience
+            min_delta: Early stopping min delta
+            use_weighted_loss: If True, use class-weighted loss for classification
+            use_weighted_sampler: If True, use WeightedRandomSampler for class balancing
+        """
         print(f"\n=== TRAINING START ===")
         print(f"Input X shape: {X.shape}")
         print(f"Input y shape: {y.shape}")
@@ -37,6 +55,7 @@ class BaseProbe:
         print(f"Task type: {self.task_type}")
         print(f"Device: {self.device}")
         print(f"Epochs: {epochs}, LR: {lr}, Batch size: {batch_size}, Weight decay: {weight_decay}")
+        print(f"Weighted loss: {use_weighted_loss}, Weighted sampler: {use_weighted_sampler}")
         
         X = torch.tensor(X, dtype=torch.float32)
         y = torch.tensor(y, dtype=torch.float32 if self.task_type == "regression" else torch.long)
@@ -49,20 +68,75 @@ class BaseProbe:
         print(f"Tensor y shape: {y.shape}")
         print(f"Tensor mask shape: {mask.shape}")
 
+        # Compute class weights for weighted loss (classification only)
+        class_weights = None
+        if self.task_type == "classification" and use_weighted_loss:
+            try:
+                from sklearn.utils.class_weight import compute_class_weight
+                y_np = y.cpu().numpy() if hasattr(y, 'cpu') else y.numpy()
+                if y_np.ndim > 1 and y_np.shape[1] == 1:
+                    y_np = y_np.squeeze(-1)
+                classes = np.unique(y_np)
+                class_weights_np = compute_class_weight('balanced', classes=classes, y=y_np)
+                class_weights = torch.tensor(class_weights_np, dtype=torch.float32, device=self.device)
+                print(f"Class weights: {class_weights}")
+            except Exception as e:
+                print(f"Could not compute class weights: {e}")
+                class_weights = None
+
         dataset = torch.utils.data.TensorDataset(X, y, mask)
-        loader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=True)
+
+        # WeightedRandomSampler for class balancing (classification only)
+        sampler = None
+        if self.task_type == "classification" and use_weighted_sampler:
+            y_np = y.cpu().numpy() if hasattr(y, 'cpu') else y.numpy()
+            if y_np.ndim > 1 and y_np.shape[1] == 1:
+                y_np = y_np.squeeze(-1)
+            class_sample_count = np.array([len(np.where(y_np == t)[0]) for t in np.unique(y_np)])
+            weight = 1. / class_sample_count
+            samples_weight = np.array([weight[int(t)] for t in y_np])
+            samples_weight = torch.from_numpy(samples_weight).float()
+            from torch.utils.data import WeightedRandomSampler
+            sampler = WeightedRandomSampler(samples_weight, len(samples_weight), replacement=True)
+            print(f"Using WeightedRandomSampler for class balancing.")
+
+        if sampler is not None:
+            loader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, sampler=sampler)
+        else:
+            loader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=True)
         print(f"Dataset size: {len(dataset)}")
         print(f"Number of batches: {len(loader)}")
 
         self.model.train()
         optimizer = torch.optim.Adam(self.model.parameters(), lr=lr, weight_decay=weight_decay)
         if self.task_type == "classification":
-            criterion = nn.BCEWithLogitsLoss() if y.ndim == 1 or y.shape[1] == 1 else nn.CrossEntropyLoss()
+            if y.ndim == 1 or y.shape[1] == 1:
+                # Binary classification
+                if use_weighted_loss and class_weights is not None:
+                    # For BCEWithLogitsLoss, use pos_weight for positive class
+                    # pos_weight should be a single value: weight for positive class / weight for negative class
+                    if len(class_weights) == 2:
+                        pos_weight = class_weights[1] / class_weights[0]
+                        criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
+                        print(f"Using BCEWithLogitsLoss with pos_weight={pos_weight}")
+                    else:
+                        criterion = nn.BCEWithLogitsLoss()
+                        print(f"Using BCEWithLogitsLoss (no pos_weight, class_weights length != 2)")
+                else:
+                    criterion = nn.BCEWithLogitsLoss()
+                    print(f"Using BCEWithLogitsLoss (no class weights)")
+            else:
+                # Multiclass
+                if use_weighted_loss and class_weights is not None:
+                    criterion = nn.CrossEntropyLoss(weight=class_weights)
+                    print(f"Using CrossEntropyLoss with class weights")
+                else:
+                    criterion = nn.CrossEntropyLoss()
+                    print(f"Using CrossEntropyLoss (no class weights)")
         else:
             criterion = nn.MSELoss()
+            print(f"Using MSELoss (regression)")
         
-        print(f"Loss function: {criterion.__class__.__name__}")
-
         best_loss = float('inf')
         epochs_no_improve = 0
         stop_epoch = None
@@ -71,7 +145,6 @@ class BaseProbe:
             epoch_loss = 0.0
             batch_count = 0
             for xb, yb, mb in loader:
-                
                 # Only move one batch to the device at a time
                 xb = xb.to(self.device)
                 yb = yb.to(self.device)

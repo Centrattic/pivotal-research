@@ -106,3 +106,4 @@ UNDERSTAND THIS:
 
 
 * make it such that it's possible to hyperparam tune some probes but not all your probes or something. For now, I can just change experiment details or something like that.
+* small fix so that if you don't specify -t or -e flags, and stuff alrady exsits, the model shouldn't be loaded. Like load in train or eval or smt ig?

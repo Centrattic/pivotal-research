@@ -9,12 +9,12 @@ components:
   - "resid_post"
 
 architectures:
-  # - name: "linear"
-  #   aggregation: "last"
-  #   config_name: "default_linear"
-  # - name: "linear"
-  #   aggregation: "mean"
-  #   config_name: "default_linear"
+  - name: "linear"
+    aggregation: "last"
+    config_name: "default_linear"
+  - name: "linear"
+    aggregation: "mean"
+    config_name: "default_linear"
   - name: "attention"
     aggregation: "attention"
     config_name: "default_attention"
@@ -34,3 +34,4 @@ model_check:
     hf_model_name: "google/gemma-2-9b-it"
     check_on: "4_hist_fig_ismale"
     check_prompt: "In one word, {prompt}’s gender was:"
+    class_names: {0: "Male", 1: "Female"}

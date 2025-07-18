@@ -12,7 +12,7 @@ class PytorchLinearProbeConfig(ProbeConfig):
     """Hyperparameters for the PyTorch LinearProbe."""
     lr: float = 1e-3
     epochs: int = 50
-    batch_size: int = 64
+    batch_size: int = 512
     weight_decay: float = 0.0
     # Add more as needed
 
@@ -20,8 +20,8 @@ class PytorchLinearProbeConfig(ProbeConfig):
 class PytorchAttentionProbeConfig(ProbeConfig):
     """Hyperparameters for the PyTorch AttentionProbe."""
     lr: float = 1e-3
-    epochs: int = 50
-    batch_size: int = 64
+    epochs: int = 75
+    batch_size: int = 512
     weight_decay: float = 0.0
     # Add more as needed
 
