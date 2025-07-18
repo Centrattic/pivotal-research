@@ -161,6 +161,55 @@ class Dataset:
         acts = self.act_manager.get_activations_for_texts(self.X_test_text, layer, component)
         return acts, self.y_test
     
+    def rebuild(self, class_counts: dict = None, class_percents: dict = None, total_samples: int = None, seed: int = 42) -> 'Dataset':
+        """
+        Returns a new Dataset object with resampled data according to the specified class_counts or class_percents.
+        Args:
+            class_counts: dict mapping class label to desired count, e.g. {0: 100, 1: 200}
+            class_percents: dict mapping class label to desired percent, e.g. {0: 0.3, 1: 0.7}
+            total_samples: total number of samples (used with class_percents)
+            seed: random seed for reproducibility
+        """
+        import copy
+        np.random.seed(seed)
+        df = self.df.copy()
+        if class_counts is not None:
+            # Sample specified number from each class
+            dfs = []
+            for label, count in class_counts.items():
+                class_df = df[df['target'] == label]
+                if len(class_df) < count:
+                    raise ValueError(f"Not enough samples for class {label}: requested {count}, available {len(class_df)}")
+                dfs.append(class_df.sample(n=count, random_state=seed))
+            new_df = pd.concat(dfs).sample(frac=1, random_state=seed).reset_index(drop=True)
+        elif class_percents is not None and total_samples is not None:
+            # Compute number of samples for each class
+            dfs = []
+            for label, percent in class_percents.items():
+                count = int(round(percent * total_samples))
+                class_df = df[df['target'] == label]
+                if len(class_df) < count:
+                    raise ValueError(f"Not enough samples for class {label}: requested {count}, available {len(class_df)}")
+                dfs.append(class_df.sample(n=count, random_state=seed))
+            new_df = pd.concat(dfs).sample(frac=1, random_state=seed).reset_index(drop=True)
+        else:
+            raise ValueError("Must specify either class_counts or (class_percents and total_samples)")
+        # Create a new Dataset instance with the new DataFrame
+        new_dataset = copy.copy(self)
+        new_dataset.df = new_df
+        new_dataset.X = new_df["prompt"].astype(str).to_numpy()
+        new_dataset.y = new_df["target"].to_numpy()
+        new_dataset.X_train_text = None
+        new_dataset.y_train = None
+        new_dataset.X_val_text = None
+        new_dataset.y_val = None
+        new_dataset.X_test_text = None
+        new_dataset.y_test = None
+        new_dataset.train_indices = None
+        new_dataset.val_indices = None
+        new_dataset.test_indices = None
+        return new_dataset
+
 def get_available_datasets(data_dir: Path = Path("datasets/cleaned")) -> List[str]:
     return [f.stem for f in data_dir.glob("*.csv")]
 

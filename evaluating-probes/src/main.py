@@ -6,6 +6,7 @@ import argparse
 import torch
 import os
 import sys
+import json
 
 # Set CUDA device BEFORE importing transformer_lens
 parser = argparse.ArgumentParser()
@@ -52,6 +53,20 @@ def get_dataset(name, model, device, seed):
     # else:
     return Dataset(name, model=model, device=device, seed=seed)
 
+def resample_params_to_str(params):
+    if params is None:
+        return "original"
+    if 'class_counts' in params:
+        cc = params['class_counts']
+        cc_str = '_'.join([f"class{cls}_{cc[cls]}" for cls in sorted(cc)])
+        return f"{cc_str}_seed{params.get('seed', 42)}"
+    elif 'class_percents' in params:
+        cp = params['class_percents']
+        cp_str = '_'.join([f"class{cls}_{int(cp[cls]*100)}pct" for cls in sorted(cp)])
+        return f"{cp_str}_total{params['total_samples']}_seed{params.get('seed', 42)}"
+    else:
+        return f"custom_seed{params.get('seed', 42)}"
+
 def main():
     # Clear GPU memory and set device
     torch.cuda.empty_cache()
@@ -91,13 +106,12 @@ def main():
             if not runthrough_dir.exists():
                 all_checks_done = False
                 break
-        # if not all_checks_done:
-        logger.log("\n=== Running model_check before main pipeline ===")
-        run_model_check(config)
-        logger.log("=== model_check complete ===\n")
-        # else:
-        #     logger.log("\n=== Skipping model_check: all runthrough directories already exist ===\n")
-
+        if not all_checks_done:
+            logger.log("\n=== Running model_check before main pipeline ===")
+            run_model_check(config)
+            logger.log("=== model_check complete ===\n")
+        else:
+            logger.log("\n=== Skipping model_check: all runthrough directories already exist ===\n")
 
     try:
         # Single model instance
@@ -110,7 +124,7 @@ def main():
         available_datasets = get_available_datasets()
 
         # Step 1: Pre-flight check and gather all unique training jobs
-        logger.log("\n--- Performing Pre-flight Checks and Gathering Jobs ---")
+        logger.log("\n Performing Pre-flight Checks and Gathering Jobs")
         training_jobs = set()
         all_dataset_names_to_check = set()
 
@@ -160,56 +174,63 @@ def main():
         for i, (train_ds, layer, comp, arch_name, arch_agg, conf_name) in enumerate(valid_training_jobs):
             logger.log("-" * 60)
             logger.log(f"🫠 Training job {i+1}/{len(valid_training_jobs)}: {train_ds}, {arch_name}, L{layer}, {comp}")
-            train_probe(
-                model=model, d_model=d_model, train_dataset_name=train_ds,
-                layer=layer, component=comp, architecture_name=arch_name, config_name=conf_name,
-                device=config['device'], aggregation=arch_agg, use_cache=config['cache_activations'], seed=global_seed,
-                results_dir=results_dir, cache_dir=cache_dir, logger=logger, retrain=retrain,
-                hyperparameter_tuning=hyperparameter_tuning
-            )
+            # Find the experiment for this job
+            experiment = next((exp for exp in config['experiments'] if exp['train_on'] == train_ds), None)
+            rebuild_configs = experiment.get('rebuild_config', [None]) if experiment else [None]
+            for rebuild_params in rebuild_configs:
+                train_probe(
+                    model=model, d_model=d_model, train_dataset_name=train_ds,
+                    layer=layer, component=comp, architecture_name=arch_name, config_name=conf_name,
+                    device=config['device'], aggregation=arch_agg, use_cache=config['cache_activations'], seed=global_seed,
+                    results_dir=results_dir, cache_dir=cache_dir, logger=logger, retrain=retrain,
+                    hyperparameter_tuning=hyperparameter_tuning, rebuild_config=rebuild_params
+                )
 
         # Step 3: Evaluation Phase
         logger.log("\n" + "="*25 + " EVALUATION PHASE " + "="*25)
         for experiment in config['experiments']:
             train_sets = [experiment['train_on']]
             if experiment['train_on'] == "all": train_sets = available_datasets
-
-            # Get score options from config, default to ['all'] if not specified
             score_options = experiment.get('score', ['all'])
-
+            rebuild_configs = experiment.get('rebuild_config', [None])
             for train_dataset in train_sets:
                 if train_dataset not in valid_dataset_metadata: continue
-
                 eval_sets = experiment['evaluate_on']
                 if "all" in eval_sets: eval_sets = available_datasets
                 if "self" in eval_sets: eval_sets = [d if d != "self" else train_dataset for d in eval_sets]
-
                 for eval_dataset in eval_sets:
                     if eval_dataset not in valid_dataset_metadata: continue
-
                     train_meta = valid_dataset_metadata[train_dataset]
                     eval_meta = valid_dataset_metadata[eval_dataset]
                     if train_meta['task_type'] != eval_meta['task_type'] or train_meta['n_classes'] != eval_meta['n_classes']:
                         logger.log(f"  - 🫡  Skipping evaluation of probe from '{train_dataset}' on '{eval_dataset}' due to task mismatch.")
                         continue
-
                     for arch_config in config.get('architectures', []):
                         for layer in config['layers']:
                             for component in config['components']:
-                                evaluate_probe(
-                                    train_dataset_name=train_dataset, eval_dataset_name=eval_dataset,
-                                    layer=layer, component=component, architecture_config=arch_config,
-                                    aggregation=arch_config['aggregation'], results_dir=results_dir, logger=logger, seed=global_seed,
-                                    model=model, d_model=d_model, device=config['device'],
-                                    use_cache=config['cache_activations'], cache_dir=cache_dir, reevaluate=reevaluate,
-                                    score_options=score_options
-                                )
+                                all_eval_results = {}
+                                for rebuild_params in rebuild_configs:
+                                    metrics = evaluate_probe(
+                                        train_dataset_name=train_dataset, eval_dataset_name=eval_dataset,
+                                        layer=layer, component=component, architecture_config=arch_config,
+                                        aggregation=arch_config['aggregation'], results_dir=results_dir, logger=logger, seed=global_seed,
+                                        model=model, d_model=d_model, device=config['device'],
+                                        use_cache=config['cache_activations'], cache_dir=cache_dir, reevaluate=reevaluate,
+                                        score_options=score_options, rebuild_config=rebuild_params, return_metrics=True
+                                    )
+                                    key = resample_params_to_str(rebuild_params)
+                                    all_eval_results[key] = metrics
+                                # Save all results for this probe/dataset/arch/layer/component combo
+                                probe_filename_base = f"{train_dataset}_{arch_config['name']}_{arch_config['aggregation']}_L{layer}_{component}"
+                                eval_results_path = results_dir / f"train_{train_dataset}" / f"eval_on_{eval_dataset}__{probe_filename_base}_allres.json"
+                                with open(eval_results_path, "w") as f:
+                                    json.dump(all_eval_results, f, indent=2)
     finally:
         if 'model' in locals():
             del model
         torch.cuda.empty_cache()
         logger.log("=" * 60)
-        logger.log("🥹 Run finished. Closing log file.")
+        logger.log("\U0001f979 Run finished. Closing log file.")
         logger.close()
 
 if __name__ == "__main__":

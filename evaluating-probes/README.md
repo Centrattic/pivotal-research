@@ -84,6 +84,10 @@ https://github.com/Stefan-Heimersheim/runpod_cli/
 * del model from cuda at the end of every using it, and clear cache, try to clear gpu entirely so it doesnt hold old stuffs
 * make test size something you pass in during experiment config? Either way, test size being manually coded at 0.15 everywhere seems bad, wehn i can pass it into places. Perhaps just have main variable with test size written. Somehow need to make this generalize nicely to french dataset 
 * figure out how to properly run on cuda:1
+* add filtered threshold 
+* if i dont pass train flag and some of the probes are untrained why does it skip those?? idkkk oh it skips running train for that set, including rebuild ocnfig. So either have to skip all rebuild config or not. Should figure out what is best here, probably fix this. 
+* change model_check to just be 1 file instead of a module
+* make config for dataclass exps much cleaner, it must have categories for the three sorts of dataclass exps so its much easier to plot
 
 
 Reminder that: 

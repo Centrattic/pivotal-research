@@ -293,6 +293,28 @@ class BaseProbe:
         print(f"=== PROBABILITY PREDICTION COMPLETE ===\n")
         return result
 
+    def predict_logits(self, X: np.ndarray, mask: Optional[np.ndarray] = None, batch_size: int = 1) -> np.ndarray:
+        """
+        Returns the raw logits (pre-sigmoid/softmax) for the input X.
+        """
+        self.model.eval()
+        if mask is not None:
+            mask = torch.tensor(mask, dtype=torch.bool, device=self.device)
+        else:
+            mask = torch.ones(X.shape[:2], dtype=torch.bool, device=self.device)
+        all_logits = []
+        num_batches = (len(X) + batch_size - 1) // batch_size
+        for i in range(0, len(X), batch_size):
+            batch_X = torch.tensor(X[i:i+batch_size], dtype=torch.float32, device=self.device)
+            batch_mask = mask[i:i+batch_size]
+            with torch.no_grad():
+                logits = self.model(batch_X, batch_mask)
+                if logits.ndim == 1:
+                    logits = logits[:, None]  # shape (batch, 1)
+                all_logits.append(logits.cpu().numpy())
+        result = np.concatenate(all_logits, axis=0)
+        return result
+
     def score(self, X: np.ndarray, y: np.ndarray, mask: Optional[np.ndarray] = None) -> dict[str, float]:
         print(f"\n=== SCORING START ===")
         print(f"Input X shape: {X.shape}")
@@ -507,41 +529,7 @@ class LinearProbeNet(nn.Module):
 class LinearProbe(BaseProbe):
     def _init_model(self):
         self.model = LinearProbeNet(self.d_model, aggregation=self.aggregation, device=self.device)
-
-    def find_best_fit(self, X_train: np.ndarray, y_train: np.ndarray, X_val: np.ndarray, y_val: np.ndarray, mask_train: Optional[np.ndarray] = None, mask_val: Optional[np.ndarray] = None, 
-                    n_trials: int = 10, direction: str = None, verbose: bool = True):
-        """
-        Use Optuna to find the best learning rate and weight decay for this probe.
-        Returns the best hyperparameters and the best trained model.
-        """
-        import optuna
-        print("\n=== OPTUNA HYPERPARAMETER SEARCH START (LinearProbe) ===")
-        if direction is None:
-            direction = "maximize" if self.task_type == "classification" else "minimize"
-        
-        def objective(trial):
-            lr = trial.suggest_loguniform('lr', 1e-5, 1e-1)
-            weight_decay = trial.suggest_loguniform('weight_decay', 1e-8, 1e-1)
-            self._init_model()
-            self.fit(X_train, y_train, mask=mask_train, lr=lr, weight_decay=weight_decay, epochs=50, verbose=False, early_stopping=True, patience=5, min_delta=0.0)
-            metrics = self.score(X_val, y_val, mask_val)
-            if self.task_type == "classification":
-                score = metrics.get("auc", 0.0)
-            else:
-                score = metrics.get("mse", float('inf'))
-            if verbose:
-                print(f"Trial lr={lr:.2e}, wd={weight_decay:.2e} -> score={score}")
-            return score
-        
-        study = optuna.create_study(direction=direction)
-        study.optimize(objective, n_trials=n_trials)
-        
-        best_params = study.best_params
-        print(f"Best hyperparameters: {best_params}")
-        self._init_model()
-        self.fit(X_train, y_train, mask=mask_train, lr=best_params['lr'], weight_decay=best_params['weight_decay'], epochs=50, verbose=verbose, early_stopping=True)
-        print("=== OPTUNA HYPERPARAMETER SEARCH COMPLETE ===\n")
-        return self, best_params
+    # Inherits predict_logits from BaseProbe
 
 class AttentionProbeNet(nn.Module):
     def __init__(self, d_model: int, device: str = "cpu"):
@@ -571,41 +559,7 @@ class AttentionProbeNet(nn.Module):
 class AttentionProbe(BaseProbe):
     def _init_model(self):
         self.model = AttentionProbeNet(self.d_model, device=self.device)
-
-    def find_best_fit(self, X_train: np.ndarray, y_train: np.ndarray, X_val: np.ndarray, y_val: np.ndarray, mask_train: Optional[np.ndarray] = None, mask_val: Optional[np.ndarray] = None, 
-                    n_trials: int = 10, direction: str = None, verbose: bool = True):
-        """
-        Use Optuna to find the best learning rate, weight decay, and optionally epochs for AttentionProbe.
-        Returns the best hyperparameters and the best trained model.
-        """
-        import optuna
-        print("\n=== OPTUNA HYPERPARAMETER SEARCH START (AttentionProbe) ===")
-        if direction is None:
-            direction = "maximize" if self.task_type == "classification" else "minimize"
-        
-        def objective(trial):
-            lr = trial.suggest_loguniform('lr', 1e-5, 1e-1)
-            weight_decay = trial.suggest_loguniform('weight_decay', 1e-8, 1e-1)
-            self._init_model()
-            self.fit(X_train, y_train, mask=mask_train, lr=lr, weight_decay=weight_decay, epochs=50, verbose=False, early_stopping=True)
-            metrics = self.score(X_val, y_val, mask_val)
-            if self.task_type == "classification":
-                score = metrics.get("auc", 0.0)
-            else:
-                score = metrics.get("mse", float('inf'))
-            if verbose:
-                print(f"Trial lr={lr:.2e}, wd={weight_decay:.2e}, epochs={epochs} -> score={score}")
-            return score
-        
-        study = optuna.create_study(direction=direction)
-        study.optimize(objective, n_trials=n_trials)
-        
-        best_params = study.best_params
-        print(f"Best hyperparameters: {best_params}")
-        self._init_model()
-        self.fit(X_train, y_train, mask=mask_train, lr=best_params['lr'], weight_decay=best_params['weight_decay'], epochs=50, verbose=verbose, early_stopping=True)
-        print("=== OPTUNA HYPERPARAMETER SEARCH COMPLETE ===\n")
-        return self, best_params
+    # Inherits predict_logits from BaseProbe
 
 # Example usage:
 # class MyProbe(BaseProbe):

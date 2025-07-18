@@ -26,6 +26,7 @@ class PytorchAttentionProbeConfig(ProbeConfig):
     # Add more as needed
 
 # A dictionary to easily access configs by name. Configs are updated by -ht flag (Optuna tuning).
+# The issue is we'd need separate for each dataset
 PROBE_CONFIGS = {
     # Linear probe configs by aggregation
     "linear_mean": PytorchLinearProbeConfig(lr=0.0007395535622979691, weight_decay=4.649132978175384e-06),
