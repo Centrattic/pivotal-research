@@ -65,7 +65,7 @@ def main():
         # Make them all cuda:0 in config! Or just cuda
         device = config.get("device")
         if device and "cuda" in device and "1" in device:
-            # If we're using cuda:1, make sure it's updated to cuda:0
+            # If we're using cuda:1, make sure it's updated to cuda:0 after visible devices cut
             config["device"] = "cuda:0"
             print(f"Updated device from {device} to cuda:0")
     except: 

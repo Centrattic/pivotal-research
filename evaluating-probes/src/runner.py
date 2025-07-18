@@ -136,13 +136,13 @@ def evaluate_probe(
     combined_metrics = {}
     
     if 'all' in score_options:
-        logger.log(f"  - 📊 Calculating metrics for all examples...")
+        logger.log(f"  - 🥰 Calculating metrics for all examples...")
         all_metrics = probe.score(test_acts, y_test)
         all_metrics["filtered"] = False
         combined_metrics["all_examples"] = all_metrics
     
     if 'filtered' in score_options:
-        logger.log(f"  - 🔍 Calculating filtered metrics (threshold={logit_diff_threshold})...")
+        logger.log(f"  - 🤗 Calculating filtered metrics (threshold={logit_diff_threshold})...")
         filtered_metrics = probe.score_filtered(test_acts, y_test, eval_dataset_name, results_dir, 
                                               seed=seed, logit_diff_threshold=logit_diff_threshold, 
                                               test_size=test_size)
