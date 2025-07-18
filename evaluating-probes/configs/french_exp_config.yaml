@@ -23,3 +23,6 @@ experiments:
     train_on: 91_eng-french
     evaluate_on:
       - 91_eng-french
+    score:
+      - all
+      - filtered

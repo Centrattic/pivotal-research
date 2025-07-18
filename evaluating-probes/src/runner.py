@@ -78,6 +78,7 @@ def train_probe(
     model, d_model: int, train_dataset_name: str, layer: int, component: str,
     architecture_name: str, aggregation: str, config_name: str, device: str, use_cache: bool,
     seed: int, results_dir: Path, cache_dir: Path, logger: Logger, retrain: bool,
+    test_size: float = 0.15,
 ):
     probe_filename_base = get_probe_filename_prefix(train_dataset_name, architecture_name, aggregation, layer, component)
     probe_save_dir = results_dir / f"train_{train_dataset_name}"
@@ -88,6 +89,7 @@ def train_probe(
     logger.log("  - Training new probe …")
 
     train_ds = Dataset(train_dataset_name, model=model, device=device, seed=seed)  # uses default cache_root
+    train_ds.split_data(test_size=test_size, seed=seed)  # Split the data
     train_acts, y_train = train_ds.get_train_set_activations(layer, component)
 
     probe = get_probe_architecture(architecture_name, d_model=d_model, device=device, aggregation=aggregation)
@@ -102,7 +104,11 @@ def evaluate_probe(
     train_dataset_name: str, eval_dataset_name: str, layer: int, component: str,
     architecture_config: dict, aggregation: str, results_dir: Path, logger: Logger,
     seed: int, model, d_model: int, device: str, use_cache: bool, cache_dir: Path, reevaluate: bool,
+    test_size: float = 0.15, logit_diff_threshold: float = 2.5, score_options: list = None,
 ):
+    if score_options is None:
+        score_options = ['all']
+    
     architecture_name = architecture_config["name"]
     config_name = architecture_config["config_name"]
     # For attention probes, we use "attention" as the aggregation name in results
@@ -123,11 +129,44 @@ def evaluate_probe(
 
     # load activations via Dataset 
     eval_ds = Dataset(eval_dataset_name, model=model, device=device, seed=seed)
+    eval_ds.split_data(test_size=test_size, seed=seed)  # Split the data
     test_acts, y_test = eval_ds.get_test_set_activations(layer, component)
 
-    metrics = probe.score(test_acts, y_test)
+    # Calculate metrics based on score options
+    combined_metrics = {}
+    
+    if 'all' in score_options:
+        logger.log(f"  - 📊 Calculating metrics for all examples...")
+        all_metrics = probe.score(test_acts, y_test)
+        all_metrics["filtered"] = False
+        combined_metrics["all_examples"] = all_metrics
+    
+    if 'filtered' in score_options:
+        logger.log(f"  - 🔍 Calculating filtered metrics (threshold={logit_diff_threshold})...")
+        filtered_metrics = probe.score_filtered(test_acts, y_test, eval_dataset_name, results_dir, 
+                                              seed=seed, logit_diff_threshold=logit_diff_threshold, 
+                                              test_size=test_size)
+        combined_metrics["filtered_examples"] = filtered_metrics
+    
+    # If only one option is specified, use that as the main result
+    # if len(combined_metrics) == 1:
+    #     main_key = list(combined_metrics.keys())[0]
+    #     combined_metrics = combined_metrics[main_key]
+    
+    # Save metrics
     with open(eval_results_path, "w") as f:
         import json
-        json.dump({"metrics": metrics}, f, indent=2)
-    logger.log(f"  - ❤️‍🔥 Success! Eval metrics: {metrics}")
+        json.dump({"metrics": combined_metrics}, f, indent=2)
+    
+    # Log the results
+    if 'all' in score_options:
+        all_metrics = combined_metrics.get("all_examples", combined_metrics)
+        logger.log(f"  - ❤️‍🔥 Success! All examples metrics: {all_metrics}")
+    
+    if 'filtered' in score_options:
+        filtered_metrics = combined_metrics.get("filtered_examples", {})
+        if filtered_metrics.get("filtered", False):
+            logger.log(f"  - 🙃 Filtered examples metrics (threshold={logit_diff_threshold}): {filtered_metrics}")
+        else:
+            logger.log(f"  - 😵‍💫 Filtered scoring failed, using all examples")
 

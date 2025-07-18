@@ -2,16 +2,12 @@ import yaml
 from pathlib import Path
 import numpy as np
 import pandas as pd
-
-from src.runner import train_probe, evaluate_probe
-from src.data import Dataset, get_available_datasets, load_combined_classification_datasets
-from src.logger import Logger
-from src.utils import should_skip_dataset
-from transformer_lens import HookedTransformer
 import argparse
 import torch
 import os
+import sys
 
+# Set CUDA device BEFORE importing transformer_lens
 parser = argparse.ArgumentParser()
 parser.add_argument("-c", "--config")
 parser.add_argument('-e', action='store_true')
@@ -23,6 +19,27 @@ config_yaml = args.config + "_config.yaml"
 retrain = args.t
 reevaluate = args.e
 
+# Load config early to set CUDA device before any CUDA operations
+try:
+    with open(f"configs/{config_yaml}", "r") as f:
+        config = yaml.safe_load(f)
+    device = config.get("device")
+    if device and "cuda" in device:
+        cuda_id = device.split(":")[-1]
+        os.environ["CUDA_VISIBLE_DEVICES"] = cuda_id
+        # Update the device string to use cuda:0 since we're now only showing one device
+        config["device"] = "cuda:0"
+        print(f"Set CUDA_VISIBLE_DEVICES to {cuda_id}, updated device to cuda:0")
+except Exception as e:
+    print(f"Warning: Could not set CUDA device early: {e}")
+
+# Now import transformer_lens after setting CUDA device
+from src.runner import train_probe, evaluate_probe
+from src.data import Dataset, get_available_datasets, load_combined_classification_datasets
+from src.logger import Logger
+from src.utils import should_skip_dataset
+from transformer_lens import HookedTransformer
+
 # To force code to run on cuda:1, if exists
 # os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 
@@ -33,12 +50,24 @@ def get_dataset(name, model, device, seed):
     return Dataset(name, model=model, device=device, seed=seed)
 
 def main():
+    # Clear GPU memory and set device
     torch.cuda.empty_cache()
+    if torch.cuda.is_available():
+        torch.cuda.synchronize()  # Wait for all CUDA operations to complete
+    
     global config_yaml, retrain, reevaluate
 
+    # Load config (already loaded at top, but reload to be safe)
     try:
         with open(f"configs/{config_yaml}", "r") as f:
             config = yaml.safe_load(f)
+        # Re-apply device fix if needed
+        # Make them all cuda:0 in config! Or just cuda
+        device = config.get("device")
+        if device and "cuda" in device and "1" in device:
+            # If we're using cuda:1, make sure it's updated to cuda:0
+            config["device"] = "cuda:0"
+            print(f"Updated device from {device} to cuda:0")
     except: 
         print(f"A config of name {config_yaml} does not exist.")
 
@@ -86,6 +115,7 @@ def main():
             try:
                 logger.log(dataset_name)
                 data = get_dataset(dataset_name, model, device, global_seed)
+                data.split_data(test_size=0.15, seed=global_seed)
                 # logger.log("got here)")
                 if should_skip_dataset(dataset_name, data, logger):
                     continue
@@ -116,6 +146,9 @@ def main():
             train_sets = [experiment['train_on']]
             if experiment['train_on'] == "all": train_sets = available_datasets
 
+            # Get score options from config, default to ['all'] if not specified
+            score_options = experiment.get('score', ['all'])
+
             for train_dataset in train_sets:
                 if train_dataset not in valid_dataset_metadata: continue
 
@@ -140,10 +173,12 @@ def main():
                                     layer=layer, component=component, architecture_config=arch_config,
                                     aggregation=arch_config['aggregation'], results_dir=results_dir, logger=logger, seed=global_seed,
                                     model=model, d_model=d_model, device=config['device'],
-                                    use_cache=config['cache_activations'], cache_dir=cache_dir, reevaluate=reevaluate
+                                    use_cache=config['cache_activations'], cache_dir=cache_dir, reevaluate=reevaluate,
+                                    score_options=score_options
                                 )
     finally:
-        del model
+        if 'model' in locals():
+            del model
         torch.cuda.empty_cache()
         logger.log("=" * 60)
         logger.log("🥹 Run finished. Closing log file.")

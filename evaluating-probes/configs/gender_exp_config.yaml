@@ -25,6 +25,9 @@ experiments:
     train_on: 4_hist_fig_ismale
     evaluate_on:
       - 4_hist_fig_ismale
+    score:
+      - all
+      - filtered
 
 model_check:
   - name: gender-pred

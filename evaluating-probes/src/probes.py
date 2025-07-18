@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
+import pandas as pd
 from pathlib import Path
 from typing import Any, Optional
 import json
@@ -26,15 +27,29 @@ class BaseProbe:
         raise NotImplementedError("Subclasses must implement _init_model to set self.model")
 
     def fit(self, X: np.ndarray, y: np.ndarray, mask: Optional[np.ndarray] = None, epochs: int = 20, lr: float = 1e-3, batch_size: int = 64, weight_decay: float = 0.0, verbose: bool = True):
+        print(f"\n=== TRAINING START ===")
+        print(f"Input X shape: {X.shape}")
+        print(f"Input y shape: {y.shape}")
+        print(f"Mask shape: {mask.shape if mask is not None else 'None'}")
+        print(f"Task type: {self.task_type}")
+        print(f"Device: {self.device}")
+        print(f"Epochs: {epochs}, LR: {lr}, Batch size: {batch_size}, Weight decay: {weight_decay}")
+        
         X = torch.tensor(X, dtype=torch.float32, device=self.device)
         y = torch.tensor(y, dtype=torch.float32 if self.task_type == "regression" else torch.long, device=self.device)
         if mask is not None:
             mask = torch.tensor(mask, dtype=torch.bool, device=self.device)
         else:
             mask = torch.ones(X.shape[:2], dtype=torch.bool, device=self.device)
+        
+        print(f"Tensor X shape: {X.shape}")
+        print(f"Tensor y shape: {y.shape}")
+        print(f"Tensor mask shape: {mask.shape}")
 
         dataset = torch.utils.data.TensorDataset(X, y, mask)
         loader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=True)
+        print(f"Dataset size: {len(dataset)}")
+        print(f"Number of batches: {len(loader)}")
 
         self.model.train()
         optimizer = torch.optim.Adam(self.model.parameters(), lr=lr, weight_decay=weight_decay)
@@ -42,12 +57,20 @@ class BaseProbe:
             criterion = nn.BCEWithLogitsLoss() if y.ndim == 1 or y.shape[1] == 1 else nn.CrossEntropyLoss()
         else:
             criterion = nn.MSELoss()
+        
+        print(f"Loss function: {criterion.__class__.__name__}")
 
         for epoch in range(epochs):
             epoch_loss = 0.0
+            batch_count = 0
             for xb, yb, mb in loader:
                 optimizer.zero_grad()
                 logits = self.model(xb, mb)
+                
+                if batch_count == 0 and epoch == 0:
+                    print(f"First batch - xb shape: {xb.shape}, yb shape: {yb.shape}, mb shape: {mb.shape}")
+                    print(f"First batch - logits shape: {logits.shape}")
+                
                 if self.task_type == "classification":
                     if yb.ndim == 1 or yb.shape[-1] == 1:
                         yb = yb.float()
@@ -56,81 +79,269 @@ class BaseProbe:
                         loss = criterion(logits, yb)
                 else:
                     loss = criterion(logits, yb)
+                
+                if batch_count == 0 and epoch == 0:
+                    print(f"First batch - loss: {loss.item():.4f}")
+                
                 loss.backward()
                 optimizer.step()
                 epoch_loss += loss.item() * xb.size(0)
+                batch_count += 1
             avg_loss = epoch_loss / len(dataset)
             self.loss_history.append(avg_loss)
             if verbose:
                 print(f"Epoch {epoch+1}/{epochs} - Loss: {avg_loss:.4f}")
+        print(f"=== TRAINING COMPLETE ===\n")
         return self
 
-    def predict(self, X: np.ndarray, mask: Optional[np.ndarray] = None) -> np.ndarray:
+    def predict(self, X: np.ndarray, mask: Optional[np.ndarray] = None, batch_size: int = 1) -> np.ndarray:
+        print(f"\n=== PREDICTION START ===")
+        print(f"Input X shape: {X.shape}")
+        print(f"Input mask shape: {mask.shape if mask is not None else 'None'}")
+        print(f"Batch size: {batch_size}")
+        
         self.model.eval()
-        X = torch.tensor(X, dtype=torch.float32, device=self.device)
         if mask is not None:
             mask = torch.tensor(mask, dtype=torch.bool, device=self.device)
         else:
             mask = torch.ones(X.shape[:2], dtype=torch.bool, device=self.device)
-        with torch.no_grad():
-            logits = self.model(X, mask)
-            if self.task_type == "classification":
-                if logits.ndim == 1 or logits.shape[-1] == 1:
-                    probs = torch.sigmoid(logits)
-                    preds = (probs > 0.5).long().cpu().numpy()
+        
+        all_preds = []
+        num_batches = (len(X) + batch_size - 1) // batch_size
+        print(f"Processing {num_batches} batches")
+        
+        for i in range(0, len(X), batch_size):
+            batch_X = torch.tensor(X[i:i+batch_size], dtype=torch.float32, device=self.device)
+            batch_mask = mask[i:i+batch_size]
+            
+            if i == 0:
+                print(f"First batch - batch_X shape: {batch_X.shape}, batch_mask shape: {batch_mask.shape}")
+            
+            with torch.no_grad():
+                logits = self.model(batch_X, batch_mask)
+                
+                if i == 0:
+                    print(f"First batch - logits shape: {logits.shape}")
+                
+                if self.task_type == "classification":
+                    if logits.ndim == 1 or logits.shape[-1] == 1:
+                        probs = torch.sigmoid(logits)
+                        preds = (probs > 0.5).long().cpu().numpy()
+                    else:
+                        preds = torch.argmax(logits, dim=-1).cpu().numpy()
                 else:
-                    preds = torch.argmax(logits, dim=-1).cpu().numpy()
-            else:
-                preds = logits.cpu().numpy()
-        return preds
+                    preds = logits.cpu().numpy()
+                
+                if i == 0:
+                    print(f"First batch - preds shape: {preds.shape}")
+                
+                all_preds.append(preds)
+        
+        result = np.concatenate(all_preds, axis=0)
+        print(f"Final predictions shape: {result.shape}")
+        print(f"=== PREDICTION COMPLETE ===\n")
+        return result
 
-    def predict_proba(self, X: np.ndarray, mask: Optional[np.ndarray] = None) -> np.ndarray:
+    def predict_proba(self, X: np.ndarray, mask: Optional[np.ndarray] = None, batch_size: int = 1) -> np.ndarray:
+        print(f"\n=== PROBABILITY PREDICTION START ===")
+        print(f"Input X shape: {X.shape}")
+        print(f"Input mask shape: {mask.shape if mask is not None else 'None'}")
+        print(f"Batch size: {batch_size}")
+        
         self.model.eval()
-        X = torch.tensor(X, dtype=torch.float32, device=self.device)
         if mask is not None:
             mask = torch.tensor(mask, dtype=torch.bool, device=self.device)
         else:
             mask = torch.ones(X.shape[:2], dtype=torch.bool, device=self.device)
-        with torch.no_grad():
-            logits = self.model(X, mask)
-            if self.task_type == "classification":
-                if logits.ndim == 1 or logits.shape[-1] == 1:
-                    probs = torch.sigmoid(logits).cpu().numpy()
+        
+        all_probs = []
+        num_batches = (len(X) + batch_size - 1) // batch_size
+        print(f"Processing {num_batches} batches")
+        
+        for i in range(0, len(X), batch_size):
+            batch_X = torch.tensor(X[i:i+batch_size], dtype=torch.float32, device=self.device)
+            batch_mask = mask[i:i+batch_size]
+            
+            if i == 0:
+                print(f"First batch - batch_X shape: {batch_X.shape}, batch_mask shape: {batch_mask.shape}")
+            
+            with torch.no_grad():
+                logits = self.model(batch_X, batch_mask)
+                
+                if i == 0:
+                    print(f"First batch - logits shape: {logits.shape}")
+                
+                if self.task_type == "classification":
+                    if logits.ndim == 1 or logits.shape[-1] == 1:
+                        probs = torch.sigmoid(logits).cpu().numpy()
+                    else:
+                        probs = torch.softmax(logits, dim=-1).cpu().numpy()
                 else:
-                    probs = torch.softmax(logits, dim=-1).cpu().numpy()
-            else:
-                probs = logits.cpu().numpy()
-        return probs
+                    probs = logits.cpu().numpy()
+                
+                if i == 0:
+                    print(f"First batch - probs shape: {probs.shape}")
+                
+                all_probs.append(probs)
+        
+        result = np.concatenate(all_probs, axis=0)
+        print(f"Final probabilities shape: {result.shape}")
+        print(f"=== PROBABILITY PREDICTION COMPLETE ===\n")
+        return result
 
     def score(self, X: np.ndarray, y: np.ndarray, mask: Optional[np.ndarray] = None) -> dict[str, float]:
+        print(f"\n=== SCORING START ===")
+        print(f"Input X shape: {X.shape}")
+        print(f"Input y shape: {y.shape}")
+        print(f"Input mask shape: {mask.shape if mask is not None else 'None'}")
+        print(f"Task type: {self.task_type}")
+        
         from sklearn.metrics import accuracy_score, roc_auc_score, r2_score, mean_squared_error, precision_score, recall_score, confusion_matrix
         preds = self.predict(X, mask)
+        print(f"Predictions shape: {preds.shape}")
+        print(f"Predictions unique values: {np.unique(preds)}")
+        
         if self.task_type == "regression":
-            return {
-                "r2_score": float(r2_score(y, preds)),
-                "mse": float(mean_squared_error(y, preds)),
+            r2 = float(r2_score(y, preds))
+            mse = float(mean_squared_error(y, preds))
+            print(f"Regression metrics - R²: {r2:.4f}, MSE: {mse:.4f}")
+            result = {
+                "r2_score": r2,
+                "mse": mse,
             }
         else:
             y_true = y
             y_prob = self.predict_proba(X, mask)
+            print(f"Probabilities shape: {y_prob.shape}")
+            print(f"True labels unique values: {np.unique(y_true)}")
+            
             if y_prob.ndim == 1 or y_prob.shape[-1] == 1:
                 auc = roc_auc_score(y_true, y_prob) if len(np.unique(y_true)) > 1 else 0.5
                 acc = accuracy_score(y_true, preds)
-                # Calculate additional metrics for binary classification
                 precision = precision_score(y_true, preds, zero_division=0)
                 recall = recall_score(y_true, preds, zero_division=0)
-                # Calculate FPR from confusion matrix
                 tn, fp, fn, tp = confusion_matrix(y_true, preds).ravel()
                 fpr = fp / (fp + tn) if (fp + tn) > 0 else 0.0
+                print(f"Binary classification metrics:")
+                print(f"  Accuracy: {acc:.4f}")
+                print(f"  AUC: {auc:.4f}")
+                print(f"  Precision: {precision:.4f}")
+                print(f"  Recall: {recall:.4f}")
+                print(f"  FPR: {fpr:.4f}")
+                print(f"  Confusion Matrix: TN={tn}, FP={fp}, FN={fn}, TP={tp}")
             else:
                 auc = roc_auc_score(y_true, y_prob, multi_class='ovr')
                 acc = accuracy_score(y_true, preds)
-                # For multiclass, calculate macro-averaged metrics
                 precision = precision_score(y_true, preds, average='macro', zero_division=0)
                 recall = recall_score(y_true, preds, average='macro', zero_division=0)
-                # For multiclass FPR, we'll use 1 - specificity (macro-averaged)
                 fpr = 1 - recall_score(y_true, preds, average='macro', zero_division=0)
-            return {"acc": float(acc), "auc": float(auc), "precision": float(precision), "recall": float(recall), "fpr": float(fpr)}
+                print(f"Multiclass classification metrics:")
+                print(f"  Accuracy: {acc:.4f}")
+                print(f"  AUC: {auc:.4f}")
+                print(f"  Precision: {precision:.4f}")
+                print(f"  Recall: {recall:.4f}")
+                print(f"  FPR: {fpr:.4f}")
+            
+            result = {"acc": float(acc), "auc": float(auc), "precision": float(precision), "recall": float(recall), "fpr": float(fpr)}
+        
+        print(f"=== SCORING COMPLETE ===\n")
+        return result
+
+    def score_filtered(self, X: np.ndarray, y: np.ndarray, dataset_name: str, results_dir: Path, 
+                      seed: int, logit_diff_threshold: float = 1.0, test_size: float = 0.15, mask: Optional[np.ndarray] = None) -> dict[str, float]:
+        """
+        Calculate metrics only on examples where the model's logit_diff is above threshold.
+        Filters out examples where abs(logit_diff) <= threshold from the CSV file.
+        """
+        print(f"\n=== FILTERED SCORING START ===")
+        print(f"Input X shape: {X.shape}")
+        print(f"Input y shape: {y.shape}")
+        print(f"Logit diff threshold: {logit_diff_threshold}")
+        
+        # Read the CSV file to get logit_diff values
+        runthrough_dir = results_dir / f"runthrough_{dataset_name}"
+        csv_files = list(runthrough_dir.glob("*logit_diff*.csv"))
+        if not csv_files:
+            print(f"Warning: No logit_diff*.csv file found in {runthrough_dir}. Using unfiltered scoring.")
+            return self.score(X, y, mask)
+        
+        csv_path = csv_files[0]  # Use the first matching file
+        print(f"Using logit_diff file: {csv_path}")
+        try:
+            df = pd.read_csv(csv_path)
+            if 'logit_diff' not in df.columns:
+                print(f"Warning: 'logit_diff' column not found in {csv_path}. Using unfiltered scoring.")
+                return self.score(X, y, mask)
+            
+            # Get the test set texts to match with CSV
+            from src.data import Dataset
+            # We need to recreate the dataset to get the test texts
+            # This is a bit hacky but necessary to match activations with CSV rows
+            temp_ds = Dataset(dataset_name, model=None, device=self.device)
+            temp_ds.split_data(test_size=test_size, seed=42)
+            test_texts = temp_ds.get_test_set()[0]
+            
+            # Filter based on logit_diff threshold
+            mask_filter = np.abs(df['logit_diff'].values) > logit_diff_threshold
+            
+            # Get the filtered indices
+            filtered_indices = np.where(mask_filter)[0]
+            
+            print(f"Original test set size: {len(test_texts)}")
+            print(f"Filtered test set size: {len(filtered_indices)}")
+            print(f"Removed {len(test_texts) - len(filtered_indices)} examples")
+            
+            if len(filtered_indices) == 0:
+                print("Warning: No examples remain after filtering. Using unfiltered scoring.")
+                return self.score(X, y, mask)
+            
+            # Apply the filter to X, y, and mask
+            X_filtered = X[filtered_indices]
+            y_filtered = y[filtered_indices]
+            mask_filtered = mask[filtered_indices] if mask is not None else None
+            
+            print(f"Filtered X shape: {X_filtered.shape}")
+            print(f"Filtered y shape: {y_filtered.shape}")
+            
+            # Calculate metrics on filtered data
+            result = self.score(X_filtered, y_filtered, mask_filtered)
+            
+            # Add filter info to result
+            result["filtered"] = True
+            result["logit_diff_threshold"] = logit_diff_threshold
+            result["original_size"] = len(test_texts)
+            result["filtered_size"] = len(filtered_indices)
+            result["removed_count"] = len(test_texts) - len(filtered_indices)
+            
+            print(f"=== FILTERED SCORING COMPLETE ===\n")
+            return result
+            
+        except Exception as e:
+            print(f"Error in filtered scoring: {e}. Using unfiltered scoring.")
+            return self.score(X, y, mask)
+
+    def score_with_filtered(self, X: np.ndarray, y: np.ndarray, dataset_name: str, results_dir: Path,
+                           seed: int, logit_diff_threshold: float = 1.0, test_size: float = 0.15, mask: Optional[np.ndarray] = None) -> dict[str, dict]:
+        """
+        Calculate both regular and filtered metrics, returning them in a combined dictionary.
+        """
+        print(f"\n=== COMBINED SCORING START ===")
+        
+        # Get regular metrics
+        regular_metrics = self.score(X, y, mask)
+        regular_metrics["filtered"] = False
+        
+        # Get filtered metrics
+        filtered_metrics = self.score_filtered(X, y, dataset_name, results_dir, seed, logit_diff_threshold, test_size, mask)
+        
+        # Combine results
+        combined_results = {
+            "all_examples": regular_metrics,
+            "filtered_examples": filtered_metrics
+        }
+        
+        print(f"=== COMBINED SCORING COMPLETE ===\n")
+        return combined_results
 
     def save_state(self, path: Path):
         torch.save({

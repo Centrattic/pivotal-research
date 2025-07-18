@@ -1,0 +1,24 @@
+run_name: "test_filtered_scoring"
+model_name: "gpt2" # Much smaller model for testing
+device: "cuda:1"
+cache_activations: True
+seed: "42"
+
+layers: [6] # Use a middle layer
+components:
+  - "resid_post"
+
+architectures:
+  - name: "linear"
+    aggregation: "mean"
+    config_name: "default_linear"
+
+# List of experiments to run
+experiments:
+  - name: test-filtered
+    train_on: 4_hist_fig_ismale
+    evaluate_on:
+      - 4_hist_fig_ismale
+    score:
+      - all
+      - filtered 

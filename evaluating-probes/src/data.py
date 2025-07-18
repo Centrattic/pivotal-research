@@ -38,10 +38,8 @@ class Dataset:
         device: str = "cuda:0",
         data_dir: Path = Path("datasets/cleaned"),
         cache_root: Path = Path("activation_cache"),
-        test_size: float = 0.15,
         seed: int = 42, # This is so important - how train and test sets persist across models/runs/etc.
     ):
-        # ---- load csv & split (unchanged) ----
         self.dataset_name = dataset_name
         meta = get_main_csv_metadata()
         meta_row = meta.loc[int(dataset_name.split("_", 1)[0])]
@@ -64,20 +62,17 @@ class Dataset:
             df["target"] = pd.to_numeric(df["target"], errors="coerce")
             self.n_classes = None
 
-        X = df["prompt"].astype(str).to_numpy()
-        y = df["target"].to_numpy()
-        tr_idx, te_idx = train_test_split(
-            np.arange(len(df)), test_size=test_size, random_state=seed, stratify=y if self.n_classes else None, shuffle=True
-        )
-        self.X_train_text, self.y_train = X[tr_idx].tolist(), y[tr_idx]
-        self.X_test_text, self.y_test = X[te_idx].tolist(), y[te_idx]
-
-        # print("TELL ME NUMBER")
-        # print(len(self.X_train_text))
-        # print(len(self.X_test_text))
-        # print(len(set(self.X_train_text)))
-        # print(len(set(self.X_test_text)))
-        # print(len(set(self.X_train_text) & set(self.X_test_text))) # any overlaps??
+        # Store all data before splitting
+        self.X = df["prompt"].astype(str).to_numpy()
+        self.y = df["target"].to_numpy()
+        
+        # Initialize split attributes
+        self.X_train_text = None
+        self.y_train = None
+        self.X_test_text = None
+        self.y_test = None
+        self.train_indices = None
+        self.test_indices = None
 
         try: 
             cache_dir = cache_root / model.cfg.model_name / dataset_name
@@ -91,19 +86,56 @@ class Dataset:
         except: 
             print("Using dataset class to fetch text, not manage activations.")
 
+    def split_data(self, test_size: float = 0.15, seed: int = None):
+        """Split the data into train and test sets. Can be called multiple times to override splits."""
+        if seed is None:
+            seed = 42  # Default seed
+        
+        tr_idx, te_idx = train_test_split(
+            np.arange(len(self.df)), 
+            test_size=test_size, 
+            random_state=seed, 
+            stratify=self.y if self.n_classes else None, 
+            shuffle=True
+        )
+        
+        self.train_indices = tr_idx
+        self.test_indices = te_idx
+        self.X_train_text = self.X[tr_idx].tolist()
+        self.y_train = self.y[tr_idx]
+        self.X_test_text = self.X[te_idx].tolist()
+        self.y_test = self.y[te_idx]
+        
+        print(f"Split data: {len(self.X_train_text)} train, {len(self.X_test_text)} test")
+
+    def get_activations_for_texts(self, texts: List[str], layer: int, component: str):
+        """Get activations for an arbitrary list of texts."""
+        if not hasattr(self, 'act_manager'):
+            raise ValueError("No activation manager available")
+        acts = self.act_manager.get_activations_for_texts(texts, layer, component)
+        return acts
+
     # text getters (unchanged)
     def get_train_set(self):
+        if self.X_train_text is None:
+            raise ValueError("Data not split yet. Call split_data() first.")
         return self.X_train_text, self.y_train
 
     def get_test_set(self):
+        if self.X_test_text is None:
+            raise ValueError("Data not split yet. Call split_data() first.")
         return self.X_test_text, self.y_test
 
     # activation getters
     def get_train_set_activations(self, layer: int, component: str):
+        if self.X_train_text is None:
+            raise ValueError("Data not split yet. Call split_data() first.")
         acts = self.act_manager.get_activations_for_texts(self.X_train_text, layer, component)
         return acts, self.y_train
 
     def get_test_set_activations(self, layer: int, component: str):
+        if self.X_test_text is None:
+            raise ValueError("Data not split yet. Call split_data() first.")
         acts = self.act_manager.get_activations_for_texts(self.X_test_text, layer, component)
         return acts, self.y_test
     

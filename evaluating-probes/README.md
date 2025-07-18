@@ -82,10 +82,24 @@ https://github.com/Stefan-Heimersheim/runpod_cli/
 * small batch size
 * that shit
 * del model from cuda at the end of every using it, and clear cache, try to clear gpu entirely so it doesnt hold old stuffs
+* make test size something you pass in during experiment config? Either way, test size being manually coded at 0.15 everywhere seems bad, wehn i can pass it into places. Perhaps just have main variable with test size written. Somehow need to make this generalize nicely to french dataset 
+* figure out how to properly run on cuda:1
+
+
+Reminder that: 
+
+how best to handle default values in my Python methods???
+thoughts
+like my top method has default and lower level method it calls has default too
+probably should only set my defaults in top method
+OHH
+in methods im going to call directly -- not helper methods really i dont need to
+ALSO use the defaults when calling the method, don't rewrite batch_size=200 or something if thats the default
+cuz if u change it, it's annoying
 
 
 UNDERSTAND THIS: 
 * why is train + test together for 4_hist_fig_ismale 36941, but cache only saves like 36916 hashes or something? There is some train-test overlap -- if so, this is weird!!
+- fixed with duplicate prompt removal 
 
-
-* there appear to be exactly 2 datapoints that are hash duplicates 
+* there appear to be exactly 2 datapoints that are hash duplicates in french set

@@ -10,12 +10,11 @@ components:
 
 architectures:
   - name: "linear"
+    aggregation: "last"
     config_name: "default_linear"
   # - name: "attention"
   #   config_name: "default_attention"
 
-aggregations:
-  - "mean"
 
 # List of experiments to run
 experiments:
