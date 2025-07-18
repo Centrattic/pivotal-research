@@ -450,7 +450,7 @@ class LinearProbe(BaseProbe):
             lr = trial.suggest_loguniform('lr', 1e-5, 1e-1)
             weight_decay = trial.suggest_loguniform('weight_decay', 1e-8, 1e-1)
             self._init_model()
-            self.fit(X_train, y_train, mask=mask_train, lr=lr, weight_decay=weight_decay, epochs=30, verbose=False, early_stopping=True, patience=5, min_delta=0.0)
+            self.fit(X_train, y_train, mask=mask_train, lr=lr, weight_decay=weight_decay, epochs=50, verbose=False, early_stopping=True, patience=5, min_delta=0.0)
             metrics = self.score(X_val, y_val, mask_val)
             if self.task_type == "classification":
                 score = metrics.get("auc", 0.0)
@@ -468,7 +468,7 @@ class LinearProbe(BaseProbe):
         self._init_model()
         self.fit(X_train, y_train, mask=mask_train, lr=best_params['lr'], weight_decay=best_params['weight_decay'], epochs=50, verbose=verbose, early_stopping=True)
         print("=== OPTUNA HYPERPARAMETER SEARCH COMPLETE ===\n")
-        return self
+        return self, best_params
 
 class AttentionProbeNet(nn.Module):
     def __init__(self, d_model: int, device: str = "cpu"):
@@ -513,9 +513,8 @@ class AttentionProbe(BaseProbe):
         def objective(trial):
             lr = trial.suggest_loguniform('lr', 1e-5, 1e-1)
             weight_decay = trial.suggest_loguniform('weight_decay', 1e-8, 1e-1)
-            epochs = trial.suggest_int('epochs', 10, 50)
             self._init_model()
-            self.fit(X_train, y_train, mask=mask_train, lr=lr, weight_decay=weight_decay, epochs=epochs, verbose=False, early_stopping=True)
+            self.fit(X_train, y_train, mask=mask_train, lr=lr, weight_decay=weight_decay, epochs=50, verbose=False, early_stopping=True)
             metrics = self.score(X_val, y_val, mask_val)
             if self.task_type == "classification":
                 score = metrics.get("auc", 0.0)
@@ -531,9 +530,9 @@ class AttentionProbe(BaseProbe):
         best_params = study.best_params
         print(f"Best hyperparameters: {best_params}")
         self._init_model()
-        self.fit(X_train, y_train, mask=mask_train, lr=best_params['lr'], weight_decay=best_params['weight_decay'], epochs=best_params['epochs'], verbose=verbose, early_stopping=True)
+        self.fit(X_train, y_train, mask=mask_train, lr=best_params['lr'], weight_decay=best_params['weight_decay'], epochs=50, verbose=verbose, early_stopping=True)
         print("=== OPTUNA HYPERPARAMETER SEARCH COMPLETE ===\n")
-        return self
+        return self, best_params
 
 # Example usage:
 # class MyProbe(BaseProbe):

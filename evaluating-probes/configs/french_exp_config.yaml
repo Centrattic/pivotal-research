@@ -25,4 +25,4 @@ experiments:
       - 91_eng-french
     score:
       - all
-      - filtered
+      - filtered # only relevant if you've done a model check already

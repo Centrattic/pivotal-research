@@ -103,3 +103,6 @@ UNDERSTAND THIS:
 - fixed with duplicate prompt removal 
 
 * there appear to be exactly 2 datapoints that are hash duplicates in french set
+
+
+* make it such that it's possible to hyperparam tune some probes but not all your probes or something. For now, I can just change experiment details or something like that.

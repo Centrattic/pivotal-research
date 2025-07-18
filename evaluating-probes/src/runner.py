@@ -23,62 +23,43 @@ def get_probe_filename_prefix(train_ds, arch_name, aggregation, layer, component
     # For attention probes, aggregation is not used in the model, but we keep it in filename for consistency
     return f"train_on_{train_ds}_{arch_name}_{aggregation}_L{layer}_{component}"
 
-# def get_included_datasets_classification_all(logger:Logger):
-#     included_datasets = []
-#     for name in get_available_datasets():
-#         try:
-#             data = Dataset(name) # only binary classification allowed!
-#             if ("binary" in data.task_type.lower() and not should_skip_dataset(name, data, logger)):
-#                 included_datasets.append(name)
-#         except Exception as e:
-#             if logger:
-#                 logger.log(f"  - Skipping '{name}': {e}")
-#     return included_datasets
-
-# def get_combined_activations(
-#     datasets: List[str], layer: int, component: str,
-#     model: Any, d_model: int, final_max_len: int, device: str,
-#     cache_dir: Path, logger: Logger,
-#     seed: int,  # <-- ADDED
-#     split: str  # <-- ADDED ('train' or 'test')
-# ) -> np.ndarray:
-#     """..."""
-#     acts_list = []
-#     for ds in datasets:
-#         # Pass the correct seed to ensure consistent splits
-#         ds_data = Dataset(ds, model=model,device=device, seed=seed)
-#         ds_max_len = ds_data.max_len
-#         ds_cache_dir = cache_dir / ds
-#         logger.log(f"  - Ensuring activations for {ds} ({split} split): {ds_cache_dir} (max_len={ds_max_len})")
-        
-#         act_manager = ActivationManager(model, device, d_model=d_model, 
-#                                         max_len=ds_max_len, cache_root=cache_dir)
-        
-#         # Get the correct split's text data
-#         if split == 'train':
-#             texts, _ = ds_data.get_train_set()
-#         elif split == 'test':
-#             texts, _ = ds_data.get_test_set()
-#         else:
-#             raise ValueError(f"Invalid split '{split}'. Must be 'train' or 'test'.")
-            
-#         arr = act_manager.get_activations(
-#             texts, layer, component, use_cache=True, cache_dir=ds_cache_dir, logger=logger
-#         )
-#         if ds_max_len < final_max_len:
-#             pad_width = ((0, 0), (0, final_max_len - ds_max_len), (0, 0))
-#             arr = np.pad(arr, pad_width, mode='constant', constant_values=0)
-#         elif ds_max_len > final_max_len:
-#             arr = arr[:, :final_max_len, :]
-#         acts_list.append(np.copy(arr))
-#     combined = np.concatenate(acts_list, axis=0)
-#     return combined
+def update_probe_config(config_name, best_params):
+    """Update the PROBE_CONFIGS in configs/probes.py with the best_params for the given config_name."""
+    import re
+    import pathlib
+    config_path = pathlib.Path(__file__).parent.parent / "configs" / "probes.py"
+    with open(config_path, "r") as f:
+        lines = f.readlines()
+    # Find the config class and update its values
+    in_config = False
+    config_start = None
+    config_end = None
+    for i, line in enumerate(lines):
+        if f'"{config_name}"' in line and ":" in line:
+            config_start = i
+            in_config = True
+        elif in_config and line.strip().startswith("}"):
+            config_end = i
+            break
+    if config_start is not None:
+        # Find the class type (e.g., PytorchLinearProbeConfig)
+        match = re.search(r'= ([A-Za-z0-9_]+)\(', lines[config_start])
+        if match:
+            class_type = match.group(1)
+            # Build new config line
+            param_str = ", ".join(f"{k}={repr(v)}" for k, v in best_params.items())
+            new_line = f'    "{config_name}": {class_type}({param_str}),\n'
+            lines[config_start] = new_line
+    with open(config_path, "w") as f:
+        f.writelines(lines)
+    print(f"Updated {config_name} in configs/probes.py with {best_params}")
 
 def train_probe(
     model, d_model: int, train_dataset_name: str, layer: int, component: str,
     architecture_name: str, aggregation: str, config_name: str, device: str, use_cache: bool,
     seed: int, results_dir: Path, cache_dir: Path, logger: Logger, retrain: bool,
     train_size: float = 0.75, val_size: float = 0.10, test_size: float = 0.15,
+    hyperparameter_tuning: bool = False,
 ):
     probe_filename_base = get_probe_filename_prefix(train_dataset_name, architecture_name, aggregation, layer, component)
     probe_save_dir = results_dir / f"train_{train_dataset_name}"
@@ -95,7 +76,11 @@ def train_probe(
 
     probe = get_probe_architecture(architecture_name, d_model=d_model, device=device, aggregation=aggregation)
     fit_params = asdict(PROBE_CONFIGS[config_name])
-    probe.find_best_fit(train_acts, y_train, val_acts, y_val)
+    if hyperparameter_tuning:
+        probe, best_params = probe.find_best_fit(train_acts, y_train, val_acts, y_val)
+        update_probe_config(config_name, best_params)
+    else:
+        probe.fit(train_acts, y_train, **fit_params)
 
     probe_save_dir.mkdir(parents=True, exist_ok=True)
     probe.save_state(probe_state_path)
@@ -105,7 +90,8 @@ def evaluate_probe(
     train_dataset_name: str, eval_dataset_name: str, layer: int, component: str,
     architecture_config: dict, aggregation: str, results_dir: Path, logger: Logger,
     seed: int, model, d_model: int, device: str, use_cache: bool, cache_dir: Path, reevaluate: bool,
-    test_size: float = 0.15, logit_diff_threshold: float = 2.5, score_options: list = None,
+    train_size: float = 0.75, val_size: float = 0.10, test_size: float = 0.15, 
+    logit_diff_threshold: float = 4, score_options: list = None,
 ):
     if score_options is None:
         score_options = ['all']
@@ -130,7 +116,7 @@ def evaluate_probe(
 
     # load activations via Dataset 
     eval_ds = Dataset(eval_dataset_name, model=model, device=device, seed=seed)
-    eval_ds.split_data(test_size=test_size, seed=seed)  # Split the data
+    eval_ds.split_data(train_size=train_size, val_size=val_size, test_size=test_size, seed=seed)  # Split the data
     test_acts, y_test = eval_ds.get_test_set_activations(layer, component)
 
     # Calculate metrics based on score options

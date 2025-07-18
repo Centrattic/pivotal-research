@@ -9,12 +9,12 @@ components:
   - "resid_post"
 
 architectures:
-  - name: "linear"
-    aggregation: "last"
-    config_name: "default_linear"
-  - name: "linear"
-    aggregation: "mean"
-    config_name: "default_linear"
+  # - name: "linear"
+  #   aggregation: "last"
+  #   config_name: "default_linear"
+  # - name: "linear"
+  #   aggregation: "mean"
+  #   config_name: "default_linear"
   - name: "attention"
     aggregation: "attention"
     config_name: "default_attention"

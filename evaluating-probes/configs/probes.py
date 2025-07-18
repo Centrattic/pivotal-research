@@ -25,18 +25,28 @@ class PytorchAttentionProbeConfig(ProbeConfig):
     weight_decay: float = 0.0
     # Add more as needed
 
-@dataclass
-class TwoStageConfig(ProbeConfig):
-    stage1_kwargs: dict = field(default_factory=dict)
-    stage2_kwargs: dict = field(default_factory=dict)
-
-# --- A dictionary to easily access configs by name ---
+# A dictionary to easily access configs by name. Configs are updated by -ht flag (Optuna tuning).
 PROBE_CONFIGS = {
+    # Linear probe configs by aggregation
+    "linear_mean": PytorchLinearProbeConfig(lr=0.0007395535622979691, weight_decay=4.649132978175384e-06),
+    "linear_max": PytorchLinearProbeConfig(),
+    "linear_last": PytorchLinearProbeConfig(lr= 0.00039989367421521075, weight_decay=7.771688681156908e-08),
+    "linear_softmax": PytorchLinearProbeConfig(),
+    # High reg variants
+    "linear_mean_high_reg": PytorchLinearProbeConfig(weight_decay=1e-2),
+    "linear_max_high_reg": PytorchLinearProbeConfig(weight_decay=1e-2),
+    "linear_last_high_reg": PytorchLinearProbeConfig(weight_decay=1e-2),
+    "linear_softmax_high_reg": PytorchLinearProbeConfig(weight_decay=1e-2),
+    # No reg variants
+    "linear_mean_no_reg": PytorchLinearProbeConfig(weight_decay=0.0),
+    "linear_max_no_reg": PytorchLinearProbeConfig(weight_decay=0.0),
+    "linear_last_no_reg": PytorchLinearProbeConfig(weight_decay=0.0),
+    "linear_softmax_no_reg": PytorchLinearProbeConfig(weight_decay=0.0),
     "default_linear": PytorchLinearProbeConfig(),
     "high_reg_linear": PytorchLinearProbeConfig(weight_decay=1e-2),
     "no_reg_linear": PytorchLinearProbeConfig(weight_decay=0.0),
-    "default_attention": PytorchAttentionProbeConfig(),
+    # Attention probe configs
+    "default_attention": PytorchAttentionProbeConfig(lr=0.0003886838187159334, weight_decay=1.2660720185538272e-06),
     "high_reg_attention": PytorchAttentionProbeConfig(weight_decay=1e-2),
     "no_reg_attention": PytorchAttentionProbeConfig(weight_decay=0.0),
-    "two_stage_defaults": TwoStageConfig(),
 }

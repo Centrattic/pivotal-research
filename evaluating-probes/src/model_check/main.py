@@ -13,19 +13,7 @@ import os
 from tqdm import tqdm
 
 # os.environ["CUDA_VISIBLE_DEVICES"] = "1"
-torch.cuda.set_device(1)
-
-def parse_args():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("-c", "--config", required=True, help="Base name for YAML config file (without _config.yaml)")
-    parser.add_argument("-n", "--n_samples", type=int, default=10, help="Number of sample prompts to run")
-    return parser.parse_args()
-
-def load_yaml_config(config_base):
-    yaml_path = Path(f"configs/{config_base}_config.yaml")
-    with open(yaml_path, "r") as f:
-        config = yaml.safe_load(f)
-    return config
+# torch.cuda.set_device(1)
 
 def load_hf_model_and_tokenizer(model_name):
     tokenizer = AutoTokenizer.from_pretrained(model_name)
@@ -54,10 +42,7 @@ def print_top_logits(logits, tokenizer, topk=10):
         print(f"  {t!r} ({v:.3f})")
     print("")
 
-def main():
-    args = parse_args()
-    config = load_yaml_config(args.config)
-
+def run_model_check(config):
     for check in config['model_check']:
         print(f"---\nChecking: {check['name']}")
         ds_name = check['check_on']
@@ -124,6 +109,3 @@ def main():
             run_name=run_name,
             save_path=plot_path
         )
-
-if __name__ == "__main__":
-    main()

@@ -12,12 +12,14 @@ parser = argparse.ArgumentParser()
 parser.add_argument("-c", "--config")
 parser.add_argument('-e', action='store_true')
 parser.add_argument('-t', action='store_true')
+parser.add_argument('-ht', action='store_true', help='Enable hyperparameter tuning (Optuna)')
 
 args = parser.parse_args()
-global config_yaml, retrain, reevaluate
+global config_yaml, retrain, reevaluate, hyperparameter_tuning
 config_yaml = args.config + "_config.yaml"
 retrain = args.t
 reevaluate = args.e
+hyperparameter_tuning = args.ht
 
 # Load config early to set CUDA device before any CUDA operations
 try:
@@ -38,6 +40,7 @@ from src.runner import train_probe, evaluate_probe
 from src.data import Dataset, get_available_datasets, load_combined_classification_datasets
 from src.logger import Logger
 from src.utils import should_skip_dataset
+from src.model_check.main import run_model_check
 from transformer_lens import HookedTransformer
 
 # To force code to run on cuda:1, if exists
@@ -55,7 +58,7 @@ def main():
     if torch.cuda.is_available():
         torch.cuda.synchronize()  # Wait for all CUDA operations to complete
     
-    global config_yaml, retrain, reevaluate
+    global config_yaml, retrain, reevaluate, hyperparameter_tuning
 
     # Load config (already loaded at top, but reload to be safe)
     try:
@@ -77,6 +80,24 @@ def main():
     results_dir.mkdir(parents=True, exist_ok=True)
 
     logger = Logger(results_dir / "output.log")
+
+    # Run model check first if present
+    if 'model_check' in config:
+        run_name = config.get('run_name', 'default_run')
+        all_checks_done = True
+        for check in config['model_check']:
+            ds_name = check['check_on']
+            runthrough_dir = Path(f"results/{run_name}/runthrough_{ds_name}")
+            if not runthrough_dir.exists():
+                all_checks_done = False
+                break
+        if not all_checks_done:
+            logger.log("\n=== Running model_check before main pipeline ===")
+            run_model_check(config)
+            logger.log("=== model_check complete ===\n")
+        else:
+            logger.log("\n=== Skipping model_check: all runthrough directories already exist ===\n")
+
 
     try:
         # Single model instance
@@ -107,7 +128,13 @@ def main():
                 for arch_config in config.get('architectures', []):
                     for layer in config['layers']:
                         for component in config['components']:
-                            training_jobs.add((train_dataset, layer, component, arch_config['name'], arch_config['aggregation'], arch_config['config_name']))
+                            # Determine config_name based on aggregation for linear probes
+                            if arch_config['name'] == 'linear':
+                                agg = arch_config['aggregation']
+                                config_name = arch_config.get('config_name') or f"linear_{agg}"
+                            else:
+                                config_name = arch_config.get('config_name')
+                            training_jobs.add((train_dataset, layer, component, arch_config['name'], arch_config['aggregation'], config_name))
 
         # Check all datasets that will be used for either training or evaluation
         valid_dataset_metadata = {}
@@ -137,7 +164,8 @@ def main():
                 model=model, d_model=d_model, train_dataset_name=train_ds,
                 layer=layer, component=comp, architecture_name=arch_name, config_name=conf_name,
                 device=config['device'], aggregation=arch_agg, use_cache=config['cache_activations'], seed=global_seed,
-                results_dir=results_dir, cache_dir=cache_dir, logger=logger, retrain=retrain
+                results_dir=results_dir, cache_dir=cache_dir, logger=logger, retrain=retrain,
+                hyperparameter_tuning=hyperparameter_tuning
             )
 
         # Step 3: Evaluation Phase
