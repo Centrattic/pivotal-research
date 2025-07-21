@@ -4,6 +4,11 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import re
+import torch
+from src.probes import LinearProbe, AttentionProbe
+import glob
+import os
+import seaborn as sns
 
 def plot_logit_diffs_by_class(
     probe,
@@ -109,12 +114,12 @@ def plot_class_logit_distributions(
     plt.show()
 
 
-def plot_rebuild_experiment_results_grid(results_json_paths, probe_names, class_names, rebuild_configs, save_path=None, metrics=('acc', 'auc', 'precision', 'recall', 'fpr')):
+def plot_rebuild_experiment_results_grid(dataclass_results_dir, probe_names, class_names, rebuild_configs, save_path=None, metrics=('acc', 'auc', 'precision', 'recall', 'fpr')):
     """
-    Plots a Nx3 grid (rows=probes, cols=3 settings) of results from multiple probes' rebuild experiments.
-    Uses rebuild_configs from the config to group results by experimental setting.
+    Plots a grid (n_probes x 3) of results from multiple probes' rebuild experiments.
+    Columns: [Constant French, Increasing English | Constant % French, Increasing Total | Constant Total, Increasing % French]
     Args:
-        results_json_paths: list of paths to results JSONs (one per probe)
+        dataclass_results_dir: path to dataclass_exps_{dataset}
         probe_names: list of probe names (row labels)
         class_names: dict mapping class idx to class name
         rebuild_configs: list of dicts from config['rebuild_config']
@@ -124,7 +129,22 @@ def plot_rebuild_experiment_results_grid(results_json_paths, probe_names, class_
     import json
     import matplotlib.pyplot as plt
     import numpy as np
-    n_probes = len(results_json_paths)
+    import os
+    import glob
+
+    # Find all per-config *_results.json files in the dataclass results dir (exclude allres)
+    results_json_paths = sorted(glob.glob(os.path.join(dataclass_results_dir, '*_results.json')))
+    results_json_paths = [p for p in results_json_paths if '_allres' not in p]
+    if not results_json_paths:
+        print(f"No per-config *_results.json files found in {dataclass_results_dir}")
+        return
+    # Map probe_name to list of (config, result_path)
+    probe_to_results = {name: [] for name in probe_names}
+    for path in results_json_paths:
+        for probe_name in probe_names:
+            if probe_name in os.path.basename(path):
+                probe_to_results[probe_name].append(path)
+    n_probes = len(probe_names)
     ncols = 3
     nrows = n_probes
     fig, axs = plt.subplots(nrows, ncols, figsize=(6*ncols, 4*nrows), squeeze=False)
@@ -137,86 +157,93 @@ def plot_rebuild_experiment_results_grid(results_json_paths, probe_names, class_
     constant_french = []
     constant_percent = []
     constant_total = []
-    # Group by class_percents and total_samples
-    perc_to_samples = {}
-    samples_to_perc = {}
     for rc in rebuild_configs:
         if 'class_counts' in rc:
             constant_french.append(rc)
         elif 'class_percents' in rc:
-            perc_tuple = tuple(sorted(rc['class_percents'].items()))
-            perc_to_samples.setdefault(perc_tuple, []).append(rc['total_samples'])
-            samples_to_perc.setdefault(rc['total_samples'], []).append(perc_tuple)
-    # Now, assign each config to the correct group
-    for rc in rebuild_configs:
-        if 'class_percents' in rc:
-            perc_tuple = tuple(sorted(rc['class_percents'].items()))
-            total_samples = rc['total_samples']
-            # If this percent is used with multiple total_samples, it's constant percent
-            if len(set(perc_to_samples[perc_tuple])) > 1:
+            if 'total_samples' in rc:
                 constant_percent.append(rc)
-            # If this total_samples is used with multiple percents, it's constant total
-            elif len(set(samples_to_perc[total_samples])) > 1:
-                constant_total.append(rc)
-            # Fallback: if only one config, treat as constant percent
-            else:
-                constant_percent.append(rc)
-    print(f"Grouping: {len(constant_french)} constant_french, {len(constant_percent)} constant_percent, {len(constant_total)} constant_total")
-    for row, (results_json_path, probe_name) in enumerate(zip(results_json_paths, probe_names)):
-        with open(results_json_path, 'r') as f:
-            results = json.load(f)
-        print(f"Loaded {results_json_path}, keys: {list(results.keys())}")
-        # Map result keys to config entries
-        key_to_config = {}
-        for key, metrics_dict in results.items():
-            # Try to match by class_counts/class_percents/total_samples/seed
+    percent_groups = {}
+    total_groups = {}
+    for rc in constant_percent:
+        perc_tuple = tuple(sorted(rc['class_percents'].items()))
+        total = rc['total_samples']
+        percent_groups.setdefault(perc_tuple, []).append(rc)
+        total_groups.setdefault(total, []).append(rc)
+    constant_percent_final = []
+    constant_total_final = []
+    for perc_tuple, group in percent_groups.items():
+        if len(group) > 1:
+            constant_percent_final.extend(group)
+    for total, group in total_groups.items():
+        if len(group) > 1:
+            constant_total_final.extend(group)
+    constant_percent_final = list({id(rc): rc for rc in constant_percent_final}.values())
+    constant_total_final = list({id(rc): rc for rc in constant_total_final}.values())
+    # For each probe, plot the three settings
+    for row, probe_name in enumerate(probe_names):
+        # Build a mapping from config to result path
+        config_to_path = {}
+        for path in probe_to_results.get(probe_name, []):
+            fname = os.path.basename(path)
             for rc in rebuild_configs:
                 match = True
                 if 'class_counts' in rc:
-                    if not all(f"class{cls}_{rc['class_counts'][cls]}" in key for cls in rc['class_counts']):
-                        match = False
+                    for cls in rc['class_counts']:
+                        if f"class{cls}_{rc['class_counts'][cls]}" not in fname:
+                            match = False
                 if 'class_percents' in rc:
                     for cls in rc['class_percents']:
                         pct = int(rc['class_percents'][cls]*100)
-                        if f"class{cls}_{pct}pct" not in key:
+                        if f"class{cls}_{pct}pct" not in fname:
                             match = False
-                    if f"total{rc['total_samples']}" not in key:
+                    if f"total{rc['total_samples']}" not in fname:
                         match = False
-                if 'seed' in rc and f"seed{rc['seed']}" not in key:
+                if 'seed' in rc and f"seed{rc['seed']}" not in fname:
                     match = False
                 if match:
-                    key_to_config[key] = rc
-                    break
-        # Group results by setting
-        setting_data = [[], [], []]  # 0: constant_french, 1: constant_percent, 2: constant_total
-        for key, metrics_dict in results.items():
-            rc = key_to_config.get(key)
-            if rc is None:
-                print(f"Warning: Could not match key {key} to a rebuild_config entry.")
+                    config_to_path[str(rc)] = path
+        # For each setting, collect data
+        setting_data = [[], [], []]
+        # 0: constant_french, 1: constant_percent, 2: constant_total
+        for rc in constant_french:
+            path = config_to_path.get(str(rc))
+            if not path:
                 continue
-            if rc in constant_french:
-                n_french = rc['class_counts'][0] if 0 in rc['class_counts'] else list(rc['class_counts'].values())[0]
-                n_english = rc['class_counts'][1] if 1 in rc['class_counts'] else list(rc['class_counts'].values())[1]
-                total = n_french + n_english
-                pct_french = 100 * n_french / total if total > 0 else 0
-                val_dict = metrics_dict.get('all_examples', metrics_dict)
-                setting_data[0].append((n_english, val_dict, n_french, pct_french))
-            elif rc in constant_percent:
-                n_french = int(rc['class_percents'][0] * rc['total_samples']) if 0 in rc['class_percents'] else 0
-                pct_french = rc['class_percents'][0] * 100 if 0 in rc['class_percents'] else 0
-                total = rc['total_samples']
-                val_dict = metrics_dict.get('all_examples', metrics_dict)
-                setting_data[1].append((total, val_dict, n_french, pct_french))
-            elif rc in constant_total:
-                n_french = int(rc['class_percents'][0] * rc['total_samples']) if 0 in rc['class_percents'] else 0
-                pct_french = rc['class_percents'][0] * 100 if 0 in rc['class_percents'] else 0
-                total = rc['total_samples']
-                val_dict = metrics_dict.get('all_examples', metrics_dict)
-                setting_data[2].append((pct_french, val_dict, n_french, pct_french))
-        # Sort by x-axis
+            with open(path, 'r') as f:
+                d = json.load(f)
+            val_dict = d.get('metrics', {}).get('all_examples', d.get('metrics', {}))
+            n_english = rc['class_counts'][0]
+            n_french = rc['class_counts'][1]
+            total = n_french + n_english
+            pct_french = 100 * n_french / total if total > 0 else 0
+            setting_data[0].append((n_english, val_dict, n_french, pct_french))
+        for rc in constant_percent_final:
+            path = config_to_path.get(str(rc))
+            if not path:
+                continue
+            with open(path, 'r') as f:
+                d = json.load(f)
+            val_dict = d.get('metrics', {}).get('all_examples', d.get('metrics', {}))
+            n_french = int(rc['class_percents'][1] * rc['total_samples']) if 1 in rc['class_percents'] else 0
+            pct_french = rc['class_percents'][1] * 100 if 1 in rc['class_percents'] else 0
+            total = rc['total_samples']
+            setting_data[1].append((total, val_dict, n_french, pct_french))
+        for rc in constant_total_final:
+            path = config_to_path.get(str(rc))
+            if not path:
+                continue
+            with open(path, 'r') as f:
+                d = json.load(f)
+            val_dict = d.get('metrics', {}).get('all_examples', d.get('metrics', {}))
+            n_french = int(rc['class_percents'][1] * rc['total_samples']) if 1 in rc['class_percents'] else 0
+            pct_french = rc['class_percents'][1] * 100 if 1 in rc['class_percents'] else 0
+            total = rc['total_samples']
+            setting_data[2].append((pct_french, val_dict, n_french, pct_french))
+        # Sort each setting by x-axis
         for i in range(3):
             setting_data[i].sort(key=lambda x: x[0])
-        # Plot each setting
+        # Plot each setting in its own subplot
         for col, (data, title) in enumerate(zip(setting_data, setting_titles)):
             ax = axs[row][col]
             if data:
@@ -225,14 +252,11 @@ def plot_rebuild_experiment_results_grid(results_json_paths, probe_names, class_
                 pct_french = [d[3] for d in data]
                 for metric in metrics:
                     y = [d[1].get(metric, np.nan) for d in data]
-                    print(f"Plotting {metric} for {probe_name}, {title}: x={x}, y={y}")
                     ax.plot(x, y, marker='o', label=metric)
                 xticklabels = [f"{xi}\nN_fr={nf}\n%fr={pf:.1f}" for xi, nf, pf in zip(x, n_french, pct_french)]
                 ax.set_xticks(x)
                 ax.set_xticklabels(xticklabels, rotation=30, ha='right')
                 ax.legend()
-            else:
-                print(f"No data for {probe_name}, {title}")
             ax.set_title(title)
             if col == 0:
                 ax.set_ylabel(f"{probe_name}")
@@ -297,6 +321,148 @@ def plot_probe_score_histogram_subplots(probe_results, class_names=None, save_pa
         print(f"Saved probe score histogram subplots to {save_path}")
     else:
         plt.show()
+
+
+def plot_probe_score_violins_from_folder(folder, class_names=None, save_path=None, max_probes=9):
+    """
+    For each *_results.json in the folder, loads the 'scores' and 'labels', and creates a subplot with violin plots of probe scores for each class.
+    Args:
+        folder: Path to directory containing *_results.json files (from evaluate_probe)
+        class_names: dict mapping class index to name (optional)
+        save_path: if provided, saves the plot to this path
+        max_probes: maximum number of probes to plot (for grid size)
+    """
+
+    result_files = sorted(glob.glob(os.path.join(folder, '*_results.json')))
+    n_probes = min(len(result_files), max_probes)
+    if n_probes == 0:
+        print(f"No *_results.json files found in {folder}")
+        return
+    ncols = min(3, n_probes)
+    nrows = int(np.ceil(n_probes / ncols))
+    fig, axs = plt.subplots(nrows, ncols, figsize=(6*ncols, 4*nrows), squeeze=False)
+    for idx, result_path in enumerate(result_files[:max_probes]):
+        row, col = divmod(idx, ncols)
+        ax = axs[row][col]
+        with open(result_path, 'r') as f:
+            d = json.load(f)
+        scores = np.array(d['scores']['scores'])
+        labels = np.array(d['scores']['labels'])
+        if class_names is None:
+            unique_classes = np.unique(labels)
+            class_names_map = {c: f"Class {c}" for c in unique_classes}
+        else:
+            class_names_map = class_names
+        data = []
+        for cls in np.unique(labels):
+            mask = (labels == cls)
+            for s in scores[mask]:
+                data.append({'score': s, 'class': class_names_map.get(cls, str(cls))})
+        import pandas as pd
+        df = pd.DataFrame(data)
+        sns.violinplot(x='class', y='score', data=df, ax=ax, inner='box', cut=0)
+        ax.set_title(os.path.basename(result_path).replace('_results.json', ''), fontsize=9)
+        ax.set_xlabel('Class')
+        ax.set_ylabel('Probe Score')
+    # Hide any unused subplots
+    for idx in range(n_probes, nrows*ncols):
+        row, col = divmod(idx, ncols)
+        fig.delaxes(axs[row][col])
+    plt.tight_layout()
+    if save_path:
+        plt.savefig(save_path, dpi=150)
+        print(f"Saved probe score violin subplots to {save_path}")
+    else:
+        plt.show()
+
+
+def plot_all_probe_logit_weight_distributions(model, d_model, dataset_name, results_dir, viz_dir, ln_f=None, device="cpu"):
+    """
+    Plots logit weight distributions for all trained LinearProbes and AttentionProbes in train_{dataset} and dataclass_exps_{dataset}.
+    For each probe, negative and positive logit weights are shown in different colors (blue/red), and the boxplot above is split by sign.
+    """
+    
+    train_dir = os.path.join(results_dir, f"train_{dataset_name}")
+    dataclass_dir = os.path.join(results_dir, f"dataclass_exps_{dataset_name}")
+    probe_files = glob.glob(os.path.join(train_dir, "*.npz"))
+    if os.path.isdir(dataclass_dir):
+        probe_files += glob.glob(os.path.join(dataclass_dir, "*.npz"))
+    probe_files = [f for f in probe_files if ("linear" in os.path.basename(f) or "attention" in os.path.basename(f))]
+    if not probe_files:
+        print(f"No LinearProbe or AttentionProbe .npz files found for {dataset_name}.")
+        return
+    if hasattr(model, "lm_head"):
+        W_U = model.lm_head.weight.detach().cpu().numpy()
+    elif hasattr(model, "unembed") and hasattr(model.unembed, "W_U"):
+        W_U = model.unembed.W_U.detach().cpu().numpy()
+    else:
+        raise AttributeError("Model does not have an lm_head or unembed.W_U attribute for the unembedding matrix.")
+    n_probes = len(probe_files)
+    ncols = min(3, n_probes)
+    nrows = int(np.ceil(n_probes / ncols))
+    fig, axs = plt.subplots(nrows, ncols, figsize=(6*ncols, 4*nrows), squeeze=False)
+    color_neg = '#377eb8'  # blue
+    color_pos = '#e41a1c'  # red
+    for idx, probe_path in enumerate(probe_files):
+        row, col = divmod(idx, ncols)
+        ax = axs[row][col]
+        if "linear" in os.path.basename(probe_path):
+            probe = LinearProbe(d_model=d_model, device=device)
+            probe.load_state(probe_path)
+            v_probe = probe.model.linear.weight.detach().cpu().numpy()
+        elif "attention" in os.path.basename(probe_path):
+            probe = AttentionProbe(d_model=d_model, device=device)
+            probe.load_state(probe_path)
+            v_probe = probe.model.classifier.weight.detach().cpu().numpy()
+        else:
+            print(f"Skipping unknown probe type: {probe_path}")
+            continue
+        if v_probe.shape[0] == 1:
+            v_proj = v_probe[0]
+        else:
+            v_proj = v_probe[0]
+        if v_proj.shape != (d_model,):
+            print(f"Skipping {probe_path}: probe direction shape {v_proj.shape} does not match d_model {d_model}")
+            continue
+        if ln_f is not None:
+            v_proj = ln_f(torch.tensor(v_proj, dtype=torch.float32, device=device)).detach().cpu().numpy()
+        logit_weights = W_U.T @ v_proj  # (vocab_size,)
+        neg_weights = logit_weights[logit_weights < 0]
+        pos_weights = logit_weights[logit_weights > 0]
+        ax.hist(neg_weights, bins=50, alpha=0.5, color=color_neg, label=f"neg (N={len(neg_weights)})")
+        ax.hist(pos_weights, bins=50, alpha=0.5, color=color_pos, label=f"pos (N={len(pos_weights)})")
+        ax.set_title(os.path.basename(probe_path).replace("_state.npz", ""), fontsize=8)
+        ax.set_xlabel("logit weight")
+        ax.set_ylabel("count")
+        ax.legend()
+        # Boxplots above, split by sign
+        box_data = []
+        box_labels = []
+        box_colors = []
+        if len(neg_weights) > 0:
+            box_data.append(neg_weights)
+            box_labels.append("neg")
+            box_colors.append(color_neg)
+        if len(pos_weights) > 0:
+            box_data.append(pos_weights)
+            box_labels.append("pos")
+            box_colors.append(color_pos)
+        box_ax = ax.inset_axes([0, 1.05, 1, 0.18])
+        bplots = box_ax.boxplot(box_data, vert=False, patch_artist=True, labels=box_labels)
+        for patch, color in zip(bplots['boxes'], box_colors):
+            patch.set_facecolor(color)
+            patch.set_alpha(0.5)
+        box_ax.set_xticks([])
+        box_ax.set_yticks([])
+        box_ax.set_frame_on(False)
+    for idx in range(n_probes, nrows*ncols):
+        row, col = divmod(idx, ncols)
+        fig.delaxes(axs[row][col])
+    plt.tight_layout()
+    save_path = os.path.join(viz_dir, f"probe_logit_weight_distributions_{dataset_name}.png")
+    plt.savefig(save_path, dpi=150)
+    print(f"Saved logit weight distributions to {save_path}")
+    plt.close()
 
 # if __name__ == '__main__':
 #     diff_file = "./results/gender_experiment_gemma/runthrough_4_hist_fig_ismale/logit_diff_gender-pred_model_check.csv"

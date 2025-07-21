@@ -29,7 +29,7 @@ class BaseProbe:
 
     def fit(self, X: np.ndarray, y: np.ndarray, mask: Optional[np.ndarray] = None, 
             epochs: int = 20, lr: float = 1e-3, batch_size: int = 512, weight_decay: float = 0.0, 
-            verbose: bool = True, early_stopping: bool = True, patience: int = 5, min_delta: float = 0.0,
+            verbose: bool = True, early_stopping: bool = True, patience: int = 5, min_delta: float = 0.0001,
             use_weighted_loss: bool = True, use_weighted_sampler: bool = False):
         """
         Train the probe model.

@@ -176,7 +176,17 @@ def main():
             logger.log(f"🫠 Training job {i+1}/{len(valid_training_jobs)}: {train_ds}, {arch_name}, L{layer}, {comp}")
             # Find the experiment for this job
             experiment = next((exp for exp in config['experiments'] if exp['train_on'] == train_ds), None)
-            rebuild_configs = experiment.get('rebuild_config', [None]) if experiment else [None]
+            # Flatten grouped rebuild_config if present
+            rebuild_configs = []
+            if experiment and 'rebuild_config' in experiment:
+                rc = experiment['rebuild_config']
+                if isinstance(rc, dict):
+                    for group in rc.values():
+                        rebuild_configs.extend(group)
+                else:
+                    rebuild_configs = rc
+            else:
+                rebuild_configs = [None]
             for rebuild_params in rebuild_configs:
                 train_probe(
                     model=model, d_model=d_model, train_dataset_name=train_ds,
@@ -192,7 +202,16 @@ def main():
             train_sets = [experiment['train_on']]
             if experiment['train_on'] == "all": train_sets = available_datasets
             score_options = experiment.get('score', ['all'])
-            rebuild_configs = experiment.get('rebuild_config', [None])
+            rebuild_configs = []
+            if 'rebuild_config' in experiment:
+                rc = experiment['rebuild_config']
+                if isinstance(rc, dict):
+                    for group in rc.values():
+                        rebuild_configs.extend(group)
+                else:
+                    rebuild_configs = rc
+            else:
+                rebuild_configs = [None]
             for train_dataset in train_sets:
                 if train_dataset not in valid_dataset_metadata: continue
                 eval_sets = experiment['evaluate_on']
@@ -210,6 +229,15 @@ def main():
                             for component in config['components']:
                                 all_eval_results = {}
                                 for rebuild_params in rebuild_configs:
+                                    # Determine probe_save_dir based on whether this is a dataclass_exps probe
+                                    if rebuild_params is not None:
+                                        probe_save_dir = results_dir / f"dataclass_exps_{train_dataset}"
+                                    else:
+                                        probe_save_dir = results_dir / f"train_{train_dataset}"
+                                    # Ensure probe_save_dir exists (skip if not trained)
+                                    if not probe_save_dir.exists():
+                                        logger.log(f"  - [SKIP] Probe dir does not exist: {probe_save_dir}")
+                                        continue
                                     metrics = evaluate_probe(
                                         train_dataset_name=train_dataset, eval_dataset_name=eval_dataset,
                                         layer=layer, component=component, architecture_config=arch_config,
@@ -225,6 +253,12 @@ def main():
                                 eval_results_path = results_dir / f"train_{train_dataset}" / f"eval_on_{eval_dataset}__{probe_filename_base}_allres.json"
                                 with open(eval_results_path, "w") as f:
                                     json.dump(all_eval_results, f, indent=2)
+                                # If this was a dataclass_exps probe, also save in that directory
+                                if any(rebuild_configs):
+                                    dataclass_eval_results_path = results_dir / f"dataclass_exps_{train_dataset}" / f"eval_on_{eval_dataset}__{probe_filename_base}_allres.json"
+                                    dataclass_eval_results_path.parent.mkdir(parents=True, exist_ok=True)
+                                    with open(dataclass_eval_results_path, "w") as f:
+                                        json.dump(all_eval_results, f, indent=2)
     finally:
         if 'model' in locals():
             del model

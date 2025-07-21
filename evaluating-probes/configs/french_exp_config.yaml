@@ -28,26 +28,28 @@ experiments:
       - all
       # - filtered # don't need to filter here since only 1-2 are unsure (but could add threshold)
     rebuild_config:
-      # 1. Constant number of French samples, increasing English samples
-      - {class_counts: {0: 50, 1: 50}, seed: 42} 
-      - {class_counts: {0: 50, 1: 500}, seed: 42}     # 0 is English, 1 is French
-      - {class_counts: {0: 50, 1: 1000}, seed: 42}
-      - {class_counts: {0: 50, 1: 1500}, seed: 42}
-      - {class_counts: {0: 50, 1: 2000}, seed: 42}
-
-      # 2. Constant percent French, increasing total samples
-      - {class_percents: {0: 0.9, 1: 0.1}, total_samples: 100, seed: 42}
-      - {class_percents: {0: 0.9, 1: 0.1}, total_samples: 550, seed: 42}
-      - {class_percents: {0: 0.9, 1: 0.1}, total_samples: 1050, seed: 42}
-      - {class_percents: {0: 0.9, 1: 0.1}, total_samples: 1550, seed: 42}
-      - {class_percents: {0: 0.9, 1: 0.1}, total_samples: 2050, seed: 42}
-
-      # 3. Constant total samples, increasing percent French
-      - {class_percents: {0: 0.9, 1: 0.1}, total_samples: 2050, seed: 42}
-      - {class_percents: {0: 0.75, 1: 0.25}, total_samples: 2050, seed: 42}
-      - {class_percents: {0: 0.5, 1: 0.5}, total_samples: 2050, seed: 42}
-      - {class_percents: {0: 0.25, 1: 0.75}, total_samples: 2050, seed: 42}
-      - {class_percents: {0: 0.1, 1: 0.9}, total_samples: 2050, seed: 42}
+      constant_french_increasing_english:
+        - {class_counts: {0: 50, 1: 50}, seed: 42} 
+        - {class_counts: {0: 500, 1: 50}, seed: 42}     # 0 is French, 1 is English
+        - {class_counts: {0: 1500, 1: 50}, seed: 42}
+        - {class_counts: {0: 3000, 1: 50}, seed: 42}
+        - {class_counts: {0: 5000, 1: 50}, seed: 42}
+        - {class_counts: {0: 7000, 1: 50}, seed: 42}
+        - {class_counts: {0: 10000, 1: 50}, seed: 42}
+      constant_percent_french_increasing_total:
+        - {class_percents: {0: 0.9, 1: 0.1}, total_samples: 100, seed: 42}
+        - {class_percents: {0: 0.9, 1: 0.1}, total_samples: 550, seed: 42}
+        - {class_percents: {0: 0.9, 1: 0.1}, total_samples: 1550, seed: 42}
+        - {class_percents: {0: 0.9, 1: 0.1}, total_samples: 3050, seed: 42}
+        - {class_percents: {0: 0.9, 1: 0.1}, total_samples: 5050, seed: 42}
+        - {class_percents: {0: 0.9, 1: 0.1}, total_samples: 7050, seed: 42}
+        - {class_percents: {0: 0.9, 1: 0.1}, total_samples: 10050, seed: 42}
+      constant_total_increasing_percent_french:
+        - {class_percents: {0: 0.9, 1: 0.1}, total_samples: 5050, seed: 42}
+        - {class_percents: {0: 0.75, 1: 0.25}, total_samples: 5050, seed: 42}
+        - {class_percents: {0: 0.5, 1: 0.5}, total_samples: 5050, seed: 42}
+        - {class_percents: {0: 0.25, 1: 0.75}, total_samples: 5050, seed: 42}
+        - {class_percents: {0: 0.1, 1: 0.9}, total_samples: 5050, seed: 42}
 
 model_check:
   - name: french-pred
