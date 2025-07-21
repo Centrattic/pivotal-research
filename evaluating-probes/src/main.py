@@ -177,16 +177,14 @@ def main():
             # Find the experiment for this job
             experiment = next((exp for exp in config['experiments'] if exp['train_on'] == train_ds), None)
             # Flatten grouped rebuild_config if present
-            rebuild_configs = []
+            rebuild_configs = [None]
             if experiment and 'rebuild_config' in experiment:
                 rc = experiment['rebuild_config']
                 if isinstance(rc, dict):
                     for group in rc.values():
                         rebuild_configs.extend(group)
                 else:
-                    rebuild_configs = rc
-            else:
-                rebuild_configs = [None]
+                    rebuild_configs.extend(rc if isinstance(rc, list) else [rc]) # Always include the None case
             for rebuild_params in rebuild_configs:
                 train_probe(
                     model=model, d_model=d_model, train_dataset_name=train_ds,

@@ -21,6 +21,7 @@ architectures:
 # List of experiments to run
 experiments:
   - name: eng_french_language
+    class_names: {0: "English", 1: "French"} # only if train_on and evaluate_on are same
     train_on: 91_eng-french
     evaluate_on:
       - 91_eng-french
@@ -56,4 +57,4 @@ model_check:
     hf_model_name: "google/gemma-2-9b-it"
     check_on: "91_eng-french"
     check_prompt: 'In one word, the statement "{prompt}" is in the language of:'
-    class_names: {0: "French", 1: "English"}
+    class_names: {0: "English", 1: "French"}

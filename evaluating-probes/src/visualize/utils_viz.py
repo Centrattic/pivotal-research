@@ -149,9 +149,9 @@ def plot_rebuild_experiment_results_grid(dataclass_results_dir, probe_names, cla
     nrows = n_probes
     fig, axs = plt.subplots(nrows, ncols, figsize=(6*ncols, 4*nrows), squeeze=False)
     setting_titles = [
-        'Constant French, Increasing English',
-        'Constant % French, Increasing Total',
-        'Constant Total, Increasing % French'
+        f'Constant {class_names[1]}, Increasing {class_names[0]}',
+        f'Constant % {class_names[1]}, Increasing Total',
+        f'Constant Total, Increasing % {class_names[1]}'
     ]
     # Group rebuild_configs by setting
     constant_french = []
@@ -379,9 +379,13 @@ def plot_probe_score_violins_from_folder(folder, class_names=None, save_path=Non
 def plot_all_probe_logit_weight_distributions(model, d_model, dataset_name, results_dir, viz_dir, ln_f=None, device="cpu"):
     """
     Plots logit weight distributions for all trained LinearProbes and AttentionProbes in train_{dataset} and dataclass_exps_{dataset}.
-    For each probe, negative and positive logit weights are shown in different colors (blue/red), and the boxplot above is split by sign.
+    For each probe, plot a single histogram for all logit weights, and overlay colored regions for negative (blue) and positive (red) values. Also save separate figures for all linear and all attention probes.
     """
-    
+    import matplotlib.pyplot as plt
+    import numpy as np
+    import os
+    import glob
+
     train_dir = os.path.join(results_dir, f"train_{dataset_name}")
     dataclass_dir = os.path.join(results_dir, f"dataclass_exps_{dataset_name}")
     probe_files = glob.glob(os.path.join(train_dir, "*.npz"))
@@ -397,72 +401,95 @@ def plot_all_probe_logit_weight_distributions(model, d_model, dataset_name, resu
         W_U = model.unembed.W_U.detach().cpu().numpy()
     else:
         raise AttributeError("Model does not have an lm_head or unembed.W_U attribute for the unembedding matrix.")
-    n_probes = len(probe_files)
-    ncols = min(3, n_probes)
-    nrows = int(np.ceil(n_probes / ncols))
-    fig, axs = plt.subplots(nrows, ncols, figsize=(6*ncols, 4*nrows), squeeze=False)
+    # Split probes by type
+    linear_probes = [f for f in probe_files if "linear" in os.path.basename(f)]
+    attention_probes = [f for f in probe_files if "attention" in os.path.basename(f)]
+    probe_groups = [("all", probe_files), ("linear", linear_probes), ("attention", attention_probes)]
     color_neg = '#377eb8'  # blue
     color_pos = '#e41a1c'  # red
-    for idx, probe_path in enumerate(probe_files):
-        row, col = divmod(idx, ncols)
-        ax = axs[row][col]
-        if "linear" in os.path.basename(probe_path):
-            probe = LinearProbe(d_model=d_model, device=device)
-            probe.load_state(probe_path)
-            v_probe = probe.model.linear.weight.detach().cpu().numpy()
-        elif "attention" in os.path.basename(probe_path):
-            probe = AttentionProbe(d_model=d_model, device=device)
-            probe.load_state(probe_path)
-            v_probe = probe.model.classifier.weight.detach().cpu().numpy()
-        else:
-            print(f"Skipping unknown probe type: {probe_path}")
+    for group_name, group_files in probe_groups:
+        if not group_files:
             continue
-        if v_probe.shape[0] == 1:
-            v_proj = v_probe[0]
+        n_probes = len(group_files)
+        ncols = min(3, n_probes)
+        nrows = int(np.ceil(n_probes / ncols))
+        fig, axs = plt.subplots(nrows, ncols, figsize=(6*ncols, 4*nrows), squeeze=False)
+        for idx, probe_path in enumerate(group_files):
+            row, col = divmod(idx, ncols)
+            ax = axs[row][col]
+            if "linear" in os.path.basename(probe_path):
+                probe = LinearProbe(d_model=d_model, device=device)
+                probe.load_state(probe_path)
+                v_probe = probe.model.linear.weight.detach().cpu().numpy()
+            elif "attention" in os.path.basename(probe_path):
+                probe = AttentionProbe(d_model=d_model, device=device)
+                probe.load_state(probe_path)
+                v_probe = probe.model.classifier.weight.detach().cpu().numpy()
+            else:
+                print(f"Skipping unknown probe type: {probe_path}")
+                continue
+            if v_probe.shape[0] == 1:
+                v_proj = v_probe[0]
+            else:
+                v_proj = v_probe[0]
+            if v_proj.shape != (d_model,):
+                print(f"Skipping {probe_path}: probe direction shape {v_proj.shape} does not match d_model {d_model}")
+                continue
+            if ln_f is not None:
+                v_proj = ln_f(torch.tensor(v_proj, dtype=torch.float32, device=device)).detach().cpu().numpy()
+            logit_weights = W_U.T @ v_proj  # (vocab_size,)
+            # Plot a single histogram for all weights
+            bins = 100
+            counts, bin_edges, patches = ax.hist(logit_weights, bins=bins, alpha=0.7, color='gray', label='all', edgecolor='black')
+            # Overlay colored regions for negative and positive
+            for i in range(len(bin_edges)-1):
+                if bin_edges[i+1] <= 0:
+                    patches[i].set_facecolor(color_neg)
+                    patches[i].set_alpha(0.5)
+                elif bin_edges[i] >= 0:
+                    patches[i].set_facecolor(color_pos)
+                    patches[i].set_alpha(0.5)
+            ax.set_title(os.path.basename(probe_path).replace("_state.npz", ""), fontsize=8)
+            ax.set_xlabel("logit weight")
+            ax.set_ylabel("count")
+            # Add legend manually
+            from matplotlib.patches import Patch
+            legend_patches = [Patch(facecolor=color_neg, alpha=0.5, label=f"neg (<0, N={(logit_weights < 0).sum()})"),
+                              Patch(facecolor=color_pos, alpha=0.5, label=f"pos (>0, N={(logit_weights > 0).sum()})")]
+            ax.legend(handles=legend_patches)
+            # Boxplots above, split by sign
+            box_data = []
+            box_labels = []
+            box_colors = []
+            neg_weights = logit_weights[logit_weights < 0]
+            pos_weights = logit_weights[logit_weights > 0]
+            if len(neg_weights) > 0:
+                box_data.append(neg_weights)
+                box_labels.append("neg")
+                box_colors.append(color_neg)
+            if len(pos_weights) > 0:
+                box_data.append(pos_weights)
+                box_labels.append("pos")
+                box_colors.append(color_pos)
+            box_ax = ax.inset_axes([0, 1.05, 1, 0.18])
+            bplots = box_ax.boxplot(box_data, vert=False, patch_artist=True, labels=box_labels)
+            for patch, color in zip(bplots['boxes'], box_colors):
+                patch.set_facecolor(color)
+                patch.set_alpha(0.5)
+            box_ax.set_xticks([])
+            box_ax.set_yticks([])
+            box_ax.set_frame_on(False)
+        for idx in range(n_probes, nrows*ncols):
+            row, col = divmod(idx, ncols)
+            fig.delaxes(axs[row][col])
+        plt.tight_layout()
+        if group_name == "all":
+            save_path = os.path.join(viz_dir, f"probe_logit_weight_distributions_{dataset_name}.png")
         else:
-            v_proj = v_probe[0]
-        if v_proj.shape != (d_model,):
-            print(f"Skipping {probe_path}: probe direction shape {v_proj.shape} does not match d_model {d_model}")
-            continue
-        if ln_f is not None:
-            v_proj = ln_f(torch.tensor(v_proj, dtype=torch.float32, device=device)).detach().cpu().numpy()
-        logit_weights = W_U.T @ v_proj  # (vocab_size,)
-        neg_weights = logit_weights[logit_weights < 0]
-        pos_weights = logit_weights[logit_weights > 0]
-        ax.hist(neg_weights, bins=50, alpha=0.5, color=color_neg, label=f"neg (N={len(neg_weights)})")
-        ax.hist(pos_weights, bins=50, alpha=0.5, color=color_pos, label=f"pos (N={len(pos_weights)})")
-        ax.set_title(os.path.basename(probe_path).replace("_state.npz", ""), fontsize=8)
-        ax.set_xlabel("logit weight")
-        ax.set_ylabel("count")
-        ax.legend()
-        # Boxplots above, split by sign
-        box_data = []
-        box_labels = []
-        box_colors = []
-        if len(neg_weights) > 0:
-            box_data.append(neg_weights)
-            box_labels.append("neg")
-            box_colors.append(color_neg)
-        if len(pos_weights) > 0:
-            box_data.append(pos_weights)
-            box_labels.append("pos")
-            box_colors.append(color_pos)
-        box_ax = ax.inset_axes([0, 1.05, 1, 0.18])
-        bplots = box_ax.boxplot(box_data, vert=False, patch_artist=True, labels=box_labels)
-        for patch, color in zip(bplots['boxes'], box_colors):
-            patch.set_facecolor(color)
-            patch.set_alpha(0.5)
-        box_ax.set_xticks([])
-        box_ax.set_yticks([])
-        box_ax.set_frame_on(False)
-    for idx in range(n_probes, nrows*ncols):
-        row, col = divmod(idx, ncols)
-        fig.delaxes(axs[row][col])
-    plt.tight_layout()
-    save_path = os.path.join(viz_dir, f"probe_logit_weight_distributions_{dataset_name}.png")
-    plt.savefig(save_path, dpi=150)
-    print(f"Saved logit weight distributions to {save_path}")
-    plt.close()
+            save_path = os.path.join(viz_dir, f"probe_logit_weight_distributions_{dataset_name}_{group_name}.png")
+        plt.savefig(save_path, dpi=150)
+        print(f"Saved logit weight distributions to {save_path}")
+        plt.close()
 
 # if __name__ == '__main__':
 #     diff_file = "./results/gender_experiment_gemma/runthrough_4_hist_fig_ismale/logit_diff_gender-pred_model_check.csv"
