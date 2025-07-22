@@ -64,7 +64,8 @@ def main():
     viz_dir = results_dir / 'visualizations'
     viz_dir.mkdir(parents=True, exist_ok=True)
     # Load model for dataset activations
-    model = HookedTransformer.from_pretrained(config['model_name'], config['device'])
+    # ToDo: have to load model to get d_model, add this to config
+    model = HookedTransformer.from_pretrained(config['model_name'], config['device']) 
     d_model = model.cfg.d_model
     # 1. Model check visualizations
     # if 'model_check' in config:
@@ -116,6 +117,7 @@ def main():
                     rebuild_configs.extend(group)
             else:
                 rebuild_configs.extend(rc)
+        # Only expect 2 config types now: class_counts and class_percents
         # Probe names: extract from the files in dataclass_results_dir using train_on dataset
         import re
         dataset = experiment['train_on']
@@ -127,12 +129,16 @@ def main():
         if allres_files and rebuild_configs:
             from src.visualize.utils_viz import plot_rebuild_experiment_results_grid
             save_path = viz_dir / f"rebuild_experiment_results_grid_dataclass_{train_on}.png"
+            # Only 2 columns: class_counts and class_percents
             plot_rebuild_experiment_results_grid(
                 str(dataclass_results_dir),
                 probe_names,
                 class_names,
                 rebuild_configs,
-                save_path=save_path
+                save_path=save_path,
+                ncols=2,  # Only 2 columns now
+                y_log_scale=False,
+                show_value_labels=True
             )
     # 3. Probe score histograms (unchanged)
     for experiment in config.get('experiments', []):
@@ -158,20 +164,20 @@ def main():
         #                     plot_probe_score_histogram_subplots(probe_results, class_names=None, save_path=str(save_path))
         #                 else:
         #                     print(f"Test scores/labels not found for {train_on}, {arch['name']}, L{layer}, {component}, eval_on={eval_on}")
-    # 4. Logit weight distributions for all probes
-    for experiment in config.get('experiments', []):
-        train_on = experiment['train_on']
-        from src.visualize.utils_viz import plot_all_probe_logit_weight_distributions
-        ln_f = getattr(model, 'ln_f', None)
-        plot_all_probe_logit_weight_distributions(
-            model=model,
-            d_model=d_model,
-            dataset_name=train_on,
-            results_dir=str(results_dir),
-            viz_dir=str(viz_dir),
-            ln_f=ln_f if ln_f is not None else None,
-            device=config['device']
-        )
+    # # 4. Logit weight distributions for all probes
+    # for experiment in config.get('experiments', []):
+    #     train_on = experiment['train_on']
+    #     from src.visualize.utils_viz import plot_all_probe_logit_weight_distributions
+    #     ln_f = getattr(model, 'ln_f', None)
+    #     plot_all_probe_logit_weight_distributions(
+    #         model=model,
+    #         d_model=d_model,
+    #         dataset_name=train_on,
+    #         results_dir=str(results_dir),
+    #         viz_dir=str(viz_dir),
+    #         ln_f=ln_f if ln_f is not None else None,
+    #         device=config['device']
+    #     )
 
 if __name__ == '__main__':
     main() 

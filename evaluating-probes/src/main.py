@@ -186,6 +186,7 @@ def main():
                 else:
                     rebuild_configs.extend(rc if isinstance(rc, list) else [rc]) # Always include the None case
             for rebuild_params in rebuild_configs:
+                # For dataclass experiments, eval set is always 50/50 balanced (see runner.py)
                 train_probe(
                     model=model, d_model=d_model, train_dataset_name=train_ds,
                     layer=layer, component=comp, architecture_name=arch_name, config_name=conf_name,
@@ -200,7 +201,7 @@ def main():
             train_sets = [experiment['train_on']]
             if experiment['train_on'] == "all": train_sets = available_datasets
             score_options = experiment.get('score', ['all'])
-            rebuild_configs = []
+            rebuild_configs = [None]
             if 'rebuild_config' in experiment:
                 rc = experiment['rebuild_config']
                 if isinstance(rc, dict):
@@ -208,8 +209,8 @@ def main():
                         rebuild_configs.extend(group)
                 else:
                     rebuild_configs = rc
-            else:
-                rebuild_configs = [None]
+            # else:
+            #     rebuild_configs = [None]
             for train_dataset in train_sets:
                 if train_dataset not in valid_dataset_metadata: continue
                 eval_sets = experiment['evaluate_on']
@@ -227,6 +228,7 @@ def main():
                             for component in config['components']:
                                 all_eval_results = {}
                                 for rebuild_params in rebuild_configs:
+                                    # For dataclass experiments, eval set is always 50/50 balanced (see runner.py)
                                     # Determine probe_save_dir based on whether this is a dataclass_exps probe
                                     if rebuild_params is not None:
                                         probe_save_dir = results_dir / f"dataclass_exps_{train_dataset}"

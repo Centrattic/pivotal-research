@@ -41,6 +41,11 @@ class Dataset:
         seed: int = 42, # This is so important - how train and test sets persist across models/runs/etc.
     ):
         self.dataset_name = dataset_name
+        self.model = model  # Ensure model is always set as an attribute
+        self.device = device
+        self.cache_root = cache_root
+        self.seed = seed
+        
         meta = get_main_csv_metadata()
         meta_row = meta.loc[int(dataset_name.split("_", 1)[0])]
         self.task_type = meta_row["Data type"].strip().lower()
@@ -209,6 +214,145 @@ class Dataset:
         new_dataset.val_indices = None
         new_dataset.test_indices = None
         return new_dataset
+
+    @classmethod
+    def from_dataframe(cls, df, *, dataset_name, model, device, cache_root, seed, task_type=None, n_classes=None, max_len=None, train_indices=None, val_indices=None, test_indices=None):
+        """
+        Construct a Dataset from a DataFrame, using the same model/device/etc. as the original.
+        If train/val/test indices are provided, set all split attributes accordingly.
+        """
+        import copy
+        obj = copy.copy(cls.__new__(cls))
+        obj.dataset_name = dataset_name
+        obj.df = df.copy()
+        obj.model = model
+        obj.device = device
+        obj.max_len = max_len if max_len is not None else (df["prompt_len"].max() if "prompt_len" in df.columns else df["prompt"].str.len().max())
+        obj.task_type = task_type
+        obj.n_classes = n_classes
+        obj.X = df["prompt"].astype(str).to_numpy()
+        obj.y = df["target"].to_numpy()
+        obj.X_train_text = None
+        obj.y_train = None
+        obj.X_val_text = None
+        obj.y_val = None
+        obj.X_test_text = None
+        obj.y_test = None
+        obj.train_indices = None
+        obj.val_indices = None
+        obj.test_indices = None
+        if train_indices is not None and val_indices is not None and test_indices is not None:
+            obj.train_indices = np.array(train_indices)
+            obj.val_indices = np.array(val_indices)
+            obj.test_indices = np.array(test_indices)
+            obj.X_train_text = obj.X[obj.train_indices].tolist()
+            obj.y_train = obj.y[obj.train_indices]
+            obj.X_val_text = obj.X[obj.val_indices].tolist()
+            obj.y_val = obj.y[obj.val_indices]
+            obj.X_test_text = obj.X[obj.test_indices].tolist()
+            obj.y_test = obj.y[obj.test_indices]
+        try:
+            cache_dir = cache_root / model.cfg.model_name / dataset_name
+            obj.act_manager = ActivationManager(
+                model=model,
+                device=device,
+                d_model=model.cfg.d_model,
+                max_len=obj.max_len,
+                cache_dir=cache_dir,
+            )
+        except:
+            print("Using dataset class to fetch text, not manage activations.")
+        return obj
+
+    @staticmethod
+    def rebuild_train_balanced_eval(
+        original_dataset,
+        train_class_counts=None,
+        train_class_percents=None,
+        train_total_samples=None,
+        val_size: float = 0.10,
+        test_size: float = 0.15,
+        seed: int = 42
+    ):
+        """
+        Returns a single Dataset object with precomputed splits:
+        - test and val are both balanced 50/50 (as large as possible given split sizes and data)
+        - train is constructed from the remaining data using the requested class balance
+        - Default split: 75% train, 10% val, 15% test
+        - No overlap between splits
+        """
+        import copy
+        np.random.seed(seed)
+        df = original_dataset.df.copy()
+        y = df['target'].to_numpy()
+        classes = np.unique(y)
+        n_total = len(df)
+        # Compute split sizes
+        n_test = int(round(test_size * n_total))
+        n_val = int(round(val_size * n_total))
+        # For test/val: balanced 50/50, as large as possible
+        n_per_class_test = n_test // len(classes)
+        n_per_class_val = n_val // len(classes)
+        # Sample test indices
+        test_indices = []
+        val_indices = []
+        used_indices = set()
+        for cls in classes:
+            cls_indices = np.where(y == cls)[0]
+            np.random.shuffle(cls_indices)
+            if len(cls_indices) < n_per_class_test + n_per_class_val:
+                raise ValueError(f"Not enough samples for class {cls} to fill test+val splits.")
+            test_indices.extend(cls_indices[:n_per_class_test])
+            val_indices.extend(cls_indices[n_per_class_test:n_per_class_test+n_per_class_val])
+            used_indices.update(cls_indices[:n_per_class_test+n_per_class_val])
+        # Remaining indices for train
+        available_indices = np.array([i for i in range(n_total) if i not in used_indices])
+        # Build train set using requested class balance
+        y_avail = y[available_indices]
+        train_indices = []
+        def get_counts(class_counts, class_percents, total_samples):
+            if class_counts is not None:
+                return class_counts
+            elif class_percents is not None and total_samples is not None:
+                return {k: int(round(v * total_samples)) for k, v in class_percents.items()}
+            else:
+                raise ValueError("Must specify either class_counts or (class_percents and total_samples)")
+        train_counts = get_counts(train_class_counts, train_class_percents, train_total_samples)
+        for cls in train_counts:
+            cls_avail_indices = available_indices[y_avail == cls]
+            n_train = train_counts[cls]
+            if len(cls_avail_indices) < n_train:
+                raise ValueError(f"Not enough samples for class {cls} in train split: requested {n_train}, available {len(cls_avail_indices)}")
+            np.random.shuffle(cls_avail_indices)
+            train_indices.extend(cls_avail_indices[:n_train])
+        # Shuffle train indices
+        np.random.shuffle(train_indices)
+        # Check for overlap between splits
+        train_set = set(train_indices)
+        val_set = set(val_indices)
+        test_set = set(test_indices)
+        overlap_tv = train_set & val_set
+        overlap_tt = train_set & test_set
+        overlap_vt = val_set & test_set
+        if overlap_tv or overlap_tt or overlap_vt:
+            print(f"WARNING: Overlap detected in splits! train/val: {len(overlap_tv)}, train/test: {len(overlap_tt)}, val/test: {len(overlap_vt)}")
+        else:
+            print("No overlap between train, val, and test sets.")
+        # Build Dataset with all splits
+        common_kwargs = dict(
+            dataset_name=original_dataset.dataset_name,
+            model=original_dataset.model,
+            device=original_dataset.device,
+            cache_root=Path("activation_cache"),
+            seed=seed,
+            task_type=original_dataset.task_type,
+            n_classes=original_dataset.n_classes,
+            max_len=original_dataset.max_len,
+            train_indices=train_indices,
+            val_indices=val_indices,
+            test_indices=test_indices,
+        )
+        return Dataset.from_dataframe(df, **common_kwargs)
 
 def get_available_datasets(data_dir: Path = Path("datasets/cleaned")) -> List[str]:
     return [f.stem for f in data_dir.glob("*.csv")]

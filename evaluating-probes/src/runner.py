@@ -101,10 +101,23 @@ def train_probe(
         return
     logger.log("  - Training new probe …")
 
-    train_ds = Dataset(train_dataset_name, model=model, device=device, seed=seed)  # uses default cache_root
     if rebuild_config is not None:
-        train_ds = train_ds.rebuild(**rebuild_config)
-    train_ds.split_data(train_size=train_size, val_size=val_size, test_size=test_size, seed=seed)  # Split the data
+        orig_ds = Dataset(train_dataset_name, model=model, device=device, seed=seed)
+        train_class_counts = rebuild_config.get('class_counts')
+        train_class_percents = rebuild_config.get('class_percents')
+        train_total_samples = rebuild_config.get('total_samples')
+        train_ds = Dataset.rebuild_train_balanced_eval(
+            orig_ds,
+            train_class_counts=train_class_counts,
+            train_class_percents=train_class_percents,
+            train_total_samples=train_total_samples,
+            val_size=val_size,
+            test_size=test_size,
+            seed=seed
+        )
+    else:
+        train_ds = Dataset(train_dataset_name, model=model, device=device, seed=seed)
+        train_ds.split_data(train_size=train_size, val_size=val_size, test_size=test_size, seed=seed)
     train_acts, y_train = train_ds.get_train_set_activations(layer, component)
     val_acts, y_val = train_ds.get_val_set_activations(layer, component)
     test_acts, y_test = train_ds.get_test_set_activations(layer, component)
@@ -135,6 +148,7 @@ def train_probe(
     logger.log(f"  - 🔥 Probe state saved to {probe_state_path.name}")
     if return_probe_and_test:
         return probe, test_acts, y_test
+
 
 def evaluate_probe(
     train_dataset_name: str, eval_dataset_name: str, layer: int, component: str,
@@ -175,11 +189,23 @@ def evaluate_probe(
     probe = get_probe_architecture(architecture_name, d_model=d_model, device=device, aggregation=aggregation)
     probe.load_state(probe_state_path)
 
-    # load activations via Dataset 
-    eval_ds = Dataset(eval_dataset_name, model=model, device=device, seed=seed)
     if rebuild_config is not None:
-        eval_ds = eval_ds.rebuild(**rebuild_config)
-    eval_ds.split_data(train_size=train_size, val_size=val_size, test_size=test_size, seed=seed)  # Split the data
+        orig_ds = Dataset(eval_dataset_name, model=model, device=device, seed=seed)
+        train_class_counts = rebuild_config.get('class_counts')
+        train_class_percents = rebuild_config.get('class_percents')
+        train_total_samples = rebuild_config.get('total_samples')
+        eval_ds = Dataset.rebuild_train_balanced_eval(
+            orig_ds,
+            train_class_counts=train_class_counts,
+            train_class_percents=train_class_percents,
+            train_total_samples=train_total_samples,
+            val_size=val_size,
+            test_size=test_size,
+            seed=seed
+        )
+    else:
+        eval_ds = Dataset(eval_dataset_name, model=model, device=device, seed=seed)
+        eval_ds.split_data(train_size=train_size, val_size=val_size, test_size=test_size, seed=seed)
     test_acts, y_test = eval_ds.get_test_set_activations(layer, component)
 
     # Calculate metrics based on score options

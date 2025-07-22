@@ -114,10 +114,11 @@ def plot_class_logit_distributions(
     plt.show()
 
 
-def plot_rebuild_experiment_results_grid(dataclass_results_dir, probe_names, class_names, rebuild_configs, save_path=None, metrics=('acc', 'auc', 'precision', 'recall', 'fpr')):
+def plot_rebuild_experiment_results_grid(dataclass_results_dir, probe_names, class_names, rebuild_configs, save_path=None, 
+                                    metrics=('acc', 'auc', 'precision', 'recall', 'fpr'), ncols=2, y_log_scale=False, show_value_labels=False):
     """
-    Plots a grid (n_probes x 3) of results from multiple probes' rebuild experiments.
-    Columns: [Constant French, Increasing English | Constant % French, Increasing Total | Constant Total, Increasing % French]
+    Plots a grid (n_probes x 2) of results from multiple probes' rebuild experiments.
+    Columns: [Class Counts, Class Percents]
     Args:
         dataclass_results_dir: path to dataclass_exps_{dataset}
         probe_names: list of probe names (row labels)
@@ -125,6 +126,9 @@ def plot_rebuild_experiment_results_grid(dataclass_results_dir, probe_names, cla
         rebuild_configs: list of dicts from config['rebuild_config']
         save_path: if provided, saves the plot to this path
         metrics: tuple/list of metric keys to plot (default: all supported)
+        ncols: number of columns (default 2)
+        y_log_scale: if True, use log scale for y-axis
+        show_value_labels: if True, annotate each data point with its value (rounded to 3 decimals)
     """
     import json
     import matplotlib.pyplot as plt
@@ -145,42 +149,16 @@ def plot_rebuild_experiment_results_grid(dataclass_results_dir, probe_names, cla
             if probe_name in os.path.basename(path):
                 probe_to_results[probe_name].append(path)
     n_probes = len(probe_names)
-    ncols = 3
     nrows = n_probes
     fig, axs = plt.subplots(nrows, ncols, figsize=(6*ncols, 4*nrows), squeeze=False)
     setting_titles = [
-        f'Constant {class_names[1]}, Increasing {class_names[0]}',
-        f'Constant % {class_names[1]}, Increasing Total',
-        f'Constant Total, Increasing % {class_names[1]}'
+        'Class Counts',
+        'Class Percents'
     ]
-    # Group rebuild_configs by setting
-    constant_french = []
-    constant_percent = []
-    constant_total = []
-    for rc in rebuild_configs:
-        if 'class_counts' in rc:
-            constant_french.append(rc)
-        elif 'class_percents' in rc:
-            if 'total_samples' in rc:
-                constant_percent.append(rc)
-    percent_groups = {}
-    total_groups = {}
-    for rc in constant_percent:
-        perc_tuple = tuple(sorted(rc['class_percents'].items()))
-        total = rc['total_samples']
-        percent_groups.setdefault(perc_tuple, []).append(rc)
-        total_groups.setdefault(total, []).append(rc)
-    constant_percent_final = []
-    constant_total_final = []
-    for perc_tuple, group in percent_groups.items():
-        if len(group) > 1:
-            constant_percent_final.extend(group)
-    for total, group in total_groups.items():
-        if len(group) > 1:
-            constant_total_final.extend(group)
-    constant_percent_final = list({id(rc): rc for rc in constant_percent_final}.values())
-    constant_total_final = list({id(rc): rc for rc in constant_total_final}.values())
-    # For each probe, plot the three settings
+    # Group rebuild_configs by type
+    class_counts_configs = [rc for rc in rebuild_configs if 'class_counts' in rc]
+    class_percents_configs = [rc for rc in rebuild_configs if 'class_percents' in rc]
+    # For each probe, plot the two settings
     for row, probe_name in enumerate(probe_names):
         # Build a mapping from config to result path
         config_to_path = {}
@@ -204,59 +182,53 @@ def plot_rebuild_experiment_results_grid(dataclass_results_dir, probe_names, cla
                 if match:
                     config_to_path[str(rc)] = path
         # For each setting, collect data
-        setting_data = [[], [], []]
-        # 0: constant_french, 1: constant_percent, 2: constant_total
-        for rc in constant_french:
+        setting_data = [[], []]  # 0: class_counts, 1: class_percents
+        for rc in class_counts_configs:
             path = config_to_path.get(str(rc))
             if not path:
                 continue
             with open(path, 'r') as f:
                 d = json.load(f)
             val_dict = d.get('metrics', {}).get('all_examples', d.get('metrics', {}))
-            n_english = rc['class_counts'][0]
-            n_french = rc['class_counts'][1]
-            total = n_french + n_english
-            pct_french = 100 * n_french / total if total > 0 else 0
-            setting_data[0].append((n_english, val_dict, n_french, pct_french))
-        for rc in constant_percent_final:
+            n_by_class = rc['class_counts']
+            total = sum(n_by_class.values())
+            pct_by_class = {cls: 100 * n_by_class[cls] / total if total > 0 else 0 for cls in n_by_class}
+            setting_data[0].append((total, val_dict, n_by_class, pct_by_class))
+        for rc in class_percents_configs:
             path = config_to_path.get(str(rc))
             if not path:
                 continue
             with open(path, 'r') as f:
                 d = json.load(f)
             val_dict = d.get('metrics', {}).get('all_examples', d.get('metrics', {}))
-            n_french = int(rc['class_percents'][1] * rc['total_samples']) if 1 in rc['class_percents'] else 0
-            pct_french = rc['class_percents'][1] * 100 if 1 in rc['class_percents'] else 0
+            n_by_class = {cls: int(rc['class_percents'][cls] * rc['total_samples']) for cls in rc['class_percents']}
+            pct_by_class = {cls: rc['class_percents'][cls] * 100 for cls in rc['class_percents']}
             total = rc['total_samples']
-            setting_data[1].append((total, val_dict, n_french, pct_french))
-        for rc in constant_total_final:
-            path = config_to_path.get(str(rc))
-            if not path:
-                continue
-            with open(path, 'r') as f:
-                d = json.load(f)
-            val_dict = d.get('metrics', {}).get('all_examples', d.get('metrics', {}))
-            n_french = int(rc['class_percents'][1] * rc['total_samples']) if 1 in rc['class_percents'] else 0
-            pct_french = rc['class_percents'][1] * 100 if 1 in rc['class_percents'] else 0
-            total = rc['total_samples']
-            setting_data[2].append((pct_french, val_dict, n_french, pct_french))
-        # Sort each setting by x-axis
-        for i in range(3):
+            setting_data[1].append((total, val_dict, n_by_class, pct_by_class))
+        # Sort each setting by x-axis (total samples)
+        for i in range(2):
             setting_data[i].sort(key=lambda x: x[0])
         # Plot each setting in its own subplot
         for col, (data, title) in enumerate(zip(setting_data, setting_titles)):
             ax = axs[row][col]
             if data:
                 x = [d[0] for d in data]
-                n_french = [d[2] for d in data]
-                pct_french = [d[3] for d in data]
+                n_by_class_list = [d[2] for d in data]
+                pct_by_class_list = [d[3] for d in data]
                 for metric in metrics:
                     y = [d[1].get(metric, np.nan) for d in data]
                     ax.plot(x, y, marker='o', label=metric)
-                xticklabels = [f"{xi}\nN_fr={nf}\n%fr={pf:.1f}" for xi, nf, pf in zip(x, n_french, pct_french)]
+                    if show_value_labels:
+                        for xi, yi in zip(x, y):
+                            if not np.isnan(yi):
+                                ax.annotate(f"{yi:.5f}", (xi, yi), textcoords="offset points", xytext=(0,5), ha='center', fontsize=8)
+                # Show class counts and percents in xticklabels
+                xticklabels = [f"{xi}\n" + " ".join([f"N{cls}={n_by_class[cls]}" for cls in n_by_class]) + "\n" + " ".join([f"%{cls}={pct_by_class[cls]:.1f}" for cls in pct_by_class]) for xi, n_by_class, pct_by_class in zip(x, n_by_class_list, pct_by_class_list)]
                 ax.set_xticks(x)
                 ax.set_xticklabels(xticklabels, rotation=30, ha='right')
                 ax.legend()
+            if y_log_scale:
+                ax.set_yscale('log')
             ax.set_title(title)
             if col == 0:
                 ax.set_ylabel(f"{probe_name}")
@@ -266,6 +238,7 @@ def plot_rebuild_experiment_results_grid(dataclass_results_dir, probe_names, cla
     if save_path:
         plt.savefig(save_path)
         print(f"Saved rebuild experiment results grid to {save_path}")
+        plt.close()
     else:
         plt.show()
 
