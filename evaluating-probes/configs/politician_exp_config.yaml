@@ -1,6 +1,6 @@
 run_name: "politician_experiment_gemma"
 model_name: "gemma-2-9b" # 1.2 B multilignual model, 512 seq length
-device: "cuda:1"
+device: "cuda:0"
 cache_activations: True
 seed: "42"
 
@@ -10,7 +10,7 @@ components:
 
 architectures:
   - name: "linear"
-    aggregation: "last"
+    aggregation: "mean"
     config_name: "default_linear"
   # - name: "linear"
   #   aggregation: "mean"
@@ -21,41 +21,57 @@ architectures:
 
 # List of experiments to run
 experiments:
-  - name: politician-pred
-    class_names: {0: "politician", 1: "not politician"}
+  - name: politician-pred-auc
+    metric: auc
+    class_names: {0: "not politician", 1: "politician"}
     train_on: 6_hist_fig_ispolitician
     evaluate_on:
       - 6_hist_fig_ispolitician
     score:
       - all
-      # - filtered can add these back later, for now want to try dataset_resizing which doesn't implement this
     rebuild_config:
       constant_politician_increasing_non_politician:
-        - {class_counts: {1: 50, 0: 50}, seed: 42}
-        - {class_counts: {1: 500, 0: 50}, seed: 42}     # 1 is English, 0 is French
-        - {class_counts: {1: 1500, 0: 50}, seed: 42}
-        - {class_counts: {1: 3000, 0: 50}, seed: 42}
-        - {class_counts: {1: 5000, 0: 50}, seed: 42}
-        - {class_counts: {1: 7000, 0: 50}, seed: 42}
-
+        - {class_counts: {0: 50, 1: 50}, seed: 42}
+        # - {class_counts: {0: 500, 1: 50}, seed: 42}
+        # - {class_counts: {0: 1500, 1: 50}, seed: 42}
+        # - {class_counts: {0: 3000, 1: 50}, seed: 42}
+        # - {class_counts: {0: 5000, 1: 50}, seed: 42}
+        - {class_counts: {0: 7000, 1: 50}, seed: 42}
       constant_percent_politician_increasing_total:
-        - {class_percents: {1: 0.95, 0: 0.05}, total_samples: 100, seed: 42}
-        - {class_percents: {1: 0.95, 0: 0.05}, total_samples: 550, seed: 42}
-        - {class_percents: {1: 0.95, 0: 0.05}, total_samples: 1550, seed: 42}
-        - {class_percents: {1: 0.95, 0: 0.05}, total_samples: 3050, seed: 42}
-        - {class_percents: {1: 0.95, 0: 0.05}, total_samples: 5050, seed: 42}
-        - {class_percents: {1: 0.95, 0: 0.05}, total_samples: 7050, seed: 42}        # - {class_percents: {0: 0.95, 1: 0.05}, total_samples: 10050, seed: 42}
+        - {class_percents: {0: 0.95, 1: 0.05}, total_samples: 100, seed: 42}
+        # - {class_percents: {0: 0.95, 1: 0.05}, total_samples: 550, seed: 42}
+        # - {class_percents: {0: 0.95, 1: 0.05}, total_samples: 1550, seed: 42}
+        # - {class_percents: {0: 0.95, 1: 0.05}, total_samples: 3050, seed: 42}
+        # - {class_percents: {0: 0.95, 1: 0.05}, total_samples: 5050, seed: 42}
+        - {class_percents: {0: 0.95, 1: 0.05}, total_samples: 7050, seed: 42}
 
-      # constant_total_increasing_percent_female:
-      #   - {class_percents: {0: 0.995, 1: 0.005}, total_samples: 5050, seed: 42}
-      #   - {class_percents: {0: 0.99, 1: 0.01}, total_samples: 5050, seed: 42}
-      #   - {class_percents: {0: 0.95, 1: 0.05}, total_samples: 5050, seed: 42}
-      #   - {class_percents: {0: 0.9, 1: 0.1}, total_samples: 5050, seed: 42}
-      #   - {class_percents: {0: 0.5, 1: 0.5}, total_samples: 5050, seed: 42}
+  - name: politician-pred-fpr-recall
+    metric: fpr_recall
+    class_names: {0: "not politician", 1: "politician"}
+    train_on: 6_hist_fig_ispolitician
+    evaluate_on:
+      - 6_hist_fig_ispolitician
+    score:
+      - all
+    rebuild_config:
+      constant_politician_increasing_non_politician:
+        - {class_counts: {0: 50, 1: 50}, seed: 42}
+        # - {class_counts: {0: 500, 1: 50}, seed: 42}
+        # - {class_counts: {0: 1500, 1: 50}, seed: 42}
+        # - {class_counts: {0: 3000, 1: 50}, seed: 42}
+        # - {class_counts: {0: 5000, 1: 50}, seed: 42}
+        - {class_counts: {0: 7000, 1: 50}, seed: 42}
+      constant_percent_politician_increasing_total:
+        - {class_percents: {0: 0.95, 1: 0.05}, total_samples: 100, seed: 42}
+        # - {class_percents: {0: 0.95, 1: 0.05}, total_samples: 550, seed: 42}
+        # - {class_percents: {0: 0.95, 1: 0.05}, total_samples: 1550, seed: 42}
+        # - {class_percents: {0: 0.95, 1: 0.05}, total_samples: 3050, seed: 42}
+        # - {class_percents: {0: 0.95, 1: 0.05}, total_samples: 5050, seed: 42}
+        - {class_percents: {0: 0.95, 1: 0.05}, total_samples: 7050, seed: 42}
 
-# model_check: # perhaps merge this check into experiment list as well?
-#   - name: gender-pred
-#     hf_model_name: "google/gemma-2-9b-it"
-#     check_on: "4_hist_fig_ismale"
-#     check_prompt: "In one word, {prompt}’s gender was:"
-#     class_names: {0: "Male", 1: "Female"}
+model_check: # perhaps merge this check into experiment list as well?
+  - name: politician-pred
+    hf_model_name: "google/gemma-2-9b-it"
+    check_on: "6_hist_fig_ispolitician"
+    check_prompt: "Was {prompt} a politician? Answer yes or no."
+    class_names: {0: "Yes", 1: "No"}

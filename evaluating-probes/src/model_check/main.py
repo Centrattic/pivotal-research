@@ -126,24 +126,24 @@ def run_model_check(config):
             print(f"Saved CSV of logit diffs to: {csv_path}")
 
 
-        # Generalized logit diff histogram
-        diff_hist_path = plot_dir / f"logit_diff_hist_{check['name']}_model_check.png"
-        plot_logit_diffs_by_class(
-            diff_file=str(csv_path),
-            class_names=class_names,
-            save_path=str(diff_hist_path)
-        )
+        # # Generalized logit diff histogram
+        # diff_hist_path = plot_dir / f"logit_diff_hist_{check['name']}_model_check.png"
+        # plot_logit_diffs_by_class(
+        #     diff_file=str(csv_path),
+        #     class_names=class_names,
+        #     save_path=str(diff_hist_path)
+        # )
 
-        class_logit_path = plot_dir / f"logit_hist_{check['name']}_model_check.png"
-        plot_class_logit_distributions(
-            all_top_logits=all_top_logits,
-            all_labels=all_labels,
-            class_names=class_names,
-            run_name=run_name,
-            save_path=class_logit_path,
-            bins=20,
-            x_range=(-10, 10)
-        )
+        # class_logit_path = plot_dir / f"logit_hist_{check['name']}_model_check.png"
+        # plot_class_logit_distributions(
+        #     all_top_logits=all_top_logits,
+        #     all_labels=all_labels,
+        #     class_names=class_names,
+        #     run_name=run_name,
+        #     save_path=class_logit_path,
+        #     bins=20,
+        #     x_range=(-10, 10)
+        # )
         # Free model and clear CUDA memory after each check
         del model
         if torch.cuda.is_available():

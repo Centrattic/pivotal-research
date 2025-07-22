@@ -8,6 +8,7 @@ from typing import Any, Optional
 import json
 import math
 from tqdm import tqdm
+import optuna
 
 from src.logger import Logger
 
@@ -28,8 +29,8 @@ class BaseProbe:
         raise NotImplementedError("Subclasses must implement _init_model to set self.model")
 
     def fit(self, X: np.ndarray, y: np.ndarray, mask: Optional[np.ndarray] = None, 
-            epochs: int = 20, lr: float = 1e-3, batch_size: int = 512, weight_decay: float = 0.0, 
-            verbose: bool = True, early_stopping: bool = True, patience: int = 5, min_delta: float = 0.0001,
+            epochs: int = 20, lr: float = 1e-3, batch_size: int = 64, weight_decay: float = 0.0, 
+            verbose: bool = True, early_stopping: bool = True, patience: int = 5, min_delta: float = 0.001,
             use_weighted_loss: bool = True, use_weighted_sampler: bool = False):
         """
         Train the probe model.
@@ -496,6 +497,110 @@ class BaseProbe:
         self.model.load_state_dict(checkpoint['model_state_dict'])
         print(f"Loaded probe from {path}")
 
+    def fit_pcngd(self, X: np.ndarray, y: np.ndarray, mask: Optional[np.ndarray] = None,
+                  epochs: int = 20, lr: float = 1e-3, weight_decay: float = 0.0, verbose: bool = True, early_stopping: bool = True, patience: int = 5, min_delta: float = 0.0001, eps: float = 1e-6):
+        """
+        Train the probe model using Per-Class Normalized Gradient Descent (PCNGD).
+        Only supports classification tasks for now.
+        Args:
+            X: Input features, shape (N, seq, d_model)
+            y: Labels, shape (N,) or (N, num_classes)
+            mask: Optional mask, shape (N, seq)
+            epochs: Number of epochs
+            lr: Learning rate
+            weight_decay: Weight decay (not used in PCNGD, but included for API compatibility)
+            verbose: Print progress
+            early_stopping: Use early stopping
+            patience: Early stopping patience
+            min_delta: Early stopping min delta
+            eps: Small constant for numerical stability
+        """
+        print(f"\n=== PCNGD TRAINING START ===")
+        print(f"Input X shape: {X.shape}")
+        print(f"Input y shape: {y.shape}")
+        print(f"Mask shape: {mask.shape if mask is not None else 'None'}")
+        print(f"Task type: {self.task_type}")
+        print(f"Device: {self.device}")
+        print(f"Epochs: {epochs}, LR: {lr}")
+        if self.task_type != "classification":
+            raise NotImplementedError("PCNGD is only implemented for classification tasks.")
+        X = torch.tensor(X, dtype=torch.float32, device=self.device)
+        y = torch.tensor(y, dtype=torch.long, device=self.device)
+        if mask is not None:
+            mask = torch.tensor(mask, dtype=torch.bool, device=self.device)
+        else:
+            mask = torch.ones(X.shape[:2], dtype=torch.bool, device=self.device)
+        # Get unique classes
+        y_np = y.cpu().numpy() if hasattr(y, 'cpu') else y.numpy()
+        if y_np.ndim > 1 and y_np.shape[1] == 1:
+            y_np = y_np.squeeze(-1)
+        classes = np.unique(y_np)
+        n_classes = len(classes)
+        # Build per-class indices
+        class_indices = {int(cls): np.where(y_np == cls)[0] for cls in classes}
+        best_loss = float('inf')
+        epochs_no_improve = 0
+        stop_epoch = None
+        self.model.train()
+        criterion = nn.CrossEntropyLoss()
+        for epoch in range(epochs):
+            grads = []
+            norms = []
+            epoch_loss = 0.0
+            # (a) Compute per-class gradients
+            for l in classes:
+                idxs = class_indices[int(l)]
+                xb = X[idxs]
+                yb = y[idxs]
+                mb = mask[idxs]
+                # Forward
+                logits = self.model(xb, mb)
+                # If binary, logits shape (N,) or (N,1), yb shape (N,)
+                if logits.ndim == 1 or logits.shape[-1] == 1:
+                    logits = logits.view(-1, 1)
+                # CrossEntropyLoss expects (N, C) and y as (N,)
+                if logits.shape[-1] == 1 and n_classes == 2:
+                    # Convert logits to (N, 2) for binary
+                    logits = torch.cat([-logits, logits], dim=1)
+                loss_l = criterion(logits, yb)
+                grad_l = torch.autograd.grad(loss_l, self.model.parameters(), retain_graph=True, create_graph=False)
+                flat_grad = torch.cat([g.flatten() for g in grad_l])
+                norm_l = flat_grad.norm() + eps
+                grads.append(grad_l)
+                norms.append(norm_l)
+                epoch_loss += loss_l.item() * len(idxs)
+            # (b) Combine normalized gradients
+            for p in self.model.parameters():
+                if p.grad is not None:
+                    p.grad.zero_()
+            for grad_l, norm_l in zip(grads, norms):
+                for p, g in zip(self.model.parameters(), grad_l):
+                    if p.grad is None:
+                        p.grad = torch.zeros_like(p.data)
+                    p.grad.add_(g / norm_l)
+            # (c) Manual SGD step
+            for p in self.model.parameters():
+                p.data = p.data - lr * p.grad
+            avg_loss = epoch_loss / X.shape[0]
+            self.loss_history.append(avg_loss)
+            if verbose:
+                print(f"PCNGD Epoch {epoch+1}/{epochs} - Loss: {avg_loss:.4f}")
+            # Early stopping logic
+            if early_stopping:
+                if avg_loss < best_loss - min_delta:
+                    best_loss = avg_loss
+                    epochs_no_improve = 0
+                else:
+                    epochs_no_improve += 1
+                if epochs_no_improve >= patience:
+                    print(f"PCNGD Early stopping triggered at epoch {epoch+1}. Best loss: {best_loss:.4f}")
+                    stop_epoch = epoch + 1
+                    break
+        if stop_epoch is not None:
+            print(f"PCNGD Training stopped early at epoch {stop_epoch}.")
+        print(f"=== PCNGD TRAINING COMPLETE ===\n")
+        return self
+
 class LinearProbeNet(nn.Module):
     def __init__(self, d_model: int, aggregation: str = "mean", device: str = "cpu"):
         super().__init__()
@@ -529,6 +634,50 @@ class LinearProbeNet(nn.Module):
 class LinearProbe(BaseProbe):
     def _init_model(self):
         self.model = LinearProbeNet(self.d_model, aggregation=self.aggregation, device=self.device)
+
+    def find_best_fit(self, X_train: np.ndarray, y_train: np.ndarray, X_val: np.ndarray, y_val: np.ndarray, mask_train: Optional[np.ndarray] = None, mask_val: Optional[np.ndarray] = None, 
+                    n_trials: int = 15, direction: str = None, verbose: bool = True, weighting_method: str = 'weighted_loss', metric: str = 'acc', fpr_threshold: float = 0.01):
+        """
+        Hyperparameter tuning for the probe. If weighting_method is 'pcngd', tune using fit_pcngd, else use fit.
+        metric: 'acc' (default), 'auc', or 'fpr_recall'.
+        If 'fpr_recall', minimize FPR, but if FPR <= fpr_threshold, maximize Recall.
+        """
+        best_score = None
+        best_params = None
+        best_probe = None
+        def objective(trial):
+            lr = trial.suggest_loguniform('lr', 1e-5, 1e-2)
+            weight_decay = trial.suggest_loguniform('weight_decay', 1e-8, 1e-2)
+            epochs = 50
+            # Re-init probe for each trial
+            probe = LinearProbe(self.d_model, device=self.device, aggregation=self.aggregation)
+            if weighting_method == 'pcngd':
+                probe.fit_pcngd(X_train, y_train, mask=mask_train, epochs=epochs, lr=lr, weight_decay=weight_decay, verbose=False)
+            else:
+                probe.fit(X_train, y_train, mask=mask_train, epochs=epochs, lr=lr, weight_decay=weight_decay, verbose=False, use_weighted_loss=(weighting_method=='weighted_loss'), use_weighted_sampler=(weighting_method=='weighted_sampler'))
+            metrics = probe.score(X_val, y_val, mask=mask_val)
+            if metric == 'auc':
+                return -metrics.get('auc', 0.0)
+            elif metric == 'fpr_recall':
+                fpr = metrics.get('fpr', 1.0)
+                recall = metrics.get('recall', 0.0)
+                # If FPR > threshold, minimize FPR; else, maximize recall
+                if fpr > fpr_threshold:
+                    return fpr  # minimize FPR
+                else:
+                    return -recall  # maximize recall
+            else:
+                raise ValueError(f"Unknown metric: {metric}")
+        study = optuna.create_study(direction='minimize')
+        study.optimize(objective, n_trials=n_trials)
+        best_params = study.best_params
+        # Train final probe with best params
+        best_probe = LinearProbe(self.d_model, device=self.device, aggregation=self.aggregation)
+        if weighting_method == 'pcngd':
+            best_probe.fit_pcngd(X_train, y_train, mask=mask_train, epochs=30, lr=best_params['lr'], weight_decay=best_params['weight_decay'], verbose=verbose)
+        else:
+            best_probe.fit(X_train, y_train, mask=mask_train, epochs=30, lr=best_params['lr'], weight_decay=best_params['weight_decay'], verbose=verbose, use_weighted_loss=(weighting_method=='weighted_loss'), use_weighted_sampler=(weighting_method=='weighted_sampler'))
+        return best_probe, best_params
     # Inherits predict_logits from BaseProbe
 
 class AttentionProbeNet(nn.Module):
@@ -559,6 +708,47 @@ class AttentionProbeNet(nn.Module):
 class AttentionProbe(BaseProbe):
     def _init_model(self):
         self.model = AttentionProbeNet(self.d_model, device=self.device)
+
+    def find_best_fit(self, X_train: np.ndarray, y_train: np.ndarray, X_val: np.ndarray, y_val: np.ndarray, mask_train: Optional[np.ndarray] = None, mask_val: Optional[np.ndarray] = None, 
+                    n_trials: int = 15, direction: str = None, verbose: bool = True, weighting_method: str = 'weighted_loss', metric: str = 'acc', fpr_threshold: float = 0.01):
+        """
+        Hyperparameter tuning for the attention probe. If weighting_method is 'pcngd', tune using fit_pcngd, else use fit.
+        metric: 'acc' (default), 'auc', or 'fpr_recall'.
+        If 'fpr_recall', minimize FPR, but if FPR <= fpr_threshold, maximize Recall.
+        """
+        best_score = None
+        best_params = None
+        best_probe = None
+        def objective(trial):
+            lr = trial.suggest_loguniform('lr', 1e-5, 1e-2)
+            weight_decay = trial.suggest_loguniform('weight_decay', 1e-8, 1e-2)
+            epochs = 50
+            probe = AttentionProbe(self.d_model, device=self.device)
+            if weighting_method == 'pcngd':
+                probe.fit_pcngd(X_train, y_train, mask=mask_train, epochs=epochs, lr=lr, weight_decay=weight_decay, verbose=False)
+            else:
+                probe.fit(X_train, y_train, mask=mask_train, epochs=epochs, lr=lr, weight_decay=weight_decay, verbose=False, use_weighted_loss=(weighting_method=='weighted_loss'), use_weighted_sampler=(weighting_method=='weighted_sampler'))
+            metrics = probe.score(X_val, y_val, mask=mask_val)
+            if metric == 'auc':
+                return -metrics.get('auc', 0.0)
+            elif metric == 'fpr_recall':
+                fpr = metrics.get('fpr', 1.0)
+                recall = metrics.get('recall', 0.0)
+                if fpr > fpr_threshold:
+                    return fpr
+                else:
+                    return -recall
+            else:
+                raise ValueError(f"Unknown metric: {metric}")
+        study = optuna.create_study(direction='minimize')
+        study.optimize(objective, n_trials=n_trials)
+        best_params = study.best_params
+        best_probe = AttentionProbe(self.d_model, device=self.device)
+        if weighting_method == 'pcngd':
+            best_probe.fit_pcngd(X_train, y_train, mask=mask_train, epochs=30, lr=best_params['lr'], weight_decay=best_params['weight_decay'], verbose=verbose)
+        else:
+            best_probe.fit(X_train, y_train, mask=mask_train, epochs=30, lr=best_params['lr'], weight_decay=best_params['weight_decay'], verbose=verbose, use_weighted_loss=(weighting_method=='weighted_loss'), use_weighted_sampler=(weighting_method=='weighted_sampler'))
+        return best_probe, best_params
     # Inherits predict_logits from BaseProbe
 
 # Example usage:

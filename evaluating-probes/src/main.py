@@ -129,6 +129,9 @@ def main():
         all_dataset_names_to_check = set()
 
         for experiment in config['experiments']:
+            experiment_name = experiment['name']
+            experiment_dir = results_dir / experiment_name
+            experiment_dir.mkdir(parents=True, exist_ok=True)
             train_sets = [experiment['train_on']]
             if experiment['train_on'] == "all":
                 train_sets = available_datasets
@@ -142,13 +145,12 @@ def main():
                 for arch_config in config.get('architectures', []):
                     for layer in config['layers']:
                         for component in config['components']:
-                            # Determine config_name based on aggregation for linear probes
                             if arch_config['name'] == 'linear':
                                 agg = arch_config['aggregation']
                                 config_name = arch_config.get('config_name') or f"linear_{agg}"
                             else:
                                 config_name = arch_config.get('config_name')
-                            training_jobs.add((train_dataset, layer, component, arch_config['name'], arch_config['aggregation'], config_name))
+                            training_jobs.add((experiment_name, train_dataset, layer, component, arch_config['name'], arch_config['aggregation'], config_name))
 
         # Check all datasets that will be used for either training or evaluation
         valid_dataset_metadata = {}
@@ -157,7 +159,6 @@ def main():
                 logger.log(dataset_name)
                 data = get_dataset(dataset_name, model, device, global_seed)
                 data.split_data(test_size=0.15, seed=global_seed)
-                # logger.log("got here)")
                 if should_skip_dataset(dataset_name, data, logger):
                     continue
                 valid_dataset_metadata[dataset_name] = {
@@ -167,16 +168,17 @@ def main():
             except Exception as e:
                 logger.log(f"  - 💀 ERROR checking dataset '{dataset_name}': {e}")
 
-        valid_training_jobs = [job for job in training_jobs if job[0] in valid_dataset_metadata]
+        valid_training_jobs = [job for job in training_jobs if job[1] in valid_dataset_metadata]
 
         # Step 2: Training Phase
         logger.log("\n" + "="*25 + " TRAINING PHASE " + "="*25)
-        for i, (train_ds, layer, comp, arch_name, arch_agg, conf_name) in enumerate(valid_training_jobs):
+        for i, (experiment_name, train_ds, layer, comp, arch_name, arch_agg, conf_name) in enumerate(valid_training_jobs):
             logger.log("-" * 60)
-            logger.log(f"🫠 Training job {i+1}/{len(valid_training_jobs)}: {train_ds}, {arch_name}, L{layer}, {comp}")
-            # Find the experiment for this job
-            experiment = next((exp for exp in config['experiments'] if exp['train_on'] == train_ds), None)
-            # Flatten grouped rebuild_config if present
+            logger.log(f"🫠 Training job {i+1}/{len(valid_training_jobs)}: {experiment_name}, {train_ds}, {arch_name}, L{layer}, {comp}")
+            experiment = next((exp for exp in config['experiments'] if exp['name'] == experiment_name), None)
+            experiment_dir = results_dir / experiment_name
+            experiment_dir.mkdir(parents=True, exist_ok=True)
+            metric = experiment.get('metric', 'acc')
             rebuild_configs = [None]
             if experiment and 'rebuild_config' in experiment:
                 rc = experiment['rebuild_config']
@@ -184,20 +186,22 @@ def main():
                     for group in rc.values():
                         rebuild_configs.extend(group)
                 else:
-                    rebuild_configs.extend(rc if isinstance(rc, list) else [rc]) # Always include the None case
+                    rebuild_configs.extend(rc if isinstance(rc, list) else [rc])
             for rebuild_params in rebuild_configs:
-                # For dataclass experiments, eval set is always 50/50 balanced (see runner.py)
                 train_probe(
                     model=model, d_model=d_model, train_dataset_name=train_ds,
                     layer=layer, component=comp, architecture_name=arch_name, config_name=conf_name,
                     device=config['device'], aggregation=arch_agg, use_cache=config['cache_activations'], seed=global_seed,
-                    results_dir=results_dir, cache_dir=cache_dir, logger=logger, retrain=retrain,
-                    hyperparameter_tuning=hyperparameter_tuning, rebuild_config=rebuild_params
+                    results_dir=experiment_dir, cache_dir=cache_dir, logger=logger, retrain=retrain,
+                    hyperparameter_tuning=hyperparameter_tuning, rebuild_config=rebuild_params, metric=metric
                 )
 
         # Step 3: Evaluation Phase
         logger.log("\n" + "="*25 + " EVALUATION PHASE " + "="*25)
         for experiment in config['experiments']:
+            experiment_name = experiment['name']
+            experiment_dir = results_dir / experiment_name
+            experiment_dir.mkdir(parents=True, exist_ok=True)
             train_sets = [experiment['train_on']]
             if experiment['train_on'] == "all": train_sets = available_datasets
             score_options = experiment.get('score', ['all'])
@@ -209,8 +213,6 @@ def main():
                         rebuild_configs.extend(group)
                 else:
                     rebuild_configs = rc
-            # else:
-            #     rebuild_configs = [None]
             for train_dataset in train_sets:
                 if train_dataset not in valid_dataset_metadata: continue
                 eval_sets = experiment['evaluate_on']
@@ -228,34 +230,29 @@ def main():
                             for component in config['components']:
                                 all_eval_results = {}
                                 for rebuild_params in rebuild_configs:
-                                    # For dataclass experiments, eval set is always 50/50 balanced (see runner.py)
-                                    # Determine probe_save_dir based on whether this is a dataclass_exps probe
                                     if rebuild_params is not None:
-                                        probe_save_dir = results_dir / f"dataclass_exps_{train_dataset}"
+                                        probe_save_dir = experiment_dir / f"dataclass_exps_{train_dataset}"
                                     else:
-                                        probe_save_dir = results_dir / f"train_{train_dataset}"
-                                    # Ensure probe_save_dir exists (skip if not trained)
+                                        probe_save_dir = experiment_dir / f"train_{train_dataset}"
                                     if not probe_save_dir.exists():
                                         logger.log(f"  - [SKIP] Probe dir does not exist: {probe_save_dir}")
                                         continue
                                     metrics = evaluate_probe(
                                         train_dataset_name=train_dataset, eval_dataset_name=eval_dataset,
                                         layer=layer, component=component, architecture_config=arch_config,
-                                        aggregation=arch_config['aggregation'], results_dir=results_dir, logger=logger, seed=global_seed,
+                                        aggregation=arch_config['aggregation'], results_dir=experiment_dir, logger=logger, seed=global_seed,
                                         model=model, d_model=d_model, device=config['device'],
                                         use_cache=config['cache_activations'], cache_dir=cache_dir, reevaluate=reevaluate,
                                         score_options=score_options, rebuild_config=rebuild_params, return_metrics=True
                                     )
                                     key = resample_params_to_str(rebuild_params)
                                     all_eval_results[key] = metrics
-                                # Save all results for this probe/dataset/arch/layer/component combo
                                 probe_filename_base = f"{train_dataset}_{arch_config['name']}_{arch_config['aggregation']}_L{layer}_{component}"
-                                eval_results_path = results_dir / f"train_{train_dataset}" / f"eval_on_{eval_dataset}__{probe_filename_base}_allres.json"
+                                eval_results_path = experiment_dir / f"train_{train_dataset}" / f"eval_on_{eval_dataset}__{probe_filename_base}_allres.json"
                                 with open(eval_results_path, "w") as f:
                                     json.dump(all_eval_results, f, indent=2)
-                                # If this was a dataclass_exps probe, also save in that directory
                                 if any(rebuild_configs):
-                                    dataclass_eval_results_path = results_dir / f"dataclass_exps_{train_dataset}" / f"eval_on_{eval_dataset}__{probe_filename_base}_allres.json"
+                                    dataclass_eval_results_path = experiment_dir / f"dataclass_exps_{train_dataset}" / f"eval_on_{eval_dataset}__{probe_filename_base}_allres.json"
                                     dataclass_eval_results_path.parent.mkdir(parents=True, exist_ok=True)
                                     with open(dataclass_eval_results_path, "w") as f:
                                         json.dump(all_eval_results, f, indent=2)

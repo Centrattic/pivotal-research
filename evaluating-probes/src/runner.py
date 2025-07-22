@@ -78,6 +78,7 @@ def train_probe(
     rebuild_config: dict = None,
     # save_probe_for_rebuild: bool = True,  # new arg for explicit control
     return_probe_and_test: bool = False,  # new arg for visualization
+    metric: str = 'acc',
 ):
     probe_filename_base = get_probe_filename_prefix(train_dataset_name, architecture_name, aggregation, layer, component)
     probe_save_dir = results_dir / f"train_{train_dataset_name}"
@@ -124,11 +125,24 @@ def train_probe(
 
     probe = get_probe_architecture(architecture_name, d_model=d_model, device=device, aggregation=aggregation)
     fit_params = asdict(PROBE_CONFIGS[config_name])
+    weighting_method = fit_params.pop("weighting_method", "weighted_loss")
+
     if hyperparameter_tuning:
-        probe, best_params = probe.find_best_fit(train_acts, y_train, val_acts, y_val)
+        probe, best_params = probe.find_best_fit(train_acts, y_train, val_acts, y_val, weighting_method=weighting_method, metric=metric)
         update_probe_config(config_name, best_params)
     else:
-        probe.fit(train_acts, y_train, **fit_params)
+        if weighting_method == "weighted_loss":
+            fit_params["use_weighted_loss"] = True
+            fit_params["use_weighted_sampler"] = False
+            probe.fit(train_acts, y_train, **fit_params)
+        elif weighting_method == "weighted_sampler":
+            fit_params["use_weighted_loss"] = False
+            fit_params["use_weighted_sampler"] = True
+            probe.fit(train_acts, y_train, **fit_params)
+        elif weighting_method == "pcngd":
+            probe.fit_pcngd(train_acts, y_train, mask=None, **fit_params)
+        else:
+            raise ValueError(f"Unknown weighting_method: {weighting_method}")
 
     probe_save_dir.mkdir(parents=True, exist_ok=True)
     probe.save_state(probe_state_path)
