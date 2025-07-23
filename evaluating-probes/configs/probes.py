@@ -49,7 +49,7 @@ PROBE_CONFIGS = {
     "high_reg_linear": PytorchLinearProbeConfig(weight_decay=1e-2),
     "no_reg_linear": PytorchLinearProbeConfig(weight_decay=0.0),
     # Attention probe configs
-    "default_attention": PytorchAttentionProbeConfig(lr=0.0003886838187159334, weight_decay=1.2660720185538272e-06),
-    "high_reg_attention": PytorchAttentionProbeConfig(weight_decay=1e-2),
-    "no_reg_attention": PytorchAttentionProbeConfig(weight_decay=0.0),
+    "default_attention": PytorchAttentionProbeConfig(lr=0.0003886838187159334, weight_decay=1.2660720185538272e-06, weighting_method='weighted_loss'),
+    "high_reg_attention": PytorchAttentionProbeConfig(weight_decay=1e-2, weighting_method='weighted_loss'),
+    "no_reg_attention": PytorchAttentionProbeConfig(weight_decay=0.0, weighting_method='weighted_loss'),
 }

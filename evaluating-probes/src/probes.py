@@ -29,7 +29,7 @@ class BaseProbe:
         raise NotImplementedError("Subclasses must implement _init_model to set self.model")
 
     def fit(self, X: np.ndarray, y: np.ndarray, mask: Optional[np.ndarray] = None, 
-            epochs: int = 20, lr: float = 1e-3, batch_size: int = 64, weight_decay: float = 0.0, 
+            epochs: int = 20, lr: float = 1e-3, batch_size: int = 256, weight_decay: float = 0.0, 
             verbose: bool = True, early_stopping: bool = True, patience: int = 5, min_delta: float = 0.001,
             use_weighted_loss: bool = True, use_weighted_sampler: bool = False):
         """
@@ -80,6 +80,9 @@ class BaseProbe:
                 classes = np.unique(y_np)
                 class_weights_np = compute_class_weight('balanced', classes=classes, y=y_np)
                 class_weights = torch.tensor(class_weights_np, dtype=torch.float32, device=self.device)
+                # Print class sample counts and weights for debugging
+                class_sample_counts = {int(cls): int((y_np == cls).sum()) for cls in classes}
+                print(f"Class sample counts: {class_sample_counts}")
                 print(f"Class weights: {class_weights}")
             except Exception as e:
                 print(f"Could not compute class weights: {e}")
@@ -636,7 +639,7 @@ class LinearProbe(BaseProbe):
         self.model = LinearProbeNet(self.d_model, aggregation=self.aggregation, device=self.device)
 
     def find_best_fit(self, X_train: np.ndarray, y_train: np.ndarray, X_val: np.ndarray, y_val: np.ndarray, mask_train: Optional[np.ndarray] = None, mask_val: Optional[np.ndarray] = None, 
-                    n_trials: int = 15, direction: str = None, verbose: bool = True, weighting_method: str = 'weighted_loss', metric: str = 'acc', fpr_threshold: float = 0.01):
+                    n_trials: int = 10, direction: str = None, verbose: bool = True, weighting_method: str = 'weighted_loss', metric: str = 'acc', fpr_threshold: float = 0.01):
         """
         Hyperparameter tuning for the probe. If weighting_method is 'pcngd', tune using fit_pcngd, else use fit.
         metric: 'acc' (default), 'auc', or 'fpr_recall'.
