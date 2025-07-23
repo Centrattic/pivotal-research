@@ -14,13 +14,15 @@ parser.add_argument("-c", "--config")
 parser.add_argument('-e', action='store_true')
 parser.add_argument('-t', action='store_true')
 parser.add_argument('-ht', action='store_true', help='Enable hyperparameter tuning (Optuna)')
+parser.add_argument('-bh', action='store_true', help='Retrain probes using best hyperparameters from previous tuning')
 
 args = parser.parse_args()
-global config_yaml, retrain, reevaluate, hyperparameter_tuning
+global config_yaml, retrain, reevaluate, hyperparameter_tuning, retrain_with_best_hparams
 config_yaml = args.config + "_config.yaml"
 retrain = args.t
 reevaluate = args.e
 hyperparameter_tuning = args.ht
+retrain_with_best_hparams = args.bh
 
 # Load config early to set CUDA device before any CUDA operations
 try:
@@ -73,7 +75,7 @@ def main():
     if torch.cuda.is_available():
         torch.cuda.synchronize()  # Wait for all CUDA operations to complete
     
-    global config_yaml, retrain, reevaluate, hyperparameter_tuning
+    global config_yaml, retrain, reevaluate, hyperparameter_tuning, retrain_with_best_hparams
 
     # Load config (already loaded at top, but reload to be safe)
     try:
@@ -174,7 +176,7 @@ def main():
         logger.log("\n" + "="*25 + " TRAINING PHASE " + "="*25)
         for i, (experiment_name, train_ds, layer, comp, arch_name, arch_agg, conf_name) in enumerate(valid_training_jobs):
             logger.log("-" * 60)
-            logger.log(f"🫠 Training job {i+1}/{len(valid_training_jobs)}: {experiment_name}, {train_ds}, {arch_name}, L{layer}, {comp}")
+            logger.log(f"\U0001fa60 Training job {i+1}/{len(valid_training_jobs)}: {experiment_name}, {train_ds}, {arch_name}, L{layer}, {comp}")
             experiment = next((exp for exp in config['experiments'] if exp['name'] == experiment_name), None)
             experiment_dir = results_dir / experiment_name
             experiment_dir.mkdir(parents=True, exist_ok=True)
@@ -193,7 +195,8 @@ def main():
                     layer=layer, component=comp, architecture_name=arch_name, config_name=conf_name,
                     device=config['device'], aggregation=arch_agg, use_cache=config['cache_activations'], seed=global_seed,
                     results_dir=experiment_dir, cache_dir=cache_dir, logger=logger, retrain=retrain,
-                    hyperparameter_tuning=hyperparameter_tuning, rebuild_config=rebuild_params, metric=metric
+                    hyperparameter_tuning=hyperparameter_tuning, rebuild_config=rebuild_params, metric=metric,
+                    retrain_with_best_hparams=retrain_with_best_hparams
                 )
 
         # Step 3: Evaluation Phase

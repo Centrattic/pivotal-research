@@ -79,7 +79,10 @@ def train_probe(
     # save_probe_for_rebuild: bool = True,  # new arg for explicit control
     return_probe_and_test: bool = False,  # new arg for visualization
     metric: str = 'acc',
+    retrain_with_best_hparams: bool = False,
 ):
+    if hyperparameter_tuning and retrain_with_best_hparams:
+        raise ValueError("Cannot use both hyperparameter_tuning and retrain_with_best_hparams at the same time.")
     probe_filename_base = get_probe_filename_prefix(train_dataset_name, architecture_name, aggregation, layer, component)
     probe_save_dir = results_dir / f"train_{train_dataset_name}"
     # If rebuilding, save in dataclass_exps_{dataset_name}
@@ -125,9 +128,37 @@ def train_probe(
 
     probe = get_probe_architecture(architecture_name, d_model=d_model, device=device, aggregation=aggregation)
     fit_params = asdict(PROBE_CONFIGS[config_name])
-    weighting_method = fit_params.pop("weighting_method", "weighted_loss")
 
-    if hyperparameter_tuning:
+    if retrain_with_best_hparams:
+        logger.log(f"  - Using best hyperparameters from meta.json for {config_name}.")
+        # Load best hyperparameters from the previous meta.json file
+        if rebuild_config is not None:
+            suffix = rebuild_suffix(rebuild_config)
+            probe_json_path = probe_save_dir / f"{probe_filename_base}_{suffix}_meta.json"
+        else:
+            probe_json_path = probe_save_dir / f"{probe_filename_base}_meta.json"
+        if not probe_json_path.exists():
+            raise FileNotFoundError(f"Best hyperparameters file not found: {probe_json_path}")
+        with open(probe_json_path, 'r') as f:
+            meta = json.load(f)
+        best_params = meta.get('hyperparameters', None)
+        if best_params is None:
+            raise ValueError(f"No best hyperparameters found in {probe_json_path}")
+        fit_params.update(best_params)
+        weighting_method = fit_params.pop("weighting_method", "weighted_loss")
+        if weighting_method == "weighted_loss":
+            fit_params["use_weighted_loss"] = True
+            fit_params["use_weighted_sampler"] = False
+            probe.fit(train_acts, y_train, **fit_params)
+        elif weighting_method == "weighted_sampler":
+            fit_params["use_weighted_loss"] = False
+            fit_params["use_weighted_sampler"] = True
+            probe.fit(train_acts, y_train, **fit_params)
+        elif weighting_method == "pcngd":
+            probe.fit_pcngd(train_acts, y_train, mask=None, **fit_params)
+        else:
+            raise ValueError(f"Unknown weighting_method: {weighting_method}")
+    elif hyperparameter_tuning:
         probe, best_params = probe.find_best_fit(train_acts, y_train, val_acts, y_val, weighting_method=weighting_method, metric=metric)
         update_probe_config(config_name, best_params)
     else:
