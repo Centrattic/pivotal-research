@@ -472,11 +472,18 @@ import glob
 
 def plot_recall_at_fpr_from_folder(folder, class_names=None, save_path=None, fpr_target=0.01, max_probes=9):
     """
-    For each *_results.json in the folder, loads the 'scores' and 'labels', finds the threshold where FPR ≈ fpr_target,
+    For each *_results.json in the dataclass_exps folder, loads the 'scores' and 'labels', finds the threshold where FPR ≈ fpr_target,
     and plots recall at that threshold. X-axis is the number of class 1 samples in the train set.
     Separate subplots for linear and attention probes.
     """
     import re
+    import os
+    import json
+    import numpy as np
+    import matplotlib.pyplot as plt
+    import glob
+    from scipy.special import expit  # sigmoid
+    # Only use dataclass_exps folder
     result_files = sorted(glob.glob(os.path.join(folder, '*_results.json')))
     if not result_files:
         print(f"No *_results.json files found in {folder}")
@@ -491,20 +498,42 @@ def plot_recall_at_fpr_from_folder(folder, class_names=None, save_path=None, fpr
     for col, (ptype, files) in enumerate(probe_groups):
         recalls = []
         n_class1s = []
+        debug_info = []
         for f in files[:max_probes]:
-            # Extract class1 count from filename (e.g., class0_3500_class1_500)
+            print(f"Processing file: {f}")
+            # Try to extract class1 count from filename (e.g., class0_3500_class1_500)
             match = re.search(r'class1_(\d+)', f)
+            n_class1 = None
             if match:
                 n_class1 = int(match.group(1))
+                print(f"  Extracted n_class1 from filename: {n_class1}")
             else:
-                print(f"Warning: Could not extract class1 count from filename: {f}. Skipping.")
+                # Try to extract from meta file
+                meta_file = f.replace('_results.json', '_meta.json')
+                if os.path.exists(meta_file):
+                    try:
+                        with open(meta_file, 'r') as mf:
+                            meta = json.load(mf)
+                        cc = meta.get('rebuild_config', {}).get('class_counts')
+                        if cc and '1' in cc:
+                            n_class1 = int(cc['1'])
+                        elif cc and 1 in cc:
+                            n_class1 = int(cc[1])
+                        print(f"  Extracted n_class1 from meta: {n_class1}")
+                    except Exception as e:
+                        print(f"Warning: Could not extract class1 count from meta file: {meta_file}. Error: {e}")
+            if n_class1 is None:
+                print(f"Warning: Could not extract class1 count from filename or meta: {f}. Skipping.")
                 continue
             with open(f, 'r') as jf:
                 d = json.load(jf)
             scores = np.array(d['scores']['scores'])
             labels = np.array(d['scores']['labels'])
+            # Apply sigmoid to scores for binary classification
+            scores = expit(scores)
             thresholds = np.unique(scores)[::-1]
             best_recall = 0.0
+            best_fpr = 1.0
             for thresh in thresholds:
                 preds = (scores >= thresh).astype(int)
                 tp = np.sum((preds == 1) & (labels == 1))
@@ -515,8 +544,12 @@ def plot_recall_at_fpr_from_folder(folder, class_names=None, save_path=None, fpr
                 recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
                 if fpr <= fpr_target and recall > best_recall:
                     best_recall = recall
-            n_class1s.append(n_class1)
-            recalls.append(best_recall)
+                    best_fpr = fpr
+            print(f"  Best recall at FPR<={fpr_target}: {best_recall:.3f} (FPR={best_fpr:.3f})")
+            if best_recall > 0 or best_fpr <= fpr_target:
+                n_class1s.append(n_class1)
+                recalls.append(best_recall)
+                debug_info.append((n_class1, best_recall, best_fpr, os.path.basename(f)))
         # Sort by n_class1
         if len(n_class1s) == 0:
             ax = axs[0][col]
@@ -524,8 +557,12 @@ def plot_recall_at_fpr_from_folder(folder, class_names=None, save_path=None, fpr
             ax.set_xlabel("Number of class 1 (positive) samples in train set")
             ax.set_ylabel("Recall")
             ax.set_ylim(0, 1)
+            print(f"Warning: No valid points found for {ptype} probes in {folder}")
             continue
         n_class1s, recalls = zip(*sorted(zip(n_class1s, recalls)))
+        print(f"Summary for {ptype} probes:")
+        for info in sorted(debug_info):
+            print(f"  n_class1={info[0]}, recall={info[1]:.3f}, fpr={info[2]:.3f}, file={info[3]}")
         ax = axs[0][col]
         ax.plot(n_class1s, recalls, 'o-', color='C0' if ptype == 'Linear' else 'C1')
         ax.set_title(f"{ptype} Probes: Recall at FPR={fpr_target}")
@@ -538,6 +575,100 @@ def plot_recall_at_fpr_from_folder(folder, class_names=None, save_path=None, fpr
     if save_path:
         plt.savefig(save_path, dpi=150)
         print(f"Saved recall@FPR plot to {save_path}")
+    else:
+        plt.show()
+
+def plot_auc_vs_n_class1_from_folder(folder, class_names=None, save_path=None, max_probes=9):
+    """
+    For each *_results.json in the dataclass_exps folder, loads the 'scores' and 'labels', computes AUC,
+    and plots AUC as a function of the number of class 1 samples in the train set.
+    Separate subplots for linear and attention probes.
+    """
+    import re
+    import os
+    import json
+    import numpy as np
+    import matplotlib.pyplot as plt
+    import glob
+    from scipy.special import expit  # sigmoid
+    from sklearn.metrics import roc_auc_score
+    result_files = sorted(glob.glob(os.path.join(folder, '*_results.json')))
+    if not result_files:
+        print(f"No *_results.json files found in {folder}")
+        return
+    linear_files = [f for f in result_files if 'linear' in os.path.basename(f)]
+    attention_files = [f for f in result_files if 'attention' in os.path.basename(f)]
+    probe_groups = [('Linear', linear_files), ('Attention', attention_files)]
+    ncols = 2
+    nrows = 1
+    fig, axs = plt.subplots(nrows, ncols, figsize=(7*ncols, 5*nrows), squeeze=False)
+    for col, (ptype, files) in enumerate(probe_groups):
+        aucs = []
+        n_class1s = []
+        debug_info = []
+        for f in files[:max_probes]:
+            print(f"Processing file: {f}")
+            match = re.search(r'class1_(\d+)', f)
+            n_class1 = None
+            if match:
+                n_class1 = int(match.group(1))
+                print(f"  Extracted n_class1 from filename: {n_class1}")
+            else:
+                meta_file = f.replace('_results.json', '_meta.json')
+                if os.path.exists(meta_file):
+                    try:
+                        with open(meta_file, 'r') as mf:
+                            meta = json.load(mf)
+                        cc = meta.get('rebuild_config', {}).get('class_counts')
+                        if cc and '1' in cc:
+                            n_class1 = int(cc['1'])
+                        elif cc and 1 in cc:
+                            n_class1 = int(cc[1])
+                        print(f"  Extracted n_class1 from meta: {n_class1}")
+                    except Exception as e:
+                        print(f"Warning: Could not extract class1 count from meta file: {meta_file}. Error: {e}")
+            if n_class1 is None:
+                print(f"Warning: Could not extract class1 count from filename or meta: {f}. Skipping.")
+                continue
+            with open(f, 'r') as jf:
+                d = json.load(jf)
+            scores = np.array(d['scores']['scores'])
+            labels = np.array(d['scores']['labels'])
+            # Apply sigmoid to scores for binary classification
+            scores = expit(scores)
+            try:
+                auc = roc_auc_score(labels, scores)
+            except Exception as e:
+                print(f"  Could not compute AUC for {f}: {e}")
+                continue
+            print(f"  AUC: {auc:.3f}")
+            n_class1s.append(n_class1)
+            aucs.append(auc)
+            debug_info.append((n_class1, auc, os.path.basename(f)))
+        if len(n_class1s) == 0:
+            ax = axs[0][col]
+            ax.set_title(f"{ptype} Probes: AUC vs. #class1\n(No valid probes found)")
+            ax.set_xlabel("Number of class 1 (positive) samples in train set")
+            ax.set_ylabel("AUC")
+            ax.set_ylim(0, 1)
+            print(f"Warning: No valid points found for {ptype} probes in {folder}")
+            continue
+        n_class1s, aucs = zip(*sorted(zip(n_class1s, aucs)))
+        print(f"Summary for {ptype} probes (AUC):")
+        for info in sorted(debug_info):
+            print(f"  n_class1={info[0]}, auc={info[1]:.3f}, file={info[2]}")
+        ax = axs[0][col]
+        ax.plot(n_class1s, aucs, 'o-', color='C0' if ptype == 'Linear' else 'C1')
+        ax.set_title(f"{ptype} Probes: AUC vs. #class1")
+        ax.set_ylabel("AUC")
+        ax.set_xlabel("Number of class 1 (positive) samples in train set")
+        ax.set_ylim(0, 1)
+        for x, y in zip(n_class1s, aucs):
+            ax.text(x, y + 0.01, f"{y:.2f}", ha='center', va='bottom', fontsize=8)
+    plt.tight_layout()
+    if save_path:
+        plt.savefig(save_path, dpi=150)
+        print(f"Saved AUC vs. #class1 plot to {save_path}")
     else:
         plt.show()
 

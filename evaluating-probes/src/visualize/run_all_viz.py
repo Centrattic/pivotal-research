@@ -9,6 +9,8 @@ from src.probes import LinearProbe, AttentionProbe
 from src.data import Dataset
 from transformer_lens import HookedTransformer
 
+# Add configs so you can select which plots to run with flags
+
 def try_load_probe_scores_and_labels(results_dir, train_on, arch, layer, component, eval_on):
     # Placeholder: try to load from a standard file or result json
     # You may need to adapt this to your actual file structure
@@ -149,12 +151,15 @@ def main():
     save_path = viz_dir / f"probe_score_violins_{train_on}.png"
     plot_probe_score_violins_from_folder(str(train_folder), class_names=class_names, save_path=str(save_path))
     # 4. Recall@FPR visualization for the new experiment
-    if 'increasing' in experiment_name:
-        from src.visualize.utils_viz import plot_recall_at_fpr_from_folder
-        train_folder = experiment_dir / f"train_{experiment['train_on']}"
-        class_names = experiment.get('class_names', config.get('class_names', {0: 'Class0', 1: 'Class1'}))
-        save_path = viz_dir / "recall_at_fpr.png"
-        plot_recall_at_fpr_from_folder(str(train_folder), class_names=class_names, save_path=str(save_path), fpr_target=0.01)
+    # Fix the condition for this
+    from src.visualize.utils_viz import plot_recall_at_fpr_from_folder, plot_auc_vs_n_class1_from_folder
+    train_folder = experiment_dir / f"dataclass_exps_{experiment['train_on']}"
+    class_names = experiment.get('class_names', config.get('class_names', {0: 'Class0', 1: 'Class1'}))
+    save_path = viz_dir / "recall_at_fpr.png"
+    plot_recall_at_fpr_from_folder(str(train_folder), class_names=class_names, save_path=str(save_path), fpr_target=0.01)
+    # AUC vs n_class1 plot
+    auc_save_path = viz_dir / "auc_vs_n_class1.png"
+    plot_auc_vs_n_class1_from_folder(str(train_folder), class_names=class_names, save_path=str(auc_save_path))
 
 if __name__ == '__main__':
     main() 

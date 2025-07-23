@@ -71,7 +71,7 @@ experiments:
       - all
     rebuild_config:
       increasing_politician_fixed_total:
-        - {class_counts: {0: 3950, 1: 50}, llm_upsample: False, seed: 42} # not upsampled, original 50 samples
+        # - {class_counts: {0: 3950, 1: 50}, llm_upsample: False, seed: 42} # not upsampled, original 50 samples
         - {class_counts: {0: 3900, 1: 100}, llm_upsample: True, seed: 42} # upsampled to 100 samples
         - {class_counts: {0: 3850, 1: 150}, llm_upsample: True, seed: 42}
         - {class_counts: {0: 3750, 1: 250}, llm_upsample: True, seed: 42}
