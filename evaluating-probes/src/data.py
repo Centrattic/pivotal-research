@@ -388,7 +388,8 @@ class Dataset:
         llm_csv_path,
         val_size=0.10,
         test_size=0.15,
-        seed=42
+        seed=42,
+        num_real_pos=5,
     ):
         """
         Create a Dataset with 50/50 real test/val splits (no LLM), and a train split with LLM upsampling if requested.
@@ -422,8 +423,8 @@ class Dataset:
         n_real_neg = class_counts.get(0, 0)
         n_pos = class_counts.get(1, 0)
         if llm_upsample:
-            # Use as many real positives as available (up to 50), rest from LLM
-            n_real_pos = min(np.sum(y_avail == 1), 50)
+            # Use as many real positives as available (should always be num_real_pos of them), rest from LLM
+            n_real_pos = min(np.sum(y_avail == 1), num_real_pos)
             n_llm_pos = n_pos - n_real_pos
             real_neg = df.iloc[available_indices][df.iloc[available_indices]['target'] == 0].sample(n=n_real_neg, random_state=seed)
             real_pos = df.iloc[available_indices][df.iloc[available_indices]['target'] == 1].sample(n=n_real_pos, random_state=seed) if n_real_pos > 0 else pd.DataFrame(columns=df.columns)
