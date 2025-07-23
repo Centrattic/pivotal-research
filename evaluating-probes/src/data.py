@@ -25,7 +25,11 @@ def get_main_csv_metadata() -> pd.DataFrame:  # type: ignore[override]
     path = Path("datasets/main.csv")
     if not path.exists():
         raise FileNotFoundError("datasets/main.csv not found. This file is required for dataset metadata.")
-    return pd.read_csv(path).set_index("number")
+    df = pd.read_csv(path)
+    # print("[DEBUG] main.csv 'number' column:", df['number'].tolist())
+    df['number'] = df['number'].astype(int)
+    # print("[DEBUG] main.csv index after set_index:", df['number'].tolist())
+    return df.set_index("number")
 
 class Dataset:
     """Dataset wrapper that lazily populates activation caches."""
@@ -47,7 +51,9 @@ class Dataset:
         self.seed = seed
         
         meta = get_main_csv_metadata()
-        meta_row = meta.loc[int(dataset_name.split("_", 1)[0])]
+        idx = int(dataset_name.split("_", 1)[0])
+        # print(f"[DEBUG] Looking up index {idx} for dataset {dataset_name}")
+        meta_row = meta.loc[idx]
         self.task_type = meta_row["Data type"].strip().lower()
 
         csv_path = data_dir / f"{dataset_name}.csv"

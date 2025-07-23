@@ -661,6 +661,14 @@ class LinearProbe(BaseProbe):
             metrics = probe.score(X_val, y_val, mask=mask_val)
             if metric == 'auc':
                 return -metrics.get('auc', 0.0)
+            elif metric == 'fpr_recall':
+                fpr = metrics.get('fpr', 1.0)
+                recall = metrics.get('recall', 0.0)
+                # If FPR > threshold, minimize FPR; else, maximize recall
+                if fpr > fpr_threshold:
+                    return fpr  # minimize FPR
+                else:
+                    return -recall  # maximize recall
             else:
                 raise ValueError(f"Unknown metric: {metric}")
         study = optuna.create_study(direction='minimize')
@@ -726,6 +734,13 @@ class AttentionProbe(BaseProbe):
             metrics = probe.score(X_val, y_val, mask=mask_val)
             if metric == 'auc':
                 return -metrics.get('auc', 0.0)
+            elif metric == 'fpr_recall':
+                fpr = metrics.get('fpr', 1.0)
+                recall = metrics.get('recall', 0.0)
+                if fpr > fpr_threshold:
+                    return fpr
+                else:
+                    return -recall
             else:
                 raise ValueError(f"Unknown metric: {metric}")
         study = optuna.create_study(direction='minimize')

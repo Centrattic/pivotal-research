@@ -157,8 +157,6 @@ def train_probe(
         'rebuild_config': copy.deepcopy(rebuild_config),
         'probe_state_path': str(probe_state_path),
     }
-    if hyperparameter_tuning:
-        meta['hyperparameters'] = best_params
     with open(probe_json_path, 'w') as f:
         json.dump(meta, f, indent=2)
     logger.log(f"  - 🔥 Probe state saved to {probe_state_path.name}")

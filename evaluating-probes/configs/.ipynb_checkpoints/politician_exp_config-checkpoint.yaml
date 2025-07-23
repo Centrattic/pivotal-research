@@ -45,6 +45,29 @@ experiments:
         # - {class_percents: {0: 0.95, 1: 0.05}, total_samples: 5050, seed: 42}
         - {class_percents: {0: 0.95, 1: 0.05}, total_samples: 7050, seed: 42}
 
+  - name: politician-pred-fpr-recall
+    metric: fpr_recall
+    class_names: {0: "not politician", 1: "politician"}
+    train_on: 6_hist_fig_ispolitician
+    evaluate_on:
+      - 6_hist_fig_ispolitician
+    score:
+      - all
+    rebuild_config:
+      constant_politician_increasing_non_politician:
+        - {class_counts: {0: 50, 1: 50}, seed: 42}
+        # - {class_counts: {0: 500, 1: 50}, seed: 42}
+        # - {class_counts: {0: 1500, 1: 50}, seed: 42}
+        # - {class_counts: {0: 3000, 1: 50}, seed: 42}
+        # - {class_counts: {0: 5000, 1: 50}, seed: 42}
+        - {class_counts: {0: 7000, 1: 50}, seed: 42}
+      constant_percent_politician_increasing_total:
+        - {class_percents: {0: 0.95, 1: 0.05}, total_samples: 100, seed: 42}
+        # - {class_percents: {0: 0.95, 1: 0.05}, total_samples: 550, seed: 42}
+        # - {class_percents: {0: 0.95, 1: 0.05}, total_samples: 1550, seed: 42}
+        # - {class_percents: {0: 0.95, 1: 0.05}, total_samples: 3050, seed: 42}
+        # - {class_percents: {0: 0.95, 1: 0.05}, total_samples: 5050, seed: 42}
+        - {class_percents: {0: 0.95, 1: 0.05}, total_samples: 7050, seed: 42}
 
 # model_check: # perhaps merge this check into experiment list as well?
 #   - name: politician-pred
