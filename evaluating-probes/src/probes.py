@@ -30,7 +30,7 @@ class BaseProbe:
 
     def fit(self, X: np.ndarray, y: np.ndarray, mask: Optional[np.ndarray] = None, 
             epochs: int = 20, lr: float = 1e-3, batch_size: int = 256, weight_decay: float = 0.0, 
-            verbose: bool = True, early_stopping: bool = True, patience: int = 5, min_delta: float = 0.005,
+            verbose: bool = True, early_stopping: bool = True, patience: int = 20, min_delta: float = 0.005,
             use_weighted_loss: bool = True, use_weighted_sampler: bool = False):
         """
         Train the probe model.
@@ -639,15 +639,16 @@ class LinearProbe(BaseProbe):
         self.model = LinearProbeNet(self.d_model, aggregation=self.aggregation, device=self.device)
 
     def find_best_fit(self, X_train: np.ndarray, y_train: np.ndarray, X_val: np.ndarray, y_val: np.ndarray, mask_train: Optional[np.ndarray] = None, mask_val: Optional[np.ndarray] = None, 
-                    n_trials: int = 10, direction: str = None, verbose: bool = True, weighting_method: str = 'weighted_loss', metric: str = 'acc', fpr_threshold: float = 0.01):
+                    n_trials: int = 10, direction: str = None, verbose: bool = True, weighting_method: str = 'weighted_loss', metric: str = 'acc', fpr_threshold: float = 0.01, 
+                    probe_save_dir: Optional[Path] = None, probe_filename_base: Optional[str] = None):
         """
         Hyperparameter tuning for the probe. If weighting_method is 'pcngd', tune using fit_pcngd, else use fit.
         metric: 'acc' (default), 'auc', or 'fpr_recall'.
         If 'fpr_recall', minimize FPR, but if FPR <= fpr_threshold, maximize Recall.
         """
+        import json
         best_score = None
         best_params = None
-        best_probe = None
         def objective(trial):
             lr = trial.suggest_loguniform('lr', 1e-5, 1e-2)
             weight_decay = trial.suggest_loguniform('weight_decay', 1e-8, 1e-2)
@@ -666,13 +667,12 @@ class LinearProbe(BaseProbe):
         study = optuna.create_study(direction='minimize')
         study.optimize(objective, n_trials=n_trials)
         best_params = study.best_params
-        # Train final probe with best params
-        best_probe = LinearProbe(self.d_model, device=self.device, aggregation=self.aggregation)
-        if weighting_method == 'pcngd':
-            best_probe.fit_pcngd(X_train, y_train, mask=mask_train, epochs=75, lr=best_params['lr'], weight_decay=best_params['weight_decay'], verbose=verbose)
-        else:
-            best_probe.fit(X_train, y_train, mask=mask_train, epochs=75, lr=best_params['lr'], weight_decay=best_params['weight_decay'], verbose=verbose, use_weighted_loss=(weighting_method=='weighted_loss'), use_weighted_sampler=(weighting_method=='weighted_sampler'))
-        return best_probe, best_params
+        # Dump best_params to a dedicated file
+        if probe_save_dir is not None and probe_filename_base is not None:
+            best_hparams_path = probe_save_dir / f"{probe_filename_base}_best_hparams.json"
+            with open(best_hparams_path, 'w') as f:
+                json.dump(best_params, f, indent=2)
+        return best_params
     # Inherits predict_logits from BaseProbe
 
 class AttentionProbeNet(nn.Module):
@@ -705,15 +705,16 @@ class AttentionProbe(BaseProbe):
         self.model = AttentionProbeNet(self.d_model, device=self.device)
 
     def find_best_fit(self, X_train: np.ndarray, y_train: np.ndarray, X_val: np.ndarray, y_val: np.ndarray, mask_train: Optional[np.ndarray] = None, mask_val: Optional[np.ndarray] = None, 
-                    n_trials: int = 10, direction: str = None, verbose: bool = True, weighting_method: str = 'weighted_loss', metric: str = 'acc', fpr_threshold: float = 0.01):
+                    n_trials: int = 10, direction: str = None, verbose: bool = True, weighting_method: str = 'weighted_loss', metric: str = 'acc', fpr_threshold: float = 0.01, 
+                    probe_save_dir: Optional[Path] = None, probe_filename_base: Optional[str] = None):
         """
         Hyperparameter tuning for the attention probe. If weighting_method is 'pcngd', tune using fit_pcngd, else use fit.
         metric: 'acc' (default), 'auc', or 'fpr_recall'.
         If 'fpr_recall', minimize FPR, but if FPR <= fpr_threshold, maximize Recall.
         """
+        import json
         best_score = None
         best_params = None
-        best_probe = None
         def objective(trial):
             lr = trial.suggest_loguniform('lr', 1e-5, 1e-2)
             weight_decay = trial.suggest_loguniform('weight_decay', 1e-8, 1e-2)
@@ -731,12 +732,12 @@ class AttentionProbe(BaseProbe):
         study = optuna.create_study(direction='minimize')
         study.optimize(objective, n_trials=n_trials)
         best_params = study.best_params
-        best_probe = AttentionProbe(self.d_model, device=self.device)
-        if weighting_method == 'pcngd':
-            best_probe.fit_pcngd(X_train, y_train, mask=mask_train, epochs=75, lr=best_params['lr'], weight_decay=best_params['weight_decay'], verbose=verbose)
-        else:
-            best_probe.fit(X_train, y_train, mask=mask_train, epochs=75, lr=best_params['lr'], weight_decay=best_params['weight_decay'], verbose=verbose, use_weighted_loss=(weighting_method=='weighted_loss'), use_weighted_sampler=(weighting_method=='weighted_sampler'))
-        return best_probe, best_params
+        # Dump best_params to a dedicated file
+        if probe_save_dir is not None and probe_filename_base is not None:
+            best_hparams_path = probe_save_dir / f"{probe_filename_base}_best_hparams.json"
+            with open(best_hparams_path, 'w') as f:
+                json.dump(best_params, f, indent=2)
+        return best_params
     # Inherits predict_logits from BaseProbe
 
 # Example usage:

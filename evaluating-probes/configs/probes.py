@@ -11,7 +11,7 @@ class ProbeConfig:
 class PytorchLinearProbeConfig(ProbeConfig):
     """Hyperparameters for the PyTorch LinearProbe."""
     lr: float = 5e-4
-    epochs: int = 75
+    epochs: int = 150
     batch_size: int = 512
     weight_decay: float = 0.0
     weighting_method: str = 'weighted_sampler'  # 'weighted_loss', 'weighted_sampler', or 'pcngd'
@@ -21,7 +21,7 @@ class PytorchLinearProbeConfig(ProbeConfig):
 class PytorchAttentionProbeConfig(ProbeConfig):
     """Hyperparameters for the PyTorch AttentionProbe."""
     lr: float = 5e-4
-    epochs: int = 75
+    epochs: int = 150
     batch_size: int = 512
     weight_decay: float = 0.0
     weighting_method: str = 'weighted_sampler'  # 'weighted_loss', 'weighted_sampler', or 'pcngd'

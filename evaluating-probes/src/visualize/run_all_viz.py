@@ -148,6 +148,13 @@ def main():
     from src.visualize.utils_viz import plot_probe_score_violins_from_folder
     save_path = viz_dir / f"probe_score_violins_{train_on}.png"
     plot_probe_score_violins_from_folder(str(train_folder), class_names=class_names, save_path=str(save_path))
+    # 4. Recall@FPR visualization for the new experiment
+    if 'increasing' in experiment_name:
+        from src.visualize.utils_viz import plot_recall_at_fpr_from_folder
+        train_folder = experiment_dir / f"train_{experiment['train_on']}"
+        class_names = experiment.get('class_names', config.get('class_names', {0: 'Class0', 1: 'Class1'}))
+        save_path = viz_dir / "recall_at_fpr.png"
+        plot_recall_at_fpr_from_folder(str(train_folder), class_names=class_names, save_path=str(save_path), fpr_target=0.01)
 
 if __name__ == '__main__':
     main() 

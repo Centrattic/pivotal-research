@@ -29,26 +29,41 @@ experiments:
       - 4_hist_fig_ismale
     score:
       - all
-    rebuild_config:
-      constant_female_increasing_male:
-        - {class_counts: {0: 50, 1: 50}, seed: 42}
-        # - {class_counts: {0: 500, 1: 50}, seed: 42}     # 0 is French, 1 is English
-        # - {class_counts: {0: 1500, 1: 50}, seed: 42}
-        # - {class_counts: {0: 3000, 1: 50}, seed: 42}
-        # - {class_counts: {0: 5000, 1: 50}, seed: 42}
-        - {class_counts: {0: 7000, 1: 50}, seed: 42}
-      constant_percent_female_increasing_total:
-        - {class_percents: {0: 0.95, 1: 0.05}, total_samples: 100, seed: 42}
-        # - {class_percents: {0: 0.95, 1: 0.05}, total_samples: 550, seed: 42}
-        # - {class_percents: {0: 0.95, 1: 0.05}, total_samples: 1550, seed: 42}
-        # - {class_percents: {0: 0.95, 1: 0.05}, total_samples: 3050, seed: 42}
-        # - {class_percents: {0: 0.95, 1: 0.05}, total_samples: 5050, seed: 42}
-        - {class_percents: {0: 0.95, 1: 0.05}, total_samples: 7050, seed: 42}
-
-
-model_check: # perhaps merge this check into experiment list as well?
-  - name: gender-pred
-    hf_model_name: "google/gemma-2-9b-it"
-    check_on: "4_hist_fig_ismale"
-    check_prompt: "In one word, {prompt}’s gender was:"
+    # rebuild_config:
+    #   constant_female_increasing_male:
+    #     - {class_counts: {0: 50, 1: 50}, seed: 42}
+    #     # - {class_counts: {0: 500, 1: 50}, seed: 42}     # 0 is French, 1 is English
+    #     - {class_counts: {0: 1500, 1: 50}, seed: 42}
+    #     - {class_counts: {0: 3000, 1: 50}, seed: 42}
+    #     # - {class_counts: {0: 5000, 1: 50}, seed: 42}
+    #     - {class_counts: {0: 7000, 1: 50}, seed: 42}
+    #   constant_percent_female_increasing_total:
+    #     - {class_percents: {0: 0.95, 1: 0.05}, total_samples: 100, seed: 42}
+    #     # - {class_percents: {0: 0.95, 1: 0.05}, total_samples: 550, seed: 42}
+    #     - {class_percents: {0: 0.95, 1: 0.05}, total_samples: 1550, seed: 42}
+    #     - {class_percents: {0: 0.95, 1: 0.05}, total_samples: 3050, seed: 42}
+    #     # - {class_percents: {0: 0.95, 1: 0.05}, total_samples: 5050, seed: 42}
+    #     - {class_percents: {0: 0.95, 1: 0.05}, total_samples: 7050, seed: 42}
+  - name: gender-pred-auc-increasing-female-fixed-total
+    metric: auc
     class_names: {0: "Male", 1: "Female"}
+    train_on: 4_hist_fig_ismale
+    evaluate_on:
+      - 4_hist_fig_ismale
+    score:
+      - all
+    rebuild_config:
+      increasing_female_fixed_total:
+        - {class_counts: {0: 3950, 1: 50}, seed: 42}
+        - {class_counts: {0: 3900, 1: 100}, seed: 42}
+        - {class_counts: {0: 3850, 1: 150}, seed: 42}
+        - {class_counts: {0: 3750, 1: 250}, seed: 42}
+        - {class_counts: {0: 3500, 1: 500}, seed: 42}
+        - {class_counts: {0: 3250, 1: 750}, seed: 42}
+
+# model_check: # perhaps merge this check into experiment list as well?
+#   - name: gender-pred
+#     hf_model_name: "google/gemma-2-9b-it"
+#     check_on: "4_hist_fig_ismale"
+#     check_prompt: "In one word, {prompt}’s gender was:"
+#     class_names: {0: "Male", 1: "Female"}

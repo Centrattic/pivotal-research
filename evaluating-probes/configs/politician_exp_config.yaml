@@ -32,18 +32,51 @@ experiments:
     rebuild_config:
       constant_politician_increasing_non_politician:
         - {class_counts: {0: 50, 1: 50}, seed: 42}
-        # - {class_counts: {0: 500, 1: 50}, seed: 42}
-        # - {class_counts: {0: 1500, 1: 50}, seed: 42}
-        # - {class_counts: {0: 3000, 1: 50}, seed: 42}
-        # - {class_counts: {0: 5000, 1: 50}, seed: 42}
+        - {class_counts: {0: 500, 1: 50}, seed: 42}
+        - {class_counts: {0: 1500, 1: 50}, seed: 42}
+        - {class_counts: {0: 3000, 1: 50}, seed: 42}
+        - {class_counts: {0: 5000, 1: 50}, seed: 42}
         - {class_counts: {0: 7000, 1: 50}, seed: 42}
       constant_percent_politician_increasing_total:
         - {class_percents: {0: 0.95, 1: 0.05}, total_samples: 100, seed: 42}
-        # - {class_percents: {0: 0.95, 1: 0.05}, total_samples: 550, seed: 42}
-        # - {class_percents: {0: 0.95, 1: 0.05}, total_samples: 1550, seed: 42}
-        # - {class_percents: {0: 0.95, 1: 0.05}, total_samples: 3050, seed: 42}
-        # - {class_percents: {0: 0.95, 1: 0.05}, total_samples: 5050, seed: 42}
+        - {class_percents: {0: 0.95, 1: 0.05}, total_samples: 550, seed: 42}
+        - {class_percents: {0: 0.95, 1: 0.05}, total_samples: 1550, seed: 42}
+        - {class_percents: {0: 0.95, 1: 0.05}, total_samples: 3050, seed: 42}
+        - {class_percents: {0: 0.95, 1: 0.05}, total_samples: 5050, seed: 42}
         - {class_percents: {0: 0.95, 1: 0.05}, total_samples: 7050, seed: 42}
+  
+  - name: politician-pred-auc-increasing-politician-fixed-total
+    metric: auc
+    class_names: {0: "not politician", 1: "politician"}
+    train_on: 6_hist_fig_ispolitician
+    evaluate_on:
+      - 6_hist_fig_ispolitician
+    score:
+      - all
+    rebuild_config:
+      increasing_politician_fixed_total:
+        - {class_counts: {0: 3950, 1: 50}, seed: 42}
+        - {class_counts: {0: 3900, 1: 100}, seed: 42}
+        - {class_counts: {0: 3850, 1: 150}, seed: 42}
+        - {class_counts: {0: 3750, 1: 250}, seed: 42}
+        - {class_counts: {0: 3500, 1: 500}, seed: 42}
+        - {class_counts: {0: 3250, 1: 750}, seed: 42}
+  - name: politician-pred-auc-llm-upsampling
+    metric: auc
+    class_names: {0: "not politician", 1: "politician"}
+    train_on: 6_hist_fig_ispolitician
+    evaluate_on:
+      - 6_hist_fig_ispolitician
+    score:
+      - all
+    rebuild_config:
+      increasing_politician_fixed_total:
+        - {class_counts: {0: 3950, 1: 50}, llm_upsample: False, seed: 42} # not upsampled, original 50 samples
+        - {class_counts: {0: 3900, 1: 100}, llm_upsample: True, seed: 42} # upsampled to 100 samples
+        - {class_counts: {0: 3850, 1: 150}, llm_upsample: True, seed: 42}
+        - {class_counts: {0: 3750, 1: 250}, llm_upsample: True, seed: 42}
+        - {class_counts: {0: 3500, 1: 500}, llm_upsample: True, seed: 42}
+        - {class_counts: {0: 3250, 1: 750}, llm_upsample: True, seed: 42}
 
 
 # model_check: # perhaps merge this check into experiment list as well?

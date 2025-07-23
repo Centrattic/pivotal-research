@@ -380,6 +380,87 @@ class Dataset:
         )
         return Dataset.from_dataframe(df, **common_kwargs)
 
+    @staticmethod
+    def make_llm_upsampled_dataset(
+        original_dataset,
+        class_counts,
+        llm_upsample,
+        llm_csv_path,
+        val_size=0.10,
+        test_size=0.15,
+        seed=42
+    ):
+        """
+        Create a Dataset with 50/50 real test/val splits (no LLM), and a train split with LLM upsampling if requested.
+        - Test/val: always 50/50 balanced, real data only.
+        - Train: if llm_upsample is True, use as many real positives as available (up to 50), fill rest with LLM samples to reach class_counts[1].
+        - If llm_upsample is False, use only real data for both classes.
+        """
+        import pandas as pd
+        import numpy as np
+
+        df = original_dataset.df
+        y = df['target'].to_numpy()
+        classes = np.unique(y)
+        n_total = len(df)
+        n_test = int(round(test_size * n_total))
+        n_val = int(round(val_size * n_total))
+        n_per_class_test = n_test // len(classes)
+        n_per_class_val = n_val // len(classes)
+        # Build test/val indices (real data only, 50/50)
+        test_indices, val_indices, used_indices = [], [], set()
+        for cls in classes:
+            cls_indices = np.where(y == cls)[0]
+            np.random.shuffle(cls_indices)
+            test_indices.extend(cls_indices[:n_per_class_test])
+            val_indices.extend(cls_indices[n_per_class_test:n_per_class_test+n_per_class_val])
+            used_indices.update(cls_indices[:n_per_class_test+n_per_class_val])
+        # Remove test/val indices from available pool for train
+        available_indices = np.array([i for i in range(n_total) if i not in used_indices])
+        y_avail = y[available_indices]
+        # Build train set
+        n_real_neg = class_counts.get(0, 0)
+        n_pos = class_counts.get(1, 0)
+        if llm_upsample:
+            # Use as many real positives as available (up to 50), rest from LLM
+            n_real_pos = min(np.sum(y_avail == 1), 50)
+            n_llm_pos = n_pos - n_real_pos
+            real_neg = df.iloc[available_indices][df.iloc[available_indices]['target'] == 0].sample(n=n_real_neg, random_state=seed)
+            real_pos = df.iloc[available_indices][df.iloc[available_indices]['target'] == 1].sample(n=n_real_pos, random_state=seed) if n_real_pos > 0 else pd.DataFrame(columns=df.columns)
+            llm_df = pd.read_csv(llm_csv_path)
+            llm_pos = llm_df[llm_df['target'] == 1]
+            if len(llm_pos) < n_llm_pos:
+                raise ValueError(f"Not enough LLM positive samples: requested {n_llm_pos}, available {len(llm_pos)}")
+            llm_pos = llm_pos.sample(n=n_llm_pos, random_state=seed)
+            train_df = pd.concat([real_neg, real_pos, llm_pos]).sample(frac=1, random_state=seed).reset_index(drop=True)
+        else:
+            # Use only real data
+            real_neg = df.iloc[available_indices][df.iloc[available_indices]['target'] == 0].sample(n=n_real_neg, random_state=seed)
+            real_pos = df.iloc[available_indices][df.iloc[available_indices]['target'] == 1].sample(n=n_pos, random_state=seed) if n_pos > 0 else pd.DataFrame(columns=df.columns)
+            train_df = pd.concat([real_neg, real_pos]).sample(frac=1, random_state=seed).reset_index(drop=True)
+        # Build val/test DataFrames
+        val_df = df.iloc[val_indices]
+        test_df = df.iloc[test_indices]
+        # Build new Dataset object
+        all_df = pd.concat([train_df, val_df, test_df]).reset_index(drop=True)
+        train_indices = np.arange(len(train_df))
+        val_indices = np.arange(len(train_df), len(train_df) + len(val_df))
+        test_indices = np.arange(len(train_df) + len(val_df), len(all_df))
+        return Dataset.from_dataframe(
+            all_df,
+            dataset_name=original_dataset.dataset_name + ('_llm_upsampled' if llm_upsample else ''),
+            model=original_dataset.model,
+            device=original_dataset.device,
+            cache_root=original_dataset.cache_root,
+            seed=seed,
+            task_type=original_dataset.task_type,
+            n_classes=original_dataset.n_classes,
+            max_len=original_dataset.max_len,
+            train_indices=train_indices,
+            val_indices=val_indices,
+            test_indices=test_indices,
+        )
+
 def get_available_datasets(data_dir: Path = Path("datasets/cleaned")) -> List[str]:
     return [f.stem for f in data_dir.glob("*.csv")]
 

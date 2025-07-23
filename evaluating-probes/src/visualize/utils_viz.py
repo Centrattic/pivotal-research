@@ -464,6 +464,83 @@ def plot_all_probe_logit_weight_distributions(model, d_model, dataset_name, resu
         print(f"Saved logit weight distributions to {save_path}")
         plt.close()
 
+import matplotlib.pyplot as plt
+import numpy as np
+import json
+import os
+import glob
+
+def plot_recall_at_fpr_from_folder(folder, class_names=None, save_path=None, fpr_target=0.01, max_probes=9):
+    """
+    For each *_results.json in the folder, loads the 'scores' and 'labels', finds the threshold where FPR ≈ fpr_target,
+    and plots recall at that threshold. X-axis is the number of class 1 samples in the train set.
+    Separate subplots for linear and attention probes.
+    """
+    import re
+    result_files = sorted(glob.glob(os.path.join(folder, '*_results.json')))
+    if not result_files:
+        print(f"No *_results.json files found in {folder}")
+        return
+    # Split by probe type
+    linear_files = [f for f in result_files if 'linear' in os.path.basename(f)]
+    attention_files = [f for f in result_files if 'attention' in os.path.basename(f)]
+    probe_groups = [('Linear', linear_files), ('Attention', attention_files)]
+    ncols = 2
+    nrows = 1
+    fig, axs = plt.subplots(nrows, ncols, figsize=(7*ncols, 5*nrows), squeeze=False)
+    for col, (ptype, files) in enumerate(probe_groups):
+        recalls = []
+        n_class1s = []
+        for f in files[:max_probes]:
+            # Extract class1 count from filename (e.g., class0_3500_class1_500)
+            match = re.search(r'class1_(\d+)', f)
+            if match:
+                n_class1 = int(match.group(1))
+            else:
+                print(f"Warning: Could not extract class1 count from filename: {f}. Skipping.")
+                continue
+            with open(f, 'r') as jf:
+                d = json.load(jf)
+            scores = np.array(d['scores']['scores'])
+            labels = np.array(d['scores']['labels'])
+            thresholds = np.unique(scores)[::-1]
+            best_recall = 0.0
+            for thresh in thresholds:
+                preds = (scores >= thresh).astype(int)
+                tp = np.sum((preds == 1) & (labels == 1))
+                fn = np.sum((preds == 0) & (labels == 1))
+                fp = np.sum((preds == 1) & (labels == 0))
+                tn = np.sum((preds == 0) & (labels == 0))
+                fpr = fp / (fp + tn) if (fp + tn) > 0 else 0.0
+                recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
+                if fpr <= fpr_target and recall > best_recall:
+                    best_recall = recall
+            n_class1s.append(n_class1)
+            recalls.append(best_recall)
+        # Sort by n_class1
+        if len(n_class1s) == 0:
+            ax = axs[0][col]
+            ax.set_title(f"{ptype} Probes: Recall at FPR={fpr_target}\n(No valid probes found)")
+            ax.set_xlabel("Number of class 1 (positive) samples in train set")
+            ax.set_ylabel("Recall")
+            ax.set_ylim(0, 1)
+            continue
+        n_class1s, recalls = zip(*sorted(zip(n_class1s, recalls)))
+        ax = axs[0][col]
+        ax.plot(n_class1s, recalls, 'o-', color='C0' if ptype == 'Linear' else 'C1')
+        ax.set_title(f"{ptype} Probes: Recall at FPR={fpr_target}")
+        ax.set_ylabel("Recall")
+        ax.set_xlabel("Number of class 1 (positive) samples in train set")
+        ax.set_ylim(0, 1)
+        for x, y in zip(n_class1s, recalls):
+            ax.text(x, y + 0.01, f"{y:.2f}", ha='center', va='bottom', fontsize=8)
+    plt.tight_layout()
+    if save_path:
+        plt.savefig(save_path, dpi=150)
+        print(f"Saved recall@FPR plot to {save_path}")
+    else:
+        plt.show()
+
 # if __name__ == '__main__':
 #     diff_file = "./results/gender_experiment_gemma/runthrough_4_hist_fig_ismale/logit_diff_gender-pred_model_check.csv"
 #     plot_logit_diffs_by_gender(diff_file)

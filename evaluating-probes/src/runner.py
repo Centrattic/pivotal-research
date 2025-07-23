@@ -24,36 +24,36 @@ def get_probe_filename_prefix(train_ds, arch_name, aggregation, layer, component
     # For attention probes, aggregation is not used in the model, but we keep it in filename for consistency
     return f"train_on_{train_ds}_{arch_name}_{aggregation}_L{layer}_{component}"
 
-def update_probe_config(config_name, best_params):
-    """Update the PROBE_CONFIGS in configs/probes.py with the best_params for the given config_name."""
-    import re
-    import pathlib
-    config_path = pathlib.Path(__file__).parent.parent / "configs" / "probes.py"
-    with open(config_path, "r") as f:
-        lines = f.readlines()
-    # Find the config class and update its values
-    in_config = False
-    config_start = None
-    config_end = None
-    for i, line in enumerate(lines):
-        if f'"{config_name}"' in line and ":" in line:
-            config_start = i
-            in_config = True
-        elif in_config and line.strip().startswith("}"):
-            config_end = i
-            break
-    if config_start is not None:
-        # Find the class type (e.g., PytorchLinearProbeConfig)
-        match = re.search(r'= ([A-Za-z0-9_]+)\(', lines[config_start])
-        if match:
-            class_type = match.group(1)
-            # Build new config line
-            param_str = ", ".join(f"{k}={repr(v)}" for k, v in best_params.items())
-            new_line = f'    "{config_name}": {class_type}({param_str}),\n'
-            lines[config_start] = new_line
-    with open(config_path, "w") as f:
-        f.writelines(lines)
-    print(f"Updated {config_name} in configs/probes.py with {best_params}")
+# def update_probe_config(config_name, best_params):
+#     """Update the PROBE_CONFIGS in configs/probes.py with the best_params for the given config_name."""
+#     import re
+#     import pathlib
+#     config_path = pathlib.Path(__file__).parent.parent / "configs" / "probes.py"
+#     with open(config_path, "r") as f:
+#         lines = f.readlines()
+#     # Find the config class and update its values
+#     in_config = False
+#     config_start = None
+#     config_end = None
+#     for i, line in enumerate(lines):
+#         if f'"{config_name}"' in line and ":" in line:
+#             config_start = i
+#             in_config = True
+#         elif in_config and line.strip().startswith("}"):
+#             config_end = i
+#             break
+#     if config_start is not None:
+#         # Find the class type (e.g., PytorchLinearProbeConfig)
+#         match = re.search(r'= ([A-Za-z0-9_]+)\(', lines[config_start])
+#         if match:
+#             class_type = match.group(1)
+#             # Build new config line
+#             param_str = ", ".join(f"{k}={repr(v)}" for k, v in best_params.items())
+#             new_line = f'    "{config_name}": {class_type}({param_str}),\n'
+#             lines[config_start] = new_line
+#     with open(config_path, "w") as f:
+#         f.writelines(lines)
+#     print(f"Updated {config_name} in configs/probes.py with {best_params}")
 
 def rebuild_suffix(rebuild_config):
     if not rebuild_config:
@@ -81,6 +81,7 @@ def train_probe(
     metric: str = 'acc',
     retrain_with_best_hparams: bool = False,
 ):
+    # Only raise error if both hyperparameter_tuning and retrain_with_best_hparams are set
     if hyperparameter_tuning and retrain_with_best_hparams:
         raise ValueError("Cannot use both hyperparameter_tuning and retrain_with_best_hparams at the same time.")
     probe_filename_base = get_probe_filename_prefix(train_dataset_name, architecture_name, aggregation, layer, component)
@@ -110,15 +111,30 @@ def train_probe(
         train_class_counts = rebuild_config.get('class_counts')
         train_class_percents = rebuild_config.get('class_percents')
         train_total_samples = rebuild_config.get('total_samples')
-        train_ds = Dataset.rebuild_train_balanced_eval(
-            orig_ds,
-            train_class_counts=train_class_counts,
-            train_class_percents=train_class_percents,
-            train_total_samples=train_total_samples,
-            val_size=val_size,
-            test_size=test_size,
-            seed=seed
-        )
+        llm_upsample = rebuild_config.get('llm_upsample', False)
+        if llm_upsample:
+            # Find run_name from results_dir
+            run_name = str(results_dir).split('/')[-2] if 'results' in str(results_dir) else 'default_run'
+            llm_csv_path = Path('results') / run_name / 'llm_samples.csv'
+            train_ds = Dataset.make_llm_upsampled_dataset(
+                orig_ds,
+                class_counts=train_class_counts,
+                llm_upsample=llm_upsample,
+                llm_csv_path=llm_csv_path,
+                val_size=val_size,
+                test_size=test_size,
+                seed=seed
+            )
+        else:
+            train_ds = Dataset.rebuild_train_balanced_eval(
+                orig_ds,
+                train_class_counts=train_class_counts,
+                train_class_percents=train_class_percents,
+                train_total_samples=train_total_samples,
+                val_size=val_size,
+                test_size=test_size,
+                seed=seed
+            )
     else:
         train_ds = Dataset(train_dataset_name, model=model, device=device, seed=seed)
         train_ds.split_data(train_size=train_size, val_size=val_size, test_size=test_size, seed=seed)
@@ -128,24 +144,21 @@ def train_probe(
 
     probe = get_probe_architecture(architecture_name, d_model=d_model, device=device, aggregation=aggregation)
     fit_params = asdict(PROBE_CONFIGS[config_name])
+    weighting_method = fit_params.pop("weighting_method", "weighted_loss")
 
     if retrain_with_best_hparams:
-        logger.log(f"  - Using best hyperparameters from meta.json for {config_name}.")
-        # Load best hyperparameters from the previous meta.json file
+        logger.log(f"  - Using best hyperparameters from best_hparams.json for {config_name}.")
+        # Load best hyperparameters from the dedicated best_hparams.json file
         if rebuild_config is not None:
             suffix = rebuild_suffix(rebuild_config)
-            probe_json_path = probe_save_dir / f"{probe_filename_base}_{suffix}_meta.json"
+            best_hparams_path = probe_save_dir / f"{probe_filename_base}_{suffix}_best_hparams.json"
         else:
-            probe_json_path = probe_save_dir / f"{probe_filename_base}_meta.json"
-        if not probe_json_path.exists():
-            raise FileNotFoundError(f"Best hyperparameters file not found: {probe_json_path}")
-        with open(probe_json_path, 'r') as f:
-            meta = json.load(f)
-        best_params = meta.get('hyperparameters', None)
-        if best_params is None:
-            raise ValueError(f"No best hyperparameters found in {probe_json_path}")
+            best_hparams_path = probe_save_dir / f"{probe_filename_base}_best_hparams.json"
+        if not best_hparams_path.exists():
+            raise FileNotFoundError(f"Best hyperparameters file not found: {best_hparams_path}")
+        with open(best_hparams_path, 'r') as f:
+            best_params = json.load(f)
         fit_params.update(best_params)
-        weighting_method = fit_params.pop("weighting_method", "weighted_loss")
         if weighting_method == "weighted_loss":
             fit_params["use_weighted_loss"] = True
             fit_params["use_weighted_sampler"] = False
@@ -159,8 +172,13 @@ def train_probe(
         else:
             raise ValueError(f"Unknown weighting_method: {weighting_method}")
     elif hyperparameter_tuning:
-        probe, best_params = probe.find_best_fit(train_acts, y_train, val_acts, y_val, weighting_method=weighting_method, metric=metric)
-        update_probe_config(config_name, best_params)
+        best_params = probe.find_best_fit(
+            train_acts, y_train, val_acts, y_val,
+            mask_train=None, mask_val=None,
+            n_trials=10, direction=None, verbose=True, weighting_method=weighting_method, metric=metric,
+            probe_save_dir=probe_save_dir, probe_filename_base=probe_filename_base
+        )
+        # No final training here
     else:
         if weighting_method == "weighted_loss":
             fit_params["use_weighted_loss"] = True
