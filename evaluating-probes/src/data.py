@@ -51,19 +51,29 @@ class Dataset:
         self.seed = seed
         
         meta = get_main_csv_metadata()
-        idx = int(dataset_name.split("_", 1)[0])
-        # print(f"[DEBUG] Looking up index {idx} for dataset {dataset_name}")
-        meta_row = meta.loc[idx]
+        # Robust lookup: try 'name' column, else try integer index, else error
+        if 'name' in meta.columns and dataset_name in meta['name'].values:
+            row = meta[meta['name'] == dataset_name].iloc[0]
+            number = row.name  # index is the number
+            save_name = row['save_name']
+            meta_row = row
+            csv_path = data_dir / f"{number}_{save_name}"
+        else:
+            try:
+                idx = int(dataset_name.split("_", 1)[0])
+                meta_row = meta.loc[idx]
+                csv_path = data_dir / f"{dataset_name}.csv"
+            except Exception as e:
+                raise ValueError(f"Could not find dataset '{dataset_name}' in main.csv 'name' column or as integer index. Error: {e}")
         self.task_type = meta_row["Data type"].strip().lower()
 
-        csv_path = data_dir / f"{dataset_name}.csv"
         if not csv_path.exists():
             raise FileNotFoundError(csv_path)
         df = pd.read_csv(csv_path).dropna(subset=["prompt", "target"])
         self.df = df
 
-        self.max_len = (
-            df["prompt_len"].max() if "prompt_len" in df.columns else df["prompt"].str.len().max()
+        self.max_len = ( # We can safely divide by 2 because this is character length vs. token count, and avg > 2
+            df["prompt_len"].max()/2 if "prompt_len" in df.columns else df["prompt"].str.len().max()/2
         )
 
         if "classification" in self.task_type:

@@ -1,0 +1,70 @@
+run_name: "science_commonsense_experiment"
+model_name: "gemma-2-9b"
+device: "cuda:0"
+cache_activations: True
+seed: "42"
+
+layers: [20]
+components:
+  - "resid_post"
+
+architectures:
+  - name: "linear"
+    aggregation: "mean"
+    config_name: "default_linear"
+  - name: "attention"
+    aggregation: "attention"
+    config_name: "default_attention"
+
+experiments:
+  - name: cs_f_sci_t_self
+    metric: auc
+    class_names: {0: "false", 1: "true"}
+    train_on: cs_f_sci_t
+    evaluate_on:
+      - cs_f_sci_t
+    score:
+      - all
+    rebuild_config:
+      constant_true_increasing_false:
+        - {class_counts: {0: 50, 1: 50}, seed: 42}
+        - {class_counts: {0: 2000, 1: 50}, seed: 42}
+        - {class_counts: {0: 4000, 1: 50}, seed: 42}
+      constant_percent_true_increasing_total:
+        - {class_percents: {0: 0.95, 1: 0.05}, total_samples: 100, seed: 42}
+        - {class_percents: {0: 0.95, 1: 0.05}, total_samples: 2050, seed: 42}
+        - {class_percents: {0: 0.95, 1: 0.05}, total_samples: 4050, seed: 42}
+  - name: sci_f_cs_t_self
+    metric: auc
+    class_names: {0: "false", 1: "true"}
+    train_on: sci_f_cs_t
+    evaluate_on:
+      - sci_f_cs_t
+    score:
+      - all
+    rebuild_config:
+      constant_true_increasing_false:
+        - {class_counts: {0: 50, 1: 50}, seed: 42}
+        - {class_counts: {0: 2000, 1: 50}, seed: 42}
+        - {class_counts: {0: 4000, 1: 50}, seed: 42}
+      constant_percent_true_increasing_total:
+        - {class_percents: {0: 0.95, 1: 0.05}, total_samples: 100, seed: 42}
+        - {class_percents: {0: 0.95, 1: 0.05}, total_samples: 2050, seed: 42}
+        - {class_percents: {0: 0.95, 1: 0.05}, total_samples: 4050, seed: 42}
+  # - name: cs_f_sci_t_to_sci_f_cs_t
+  #   metric: auc
+  #   class_names: {0: "false", 1: "true"}
+  #   train_on: cs_f_sci_t
+  #   evaluate_on:
+  #     - sci_f_cs_t
+  #   score:
+  #     - all
+  #   rebuild_config:
+  #     constant_true_increasing_false:
+  #       - {class_counts: {0: 50, 1: 50}, seed: 42}
+  #       - {class_counts: {0: 2000, 1: 50}, seed: 42}
+  #       - {class_counts: {0: 4000, 1: 50}, seed: 42}
+  #     constant_percent_true_increasing_total:
+  #       - {class_percents: {0: 0.95, 1: 0.05}, total_samples: 100, seed: 42}
+  #       - {class_percents: {0: 0.95, 1: 0.05}, total_samples: 2050, seed: 42}
+  #       - {class_percents: {0: 0.95, 1: 0.05}, total_samples: 4050, seed: 42} 

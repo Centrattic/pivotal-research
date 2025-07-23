@@ -126,7 +126,7 @@ class ActivationManager:
         act_path: Path,
         hash_path: Path,
         shape_path: Path,
-        bs: int = 128,
+        bs: int = 64,
     ):
         if not missing:
             return

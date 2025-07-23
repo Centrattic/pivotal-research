@@ -42,7 +42,7 @@ def run_extraction(source_folder, target_folder, main_csv=MAIN_CSV):
                 out_df = handler_mod.process(row, source_file, handler_to_pass)
             elif handler_name == "phys_reasoning_balancer":
                 out_df = handler_mod.process(row, source_folder)
-            elif handler_name == "justice_commonsense_merge":
+            elif handler_name == "science_commonsense_merge":
                 out_df = handler_mod.process(row, source_folder)
             else:
                 out_df = handler_mod.process(row, source_file)
