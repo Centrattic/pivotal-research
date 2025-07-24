@@ -293,116 +293,30 @@ class Dataset:
         return obj
 
     @staticmethod
-    def rebuild_train_balanced_eval(
+    def build_imbalanced_train_balanced_eval(
         original_dataset,
         train_class_counts=None,
         train_class_percents=None,
         train_total_samples=None,
         val_size: float = 0.10,
         test_size: float = 0.15,
-        seed: int = 42
+        seed: int = 42,
+        llm_upsample: bool = False,
+        llm_csv_path=None,
+        num_real_pos: int = 5,
     ):
         """
         Returns a single Dataset object with precomputed splits:
         - test and val are both balanced 50/50 (as large as possible given split sizes and data)
         - train is constructed from the remaining data using the requested class balance
+        - If llm_upsample is True, upsample positives in train split using LLM samples from llm_csv_path
         - Default split: 75% train, 10% val, 15% test
         - No overlap between splits
         """
         import copy
+        import pandas as pd
         np.random.seed(seed)
         df = original_dataset.df.copy()
-        y = df['target'].to_numpy()
-        classes = np.unique(y)
-        n_total = len(df)
-        # Compute split sizes
-        n_test = int(round(test_size * n_total))
-        n_val = int(round(val_size * n_total))
-        # For test/val: balanced 50/50, as large as possible
-        n_per_class_test = n_test // len(classes)
-        n_per_class_val = n_val // len(classes)
-        # Sample test indices
-        test_indices = []
-        val_indices = []
-        used_indices = set()
-        for cls in classes:
-            cls_indices = np.where(y == cls)[0]
-            np.random.shuffle(cls_indices)
-            if len(cls_indices) < n_per_class_test + n_per_class_val:
-                raise ValueError(f"Not enough samples for class {cls} to fill test+val splits.")
-            test_indices.extend(cls_indices[:n_per_class_test])
-            val_indices.extend(cls_indices[n_per_class_test:n_per_class_test+n_per_class_val])
-            used_indices.update(cls_indices[:n_per_class_test+n_per_class_val])
-        # Remaining indices for train
-        available_indices = np.array([i for i in range(n_total) if i not in used_indices])
-        # Build train set using requested class balance
-        y_avail = y[available_indices]
-        train_indices = []
-        def get_counts(class_counts, class_percents, total_samples):
-            if class_counts is not None:
-                return class_counts
-            elif class_percents is not None and total_samples is not None:
-                return {k: int(round(v * total_samples)) for k, v in class_percents.items()}
-            else:
-                raise ValueError("Must specify either class_counts or (class_percents and total_samples)")
-        train_counts = get_counts(train_class_counts, train_class_percents, train_total_samples)
-        for cls in train_counts:
-            cls_avail_indices = available_indices[y_avail == cls]
-            n_train = train_counts[cls]
-            if len(cls_avail_indices) < n_train:
-                raise ValueError(f"Not enough samples for class {cls} in train split: requested {n_train}, available {len(cls_avail_indices)}")
-            np.random.shuffle(cls_avail_indices)
-            train_indices.extend(cls_avail_indices[:n_train])
-        # Shuffle train indices
-        np.random.shuffle(train_indices)
-        # Check for overlap between splits
-        train_set = set(train_indices)
-        val_set = set(val_indices)
-        test_set = set(test_indices)
-        overlap_tv = train_set & val_set
-        overlap_tt = train_set & test_set
-        overlap_vt = val_set & test_set
-        if overlap_tv or overlap_tt or overlap_vt:
-            print(f"WARNING: Overlap detected in splits! train/val: {len(overlap_tv)}, train/test: {len(overlap_tt)}, val/test: {len(overlap_vt)}")
-        else:
-            print("No overlap between train, val, and test sets.")
-        # Build Dataset with all splits
-        common_kwargs = dict(
-            dataset_name=original_dataset.dataset_name,
-            model=original_dataset.model,
-            device=original_dataset.device,
-            cache_root=Path("activation_cache"),
-            seed=seed,
-            task_type=original_dataset.task_type,
-            n_classes=original_dataset.n_classes,
-            max_len=original_dataset.max_len,
-            train_indices=train_indices,
-            val_indices=val_indices,
-            test_indices=test_indices,
-        )
-        return Dataset.from_dataframe(df, **common_kwargs)
-
-    @staticmethod
-    def make_llm_upsampled_dataset(
-        original_dataset,
-        class_counts,
-        llm_upsample,
-        llm_csv_path=None,
-        val_size=0.10,
-        test_size=0.15,
-        seed=42,
-        num_real_pos=5,
-    ):
-        """
-        Create a Dataset with 50/50 real test/val splits (no LLM), and a train split with LLM upsampling if requested.
-        - Test/val: always 50/50 balanced, real data only.
-        - Train: if llm_upsample is True, use as many real positives as available (up to 50), fill rest with LLM samples to reach class_counts[1].
-        - If llm_upsample is False, use only real data for both classes.
-        """
-        import pandas as pd
-        import numpy as np
-
-        df = original_dataset.df
         y = df['target'].to_numpy()
         classes = np.unique(y)
         n_total = len(df)
@@ -415,6 +329,8 @@ class Dataset:
         for cls in classes:
             cls_indices = np.where(y == cls)[0]
             np.random.shuffle(cls_indices)
+            if len(cls_indices) < n_per_class_test + n_per_class_val:
+                raise ValueError(f"Not enough samples for class {cls} to fill test+val splits.")
             test_indices.extend(cls_indices[:n_per_class_test])
             val_indices.extend(cls_indices[n_per_class_test:n_per_class_test+n_per_class_val])
             used_indices.update(cls_indices[:n_per_class_test+n_per_class_val])
@@ -422,14 +338,24 @@ class Dataset:
         available_indices = np.array([i for i in range(n_total) if i not in used_indices])
         y_avail = y[available_indices]
         # Build train set
-        n_real_neg = class_counts.get(0, 0)
-        n_pos = class_counts.get(1, 0)
+        train_indices = []
+        def get_counts(class_counts, class_percents, total_samples):
+            if class_counts is not None:
+                return class_counts
+            elif class_percents is not None and total_samples is not None:
+                return {k: int(round(v * total_samples)) for k, v in class_percents.items()}
+            else:
+                raise ValueError("Must specify either class_counts or (class_percents and total_samples)")
         if llm_upsample:
+            n_real_neg = train_class_counts.get(0, 0) if train_class_counts else 0
+            n_pos = train_class_counts.get(1, 0) if train_class_counts else 0
             # Use as many real positives as available (should always be num_real_pos of them), rest from LLM
             n_real_pos = min(np.sum(y_avail == 1), num_real_pos)
             n_llm_pos = n_pos - n_real_pos
             real_neg = df.iloc[available_indices][df.iloc[available_indices]['target'] == 0].sample(n=n_real_neg, random_state=seed)
             real_pos = df.iloc[available_indices][df.iloc[available_indices]['target'] == 1].sample(n=n_real_pos, random_state=seed) if n_real_pos > 0 else pd.DataFrame(columns=df.columns)
+            if llm_csv_path is None:
+                raise ValueError("llm_csv_path must be provided when llm_upsample is True")
             llm_df = pd.read_csv(llm_csv_path)
             llm_pos = llm_df[llm_df['target'] == 1]
             if len(llm_pos) < n_llm_pos:
@@ -437,18 +363,36 @@ class Dataset:
             llm_pos = llm_pos.sample(n=n_llm_pos, random_state=seed)
             train_df = pd.concat([real_neg, real_pos, llm_pos]).sample(frac=1, random_state=seed).reset_index(drop=True)
         else:
-            # Use only real data
-            real_neg = df.iloc[available_indices][df.iloc[available_indices]['target'] == 0].sample(n=n_real_neg, random_state=seed)
-            real_pos = df.iloc[available_indices][df.iloc[available_indices]['target'] == 1].sample(n=n_pos, random_state=seed) if n_pos > 0 else pd.DataFrame(columns=df.columns)
-            train_df = pd.concat([real_neg, real_pos]).sample(frac=1, random_state=seed).reset_index(drop=True)
+            train_counts = get_counts(train_class_counts, train_class_percents, train_total_samples)
+            for cls in train_counts:
+                cls_avail_indices = available_indices[y_avail == cls]
+                n_train = train_counts[cls]
+                if len(cls_avail_indices) < n_train:
+                    raise ValueError(f"Not enough samples for class {cls} in train split: requested {n_train}, available {len(cls_avail_indices)}")
+                np.random.shuffle(cls_avail_indices)
+                train_indices.extend(cls_avail_indices[:n_train])
+            # Shuffle train indices
+            np.random.shuffle(train_indices)
+            train_df = df.iloc[train_indices]
         # Build val/test DataFrames
         val_df = df.iloc[val_indices]
         test_df = df.iloc[test_indices]
         # Build new Dataset object
         all_df = pd.concat([train_df, val_df, test_df]).reset_index(drop=True)
-        train_indices = np.arange(len(train_df))
-        val_indices = np.arange(len(train_df), len(train_df) + len(val_df))
-        test_indices = np.arange(len(train_df) + len(val_df), len(all_df))
+        train_indices_new = np.arange(len(train_df))
+        val_indices_new = np.arange(len(train_df), len(train_df) + len(val_df))
+        test_indices_new = np.arange(len(train_df) + len(val_df), len(all_df))
+        # Overlap checks
+        train_set = set(train_indices_new)
+        val_set = set(val_indices_new)
+        test_set = set(test_indices_new)
+        overlap_tv = train_set & val_set
+        overlap_tt = train_set & test_set
+        overlap_vt = val_set & test_set
+        if overlap_tv or overlap_tt or overlap_vt:
+            print(f"WARNING: Overlap detected in splits! train/val: {len(overlap_tv)}, train/test: {len(overlap_tt)}, val/test: {len(overlap_vt)}")
+        else:
+            print("No overlap between train, val, and test sets.")
         return Dataset.from_dataframe(
             all_df,
             dataset_name=original_dataset.dataset_name + ('_llm_upsampled' if llm_upsample else ''),
@@ -459,9 +403,9 @@ class Dataset:
             task_type=original_dataset.task_type,
             n_classes=original_dataset.n_classes,
             max_len=original_dataset.max_len,
-            train_indices=train_indices,
-            val_indices=val_indices,
-            test_indices=test_indices,
+            train_indices=train_indices_new,
+            val_indices=val_indices_new,
+            test_indices=test_indices_new,
         )
 
 def get_available_datasets(data_dir: Path = Path("datasets/cleaned")) -> List[str]:

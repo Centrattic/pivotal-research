@@ -78,29 +78,21 @@ def train_probe(
         train_class_percents = rebuild_config.get('class_percents')
         train_total_samples = rebuild_config.get('total_samples')
         llm_upsample = rebuild_config.get('llm_upsample', False)
+        llm_csv_path = None
         if llm_upsample:
-            # Find run_name from results_dir
             run_name = str(results_dir).split('/')[-2] if 'results' in str(results_dir) else 'default_run'
             llm_csv_path = Path('results') / run_name / 'llm_samples.csv'
-            train_ds = Dataset.make_llm_upsampled_dataset(
-                orig_ds,
-                class_counts=train_class_counts,
-                llm_upsample=llm_upsample,
-                llm_csv_path=llm_csv_path,
-                val_size=val_size,
-                test_size=test_size,
-                seed=seed
-            )
-        else:
-            train_ds = Dataset.rebuild_train_balanced_eval(
-                orig_ds,
-                train_class_counts=train_class_counts,
-                train_class_percents=train_class_percents,
-                train_total_samples=train_total_samples,
-                val_size=val_size,
-                test_size=test_size,
-                seed=seed
-            )
+        train_ds = Dataset.build_imbalanced_train_balanced_eval(
+            orig_ds,
+            train_class_counts=train_class_counts,
+            train_class_percents=train_class_percents,
+            train_total_samples=train_total_samples,
+            val_size=val_size,
+            test_size=test_size,
+            seed=seed,
+            llm_upsample=llm_upsample,
+            llm_csv_path=llm_csv_path
+        )
     else:
         train_ds = Dataset(train_dataset_name, model=model, device=device, seed=seed)
         train_ds.split_data(train_size=train_size, val_size=val_size, test_size=test_size, seed=seed)
@@ -226,29 +218,21 @@ def evaluate_probe(
         train_class_percents = rebuild_config.get('class_percents')
         train_total_samples = rebuild_config.get('total_samples')
         llm_upsample = rebuild_config.get('llm_upsample', False)
+        llm_csv_path = None
         if llm_upsample:
-            # Find run_name from results_dir
             run_name = str(results_dir).split('/')[-2] if 'results' in str(results_dir) else 'default_run'
             llm_csv_path = Path('results') / run_name / 'llm_samples.csv'
-            eval_ds = Dataset.make_llm_upsampled_dataset(
-                orig_ds,
-                class_counts=train_class_counts,
-                llm_upsample=llm_upsample,
-                llm_csv_path=llm_csv_path,
-                val_size=val_size,
-                test_size=test_size,
-                seed=seed
-            )
-        else:
-            eval_ds = Dataset.rebuild_train_balanced_eval(
-                orig_ds,
-                train_class_counts=train_class_counts,
-                train_class_percents=train_class_percents,
-                train_total_samples=train_total_samples,
-                val_size=val_size,
-                test_size=test_size,
-                seed=seed
-            )
+        eval_ds = Dataset.build_imbalanced_train_balanced_eval(
+            orig_ds,
+            train_class_counts=train_class_counts,
+            train_class_percents=train_class_percents,
+            train_total_samples=train_total_samples,
+            val_size=val_size,
+            test_size=test_size,
+            seed=seed,
+            llm_upsample=llm_upsample,
+            llm_csv_path=llm_csv_path
+        )
     else:
         eval_ds = Dataset(eval_dataset_name, model=model, device=device, seed=seed)
         eval_ds.split_data(train_size=train_size, val_size=val_size, test_size=test_size, seed=seed)
