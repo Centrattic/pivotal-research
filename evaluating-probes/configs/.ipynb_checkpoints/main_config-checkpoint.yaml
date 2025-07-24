@@ -1,0 +1,44 @@
+# configs/main_config.yaml
+
+run_name: "pythia_14m_l3_proper_test_run"
+model_name: "EleutherAI/pythia-14m"
+device: "cuda:1"
+cache_activations: True
+seed: "42"
+# maxing out tokens at 512, a bit cooked but some context is just too long or smt
+
+# List of experiments to run, named
+experiments:
+  - name: "run all exps"
+    train_on: "all"
+    evaluate_on:
+      - "all" # Standard in-distribution evaluation
+  # - name: "train_meta_probe_on_all"
+  #   train_on: "single_all"  # Special keyword to combine all classification datasets
+  #   evaluate_on: "single_all"     # This will evaluate on the combined test set. Does ["self"] also work?
+
+  # - name: "cross_dataset_sciq_to_truthfulqa"
+  #   train_on: "30_sciq_tf"
+  #   evaluate_on:
+  #     - "33_truthqa_tf" # Cross-dataset evaluation
+
+# Define the layers and components to extract activations from
+layers: [3] # For EleutherAI/pythia-70m (6 layers total)
+components:
+  - "resid_post"
+
+# Define the probe architectures and their hyperparameter configs.
+# The 'name' must match a class in probes.py.
+# The 'config_name' must be a key in the PROBE_CONFIGS dict in configs/probes.py.
+architectures:
+  - name: "linear"
+    config_name: "default_linear"
+  - name: "attention"
+    config_name: "default_attention"
+
+# Define the score aggregation methods to test for each architecture
+aggregations:
+  - "mean"
+  - "max"
+  - "last_token"
+  - "softmax"

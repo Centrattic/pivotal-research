@@ -297,6 +297,7 @@ class BaseProbe:
         print(f"=== PROBABILITY PREDICTION COMPLETE ===\n")
         return result
 
+<<<<<<< Updated upstream
     def predict_logits(self, X: np.ndarray, mask: Optional[np.ndarray] = None, batch_size: int = 1) -> np.ndarray:
         """
         Returns the raw logits (pre-sigmoid/softmax) for the input X.
@@ -304,6 +305,29 @@ class BaseProbe:
         self.model.eval()
         if mask is not None:
             mask = torch.tensor(mask, dtype=torch.bool, device=self.device)
+=======
+class AttentionProbe(BaseProbe):
+    # This class remains a custom PyTorch implementation as requested.
+    # Its internal logic is unchanged from the previous version.
+    name: str = "attention"
+    
+    def __init__(self, d_model: int):
+        self.d_model = d_model
+        self.theta_q: np.ndarray | None = None
+        self.theta_v: np.ndarray | None = None
+        self.bias: np.ndarray | None = None
+        with open("configs/french_config.yaml", "r") as f:
+            config = yaml.safe_load(f)
+        self.device = config['device']
+
+    def fit(self, X: np.ndarray, y: np.ndarray, lr: float = 0.01, epochs: int = 100, weight_decay: float = 1e-2):
+        is_classification = np.issubdtype(y.dtype, np.integer)
+        if is_classification:
+            self.task_type = 'classification'
+            self.n_classes = len(np.unique(y))
+            out_features = self.n_classes if self.n_classes > 2 else 1
+            loss_fn = torch.nn.CrossEntropyLoss() if self.n_classes > 2 else torch.nn.BCEWithLogitsLoss()
+>>>>>>> Stashed changes
         else:
             mask = torch.ones(X.shape[:2], dtype=torch.bool, device=self.device)
         all_logits = []
