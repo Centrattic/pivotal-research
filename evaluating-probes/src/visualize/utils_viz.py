@@ -72,48 +72,6 @@ def plot_logit_diffs_by_class(
     print(f"Saved histogram to {save_path}")
     plt.close()
 
-
-def plot_class_logit_distributions(
-    all_top_logits,          # list of dicts: each dict maps class idx to logit value
-    all_labels,              # list of int class indices per sample
-    class_names,             # dict, e.g. {0: "French", 1: "English"}
-    bins=20,
-    x_range=(-10, 10),
-    run_name="run",
-    save_path=None,
-):
-    """
-    Plots the distribution of the logit for the correct class for each true label.
-    """
-    import matplotlib.pyplot as plt
-    plt.figure(figsize=(8, 4))
-    color_cycle = plt.rcParams['axes.prop_cycle'].by_key()['color']
-    for i, (idx, name) in enumerate(class_names.items()):
-        # Collect logits for samples where the true label == idx
-        class_logits = [
-            logit_dict[idx]
-            for logit_dict, label in zip(all_top_logits, all_labels)
-            if idx in logit_dict and label == idx
-        ]
-        if class_logits:
-            plt.hist(
-                class_logits,
-                bins=bins,
-                range=x_range,
-                alpha=0.7,
-                label=f"{name} (N={len(class_logits)})",
-                color=color_cycle[i % len(color_cycle)]
-            )
-    plt.xlabel("Logit Value for True Class")
-    plt.ylabel("Frequency")
-    plt.title(f"Logit Distributions for True Classes\n({run_name})")
-    plt.legend()
-    if save_path:
-        plt.tight_layout()
-        plt.savefig(save_path)
-    plt.show()
-
-
 def plot_rebuild_experiment_results_grid(dataclass_results_dir, probe_names, class_names, rebuild_configs, save_path=None, 
                                     metrics=('acc', 'auc', 'precision', 'recall', 'fpr'), ncols=2, y_log_scale=False, show_value_labels=False):
     """
@@ -130,11 +88,6 @@ def plot_rebuild_experiment_results_grid(dataclass_results_dir, probe_names, cla
         y_log_scale: if True, use log scale for y-axis
         show_value_labels: if True, annotate each data point with its value (rounded to 3 decimals)
     """
-    import json
-    import matplotlib.pyplot as plt
-    import numpy as np
-    import os
-    import glob
 
     # Find all per-config *_results.json files in the dataclass results dir (exclude allres)
     results_json_paths = sorted(glob.glob(os.path.join(dataclass_results_dir, '*_results.json')))
@@ -242,60 +195,6 @@ def plot_rebuild_experiment_results_grid(dataclass_results_dir, probe_names, cla
     else:
         plt.show()
 
-
-def plot_probe_score_histogram_subplots(probe_results, class_names=None, save_path=None, bins=50):
-    """
-    Plots histograms of probe scores for all probes, with a subplot for each probe.
-    Args:
-        probe_results: dict mapping probe name to dict with 'scores' and 'labels' arrays
-        class_names: dict mapping class index to name (optional)
-        save_path: if provided, saves the plot to this path
-        bins: number of histogram bins
-    """
-    import matplotlib.pyplot as plt
-    import numpy as np
-    n_probes = len(probe_results)
-    if n_probes == 0:
-        print("No probe results to plot.")
-        return
-    ncols = min(3, n_probes)
-    nrows = int(np.ceil(n_probes / ncols))
-    fig, axs = plt.subplots(nrows, ncols, figsize=(6*ncols, 4*nrows), squeeze=False)
-    for idx, (probe_name, res) in enumerate(probe_results.items()):
-        row, col = divmod(idx, ncols)
-        ax = axs[row][col]
-        scores = np.array(res['scores'])
-        labels = np.array(res['labels'])
-        if class_names is None:
-            unique_classes = np.unique(labels)
-            class_names_map = {c: f"Class {c}" for c in unique_classes}
-        else:
-            class_names_map = class_names
-        for cls in np.unique(labels):
-            mask = (labels == cls)
-            ax.hist(
-                scores[mask],
-                bins=bins,
-                alpha=0.7,
-                label=f"{class_names_map.get(cls, str(cls))} (N={mask.sum()})",
-                edgecolor="black"
-            )
-        ax.set_xlabel("Probe Score")
-        ax.set_ylabel("Count")
-        ax.set_title(f"Probe: {probe_name}")
-        ax.legend()
-    # Hide any unused subplots
-    for idx in range(n_probes, nrows*ncols):
-        row, col = divmod(idx, ncols)
-        fig.delaxes(axs[row][col])
-    plt.tight_layout()
-    if save_path:
-        plt.savefig(save_path, dpi=150)
-        print(f"Saved probe score histogram subplots to {save_path}")
-    else:
-        plt.show()
-
-
 def plot_probe_score_violins_from_folder(folder, class_names=None, save_path=None, max_probes=9):
     """
     For each *_results.json in the folder, loads the 'scores' and 'labels', and creates a subplot with violin plots of probe scores for each class.
@@ -349,140 +248,14 @@ def plot_probe_score_violins_from_folder(folder, class_names=None, save_path=Non
         plt.show()
 
 
-def plot_all_probe_logit_weight_distributions(model, d_model, dataset_name, results_dir, viz_dir, ln_f=None, device="cpu"):
-    """
-    Plots logit weight distributions for all trained LinearProbes and AttentionProbes in train_{dataset} and dataclass_exps_{dataset}.
-    For each probe, plot a single histogram for all logit weights, and overlay colored regions for negative (blue) and positive (red) values. Also save separate figures for all linear and all attention probes.
-    """
-    import matplotlib.pyplot as plt
-    import numpy as np
-    import os
-    import glob
-
-    train_dir = os.path.join(results_dir, f"train_{dataset_name}")
-    dataclass_dir = os.path.join(results_dir, f"dataclass_exps_{dataset_name}")
-    probe_files = glob.glob(os.path.join(train_dir, "*.npz"))
-    if os.path.isdir(dataclass_dir):
-        probe_files += glob.glob(os.path.join(dataclass_dir, "*.npz"))
-    probe_files = [f for f in probe_files if ("linear" in os.path.basename(f) or "attention" in os.path.basename(f))]
-    if not probe_files:
-        print(f"No LinearProbe or AttentionProbe .npz files found for {dataset_name}.")
-        return
-    if hasattr(model, "lm_head"):
-        W_U = model.lm_head.weight.detach().cpu().numpy()
-    elif hasattr(model, "unembed") and hasattr(model.unembed, "W_U"):
-        W_U = model.unembed.W_U.detach().cpu().numpy()
-    else:
-        raise AttributeError("Model does not have an lm_head or unembed.W_U attribute for the unembedding matrix.")
-    # Split probes by type
-    linear_probes = [f for f in probe_files if "linear" in os.path.basename(f)]
-    attention_probes = [f for f in probe_files if "attention" in os.path.basename(f)]
-    probe_groups = [("all", probe_files), ("linear", linear_probes), ("attention", attention_probes)]
-    color_neg = '#377eb8'  # blue
-    color_pos = '#e41a1c'  # red
-    for group_name, group_files in probe_groups:
-        if not group_files:
-            continue
-        n_probes = len(group_files)
-        ncols = min(3, n_probes)
-        nrows = int(np.ceil(n_probes / ncols))
-        fig, axs = plt.subplots(nrows, ncols, figsize=(6*ncols, 4*nrows), squeeze=False)
-        for idx, probe_path in enumerate(group_files):
-            row, col = divmod(idx, ncols)
-            ax = axs[row][col]
-            if "linear" in os.path.basename(probe_path):
-                probe = LinearProbe(d_model=d_model, device=device)
-                probe.load_state(probe_path)
-                v_probe = probe.model.linear.weight.detach().cpu().numpy()
-            elif "attention" in os.path.basename(probe_path):
-                probe = AttentionProbe(d_model=d_model, device=device)
-                probe.load_state(probe_path)
-                v_probe = probe.model.classifier.weight.detach().cpu().numpy()
-            else:
-                print(f"Skipping unknown probe type: {probe_path}")
-                continue
-            if v_probe.shape[0] == 1:
-                v_proj = v_probe[0]
-            else:
-                v_proj = v_probe[0]
-            if v_proj.shape != (d_model,):
-                print(f"Skipping {probe_path}: probe direction shape {v_proj.shape} does not match d_model {d_model}")
-                continue
-            if ln_f is not None:
-                v_proj = ln_f(torch.tensor(v_proj, dtype=torch.float32, device=device)).detach().cpu().numpy()
-            logit_weights = W_U.T @ v_proj  # (vocab_size,)
-            # Plot a single histogram for all weights
-            bins = 100
-            counts, bin_edges, patches = ax.hist(logit_weights, bins=bins, alpha=0.7, color='gray', label='all', edgecolor='black')
-            # Overlay colored regions for negative and positive
-            for i in range(len(bin_edges)-1):
-                if bin_edges[i+1] <= 0:
-                    patches[i].set_facecolor(color_neg)
-                    patches[i].set_alpha(0.5)
-                elif bin_edges[i] >= 0:
-                    patches[i].set_facecolor(color_pos)
-                    patches[i].set_alpha(0.5)
-            ax.set_title(os.path.basename(probe_path).replace("_state.npz", ""), fontsize=8)
-            ax.set_xlabel("logit weight")
-            ax.set_ylabel("count")
-            # Add legend manually
-            from matplotlib.patches import Patch
-            legend_patches = [Patch(facecolor=color_neg, alpha=0.5, label=f"neg (<0, N={(logit_weights < 0).sum()})"),
-                              Patch(facecolor=color_pos, alpha=0.5, label=f"pos (>0, N={(logit_weights > 0).sum()})")]
-            ax.legend(handles=legend_patches)
-            # Boxplots above, split by sign
-            box_data = []
-            box_labels = []
-            box_colors = []
-            neg_weights = logit_weights[logit_weights < 0]
-            pos_weights = logit_weights[logit_weights > 0]
-            if len(neg_weights) > 0:
-                box_data.append(neg_weights)
-                box_labels.append("neg")
-                box_colors.append(color_neg)
-            if len(pos_weights) > 0:
-                box_data.append(pos_weights)
-                box_labels.append("pos")
-                box_colors.append(color_pos)
-            box_ax = ax.inset_axes([0, 1.05, 1, 0.18])
-            bplots = box_ax.boxplot(box_data, vert=False, patch_artist=True, labels=box_labels)
-            for patch, color in zip(bplots['boxes'], box_colors):
-                patch.set_facecolor(color)
-                patch.set_alpha(0.5)
-            box_ax.set_xticks([])
-            box_ax.set_yticks([])
-            box_ax.set_frame_on(False)
-        for idx in range(n_probes, nrows*ncols):
-            row, col = divmod(idx, ncols)
-            fig.delaxes(axs[row][col])
-        plt.tight_layout()
-        if group_name == "all":
-            save_path = os.path.join(viz_dir, f"probe_logit_weight_distributions_{dataset_name}.png")
-        else:
-            save_path = os.path.join(viz_dir, f"probe_logit_weight_distributions_{dataset_name}_{group_name}.png")
-        plt.savefig(save_path, dpi=150)
-        print(f"Saved logit weight distributions to {save_path}")
-        plt.close()
-
-import matplotlib.pyplot as plt
-import numpy as np
-import json
-import os
-import glob
-
 def plot_recall_at_fpr_from_folder(folder, class_names=None, save_path=None, fpr_target=0.01, max_probes=9):
     """
     For each *_results.json in the dataclass_exps folder, loads the 'scores' and 'labels', finds the threshold where FPR ≈ fpr_target,
     and plots recall at that threshold. X-axis is the number of class 1 samples in the train set.
     Separate subplots for linear and attention probes.
     """
-    import re
-    import os
-    import json
-    import numpy as np
-    import matplotlib.pyplot as plt
-    import glob
     from scipy.special import expit  # sigmoid
+
     # Only use dataclass_exps folder
     result_files = sorted(glob.glob(os.path.join(folder, '*_results.json')))
     if not result_files:
@@ -584,12 +357,7 @@ def plot_auc_vs_n_class1_from_folder(folder, class_names=None, save_path=None, m
     and plots AUC as a function of the number of class 1 samples in the train set.
     Separate subplots for linear and attention probes.
     """
-    import re
-    import os
-    import json
-    import numpy as np
-    import matplotlib.pyplot as plt
-    import glob
+
     from scipy.special import expit  # sigmoid
     from sklearn.metrics import roc_auc_score
     result_files = sorted(glob.glob(os.path.join(folder, '*_results.json')))
@@ -671,7 +439,3 @@ def plot_auc_vs_n_class1_from_folder(folder, class_names=None, save_path=None, m
         print(f"Saved AUC vs. #class1 plot to {save_path}")
     else:
         plt.show()
-
-# if __name__ == '__main__':
-#     diff_file = "./results/gender_experiment_gemma/runthrough_4_hist_fig_ismale/logit_diff_gender-pred_model_check.csv"
-#     plot_logit_diffs_by_gender(diff_file)

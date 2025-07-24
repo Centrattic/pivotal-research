@@ -3,7 +3,8 @@ import yaml
 import os
 from pathlib import Path
 import glob
-from src.visualize.utils_viz import plot_logit_diffs_by_class, plot_class_logit_distributions, plot_probe_score_histogram_subplots, plot_rebuild_experiment_results_grid
+import re
+from src.visualize.utils_viz import plot_logit_diffs_by_class, plot_probe_score_violins_from_folder, plot_rebuild_experiment_results_grid, plot_recall_at_fpr_from_folder, plot_auc_vs_n_class1_from_folder
 import numpy as np
 from src.probes import LinearProbe, AttentionProbe
 from src.data import Dataset
@@ -78,8 +79,8 @@ def main():
     viz_dir = experiment_dir / 'visualizations'
     viz_dir.mkdir(parents=True, exist_ok=True)
     # Load model for dataset activations
-    model = HookedTransformer.from_pretrained(config['model_name'], config['device']) 
-    d_model = model.cfg.d_model
+    d_model = config['d_model']
+    model = None
     # 1. Model check visualizations
     if 'model_check' in config:
         for check in config['model_check']:
@@ -124,7 +125,6 @@ def main():
                     rebuild_configs.extend(group)
             else:
                 rebuild_configs.extend(rc)
-        import re
         dataset = experiment['train_on']
         allres_files = sorted(glob.glob(str(dataclass_results_dir / '*_results.json')))
         probe_names = sorted(set(
@@ -132,7 +132,6 @@ def main():
             for f in allres_files if re.search(rf'train_on_{re.escape(dataset)}_.*?(?=_class|_results)', os.path.basename(f))
         ))
         if allres_files and rebuild_configs:
-            from src.visualize.utils_viz import plot_rebuild_experiment_results_grid
             save_path = viz_dir / f"rebuild_experiment_results_grid_dataclass_{train_on}.png"
             plot_rebuild_experiment_results_grid(
                 str(dataclass_results_dir),
@@ -144,15 +143,15 @@ def main():
                 y_log_scale=False,
                 show_value_labels=True
             )
-    # 3. Probe score histograms (unchanged)
+    # 3. Probe score violin plots (unchanged)
     train_folder = experiment_dir / f"train_{train_on}"
     class_names = experiment.get('class_names', config.get('class_names', {0: 'Class0', 1: 'Class1'}))
-    from src.visualize.utils_viz import plot_probe_score_violins_from_folder
+    
     save_path = viz_dir / f"probe_score_violins_{train_on}.png"
     plot_probe_score_violins_from_folder(str(train_folder), class_names=class_names, save_path=str(save_path))
+
     # 4. Recall@FPR visualization for the new experiment
     # Fix the condition for this
-    from src.visualize.utils_viz import plot_recall_at_fpr_from_folder, plot_auc_vs_n_class1_from_folder
     train_folder = experiment_dir / f"dataclass_exps_{experiment['train_on']}"
     class_names = experiment.get('class_names', config.get('class_names', {0: 'Class0', 1: 'Class1'}))
     save_path = viz_dir / "recall_at_fpr.png"

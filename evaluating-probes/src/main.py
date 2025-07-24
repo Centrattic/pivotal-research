@@ -40,19 +40,13 @@ except Exception as e:
 
 # Now import transformer_lens after setting CUDA device
 from src.runner import train_probe, evaluate_probe
-from src.data import Dataset, get_available_datasets, load_combined_classification_datasets
+from src.data import Dataset, get_available_datasets
 from src.logger import Logger
 from src.utils import should_skip_dataset
 from src.model_check.main import run_model_check
 from transformer_lens import HookedTransformer
 
-# To force code to run on cuda:1, if exists
-# os.environ["CUDA_VISIBLE_DEVICES"] = "1"
-
 def get_dataset(name, model, device, seed):
-    # if name == "single_all":
-    #     return load_combined_classification_datasets(seed)
-    # else:
     return Dataset(name, model=model, device=device, seed=seed)
 
 def resample_params_to_str(params):
@@ -119,7 +113,7 @@ def main():
         # Single model instance
         logger.log(f"Loading model '{config['model_name']}' to get config...")
         device = config.get("device")
-        model = HookedTransformer.from_pretrained(config['model_name'], device)
+        model = HookedTransformer.from_pretrained(config['model_name'], device) # Load to get activations if needed
         d_model = model.cfg.d_model
 
         global_seed = int(config.get('seed', 42))
@@ -135,13 +129,13 @@ def main():
             experiment_dir = results_dir / experiment_name
             experiment_dir.mkdir(parents=True, exist_ok=True)
             train_sets = [experiment['train_on']]
-            if experiment['train_on'] == "all":
-                train_sets = available_datasets
-            all_dataset_names_to_check.update(train_sets)
+            # if experiment['train_on'] == "all":
+            #     train_sets = available_datasets
+            all_dataset_names_to_check.update(d for d in train_sets if d in available_datasets)
 
             eval_sets = experiment['evaluate_on']
-            if "all" in eval_sets: eval_sets = available_datasets
-            all_dataset_names_to_check.update(d for d in eval_sets if d != 'self')
+            # if "all" in eval_sets: eval_sets = available_datasets
+            all_dataset_names_to_check.update(d for d in eval_sets if d in available_datasets) # if d != 'self')
 
             for train_dataset in train_sets:
                 for arch_config in config.get('architectures', []):
@@ -206,9 +200,10 @@ def main():
             experiment_dir = results_dir / experiment_name
             experiment_dir.mkdir(parents=True, exist_ok=True)
             train_sets = [experiment['train_on']]
-            if experiment['train_on'] == "all": train_sets = available_datasets
+            # if experiment['train_on'] == "all": 
+            #     train_sets = available_datasets
             score_options = experiment.get('score', ['all'])
-            rebuild_configs = [None]
+            rebuild_configs = []
             if 'rebuild_config' in experiment:
                 rc = experiment['rebuild_config']
                 if isinstance(rc, dict):
@@ -216,11 +211,13 @@ def main():
                         rebuild_configs.extend(group)
                 else:
                     rebuild_configs = rc
+            else:
+                rebuild_configs = [None] # If rebuild config, don't use original set
             for train_dataset in train_sets:
                 if train_dataset not in valid_dataset_metadata: continue
                 eval_sets = experiment['evaluate_on']
-                if "all" in eval_sets: eval_sets = available_datasets
-                if "self" in eval_sets: eval_sets = [d if d != "self" else train_dataset for d in eval_sets]
+                # if "all" in eval_sets: eval_sets = available_datasets
+                # if "self" in eval_sets: eval_sets = [d if d != "self" else train_dataset for d in eval_sets]
                 for eval_dataset in eval_sets:
                     if eval_dataset not in valid_dataset_metadata: continue
                     train_meta = valid_dataset_metadata[train_dataset]

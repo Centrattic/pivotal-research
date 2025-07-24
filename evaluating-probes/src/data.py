@@ -38,7 +38,7 @@ class Dataset:
         self,
         dataset_name: str,
         *,
-        model: HookedTransformer,
+        model: HookedTransformer | None,
         device: str = "cuda:0",
         data_dir: Path = Path("datasets/cleaned"),
         cache_root: Path = Path("activation_cache"),
@@ -118,7 +118,7 @@ class Dataset:
                 cache_dir=cache_dir,
             )
         except: 
-            print("Using dataset class to fetch text, not manage activations.")
+            print("Not using dataset class to manage activations. Model is likely None.")
 
     def split_data(self, train_size: float = 0.75, val_size: float = 0.10, test_size: float = 0.15, seed: int = None):
         """
@@ -277,6 +277,8 @@ class Dataset:
             obj.y_val = obj.y[obj.val_indices]
             obj.X_test_text = obj.X[obj.test_indices].tolist()
             obj.y_test = obj.y[obj.test_indices]
+        
+        # Rewriting ActivationManager
         try:
             cache_dir = cache_root / model.cfg.model_name / dataset_name
             obj.act_manager = ActivationManager(
@@ -385,7 +387,7 @@ class Dataset:
         original_dataset,
         class_counts,
         llm_upsample,
-        llm_csv_path,
+        llm_csv_path=None,
         val_size=0.10,
         test_size=0.15,
         seed=42,
@@ -464,11 +466,3 @@ class Dataset:
 
 def get_available_datasets(data_dir: Path = Path("datasets/cleaned")) -> List[str]:
     return [f.stem for f in data_dir.glob("*.csv")]
-
-def load_combined_classification_datasets(seed: int, model: HookedTransformer, device: str) -> Dataset:
-    """Return a synthetic *single_all* Dataset w/ attached ActivationManager."""
-    # Implementation unchanged; omitted for brevity – but you would create the
-    # combined Dataset via `Dataset.from_combined` then *wrap* it with an
-    # ActivationManager just like above.
-    raise NotImplementedError("Re‑implement for combined dataset use case.")
-

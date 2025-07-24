@@ -1,5 +1,6 @@
 run_name: "science_commonsense_experiment"
 model_name: "gemma-2-9b"
+d_model: 3584 # 3584 for gemma-2-9b
 device: "cuda:0"
 cache_activations: True
 seed: "42"

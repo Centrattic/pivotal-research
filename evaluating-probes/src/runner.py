@@ -1,17 +1,15 @@
-import json
 from pathlib import Path
 from dataclasses import asdict
-import numpy as np
 from typing import Optional, Any, List
-import copy
-
 from src.data import Dataset, get_available_datasets, load_combined_classification_datasets
-# from src.activations import ActivationManager
 from src.probes import LinearProbe, AttentionProbe
 from src.logger import Logger
 from configs.probes import PROBE_CONFIGS
 from dataclasses import asdict
+import numpy as np
 import torch
+import copy
+import json
 
 def get_probe_architecture(architecture_name: str, d_model: int, device, aggregation: str = "mean"):
     if architecture_name == "linear":
@@ -23,37 +21,6 @@ def get_probe_architecture(architecture_name: str, d_model: int, device, aggrega
 def get_probe_filename_prefix(train_ds, arch_name, aggregation, layer, component):
     # For attention probes, aggregation is not used in the model, but we keep it in filename for consistency
     return f"train_on_{train_ds}_{arch_name}_{aggregation}_L{layer}_{component}"
-
-# def update_probe_config(config_name, best_params):
-#     """Update the PROBE_CONFIGS in configs/probes.py with the best_params for the given config_name."""
-#     import re
-#     import pathlib
-#     config_path = pathlib.Path(__file__).parent.parent / "configs" / "probes.py"
-#     with open(config_path, "r") as f:
-#         lines = f.readlines()
-#     # Find the config class and update its values
-#     in_config = False
-#     config_start = None
-#     config_end = None
-#     for i, line in enumerate(lines):
-#         if f'"{config_name}"' in line and ":" in line:
-#             config_start = i
-#             in_config = True
-#         elif in_config and line.strip().startswith("}"):
-#             config_end = i
-#             break
-#     if config_start is not None:
-#         # Find the class type (e.g., PytorchLinearProbeConfig)
-#         match = re.search(r'= ([A-Za-z0-9_]+)\(', lines[config_start])
-#         if match:
-#             class_type = match.group(1)
-#             # Build new config line
-#             param_str = ", ".join(f"{k}={repr(v)}" for k, v in best_params.items())
-#             new_line = f'    "{config_name}": {class_type}({param_str}),\n'
-#             lines[config_start] = new_line
-#     with open(config_path, "w") as f:
-#         f.writelines(lines)
-#     print(f"Updated {config_name} in configs/probes.py with {best_params}")
 
 def rebuild_suffix(rebuild_config):
     if not rebuild_config:
@@ -76,7 +43,6 @@ def train_probe(
     train_size: float = 0.75, val_size: float = 0.10, test_size: float = 0.15,
     hyperparameter_tuning: bool = False,
     rebuild_config: dict = None,
-    # save_probe_for_rebuild: bool = True,  # new arg for explicit control
     return_probe_and_test: bool = False,  # new arg for visualization
     metric: str = 'acc',
     retrain_with_best_hparams: bool = False,
@@ -138,6 +104,7 @@ def train_probe(
     else:
         train_ds = Dataset(train_dataset_name, model=model, device=device, seed=seed)
         train_ds.split_data(train_size=train_size, val_size=val_size, test_size=test_size, seed=seed)
+
     train_acts, y_train = train_ds.get_train_set_activations(layer, component)
     val_acts, y_val = train_ds.get_val_set_activations(layer, component)
     test_acts, y_test = train_ds.get_test_set_activations(layer, component)
@@ -178,7 +145,6 @@ def train_probe(
             n_trials=10, direction=None, verbose=True, weighting_method=weighting_method, metric=metric,
             probe_save_dir=probe_save_dir, probe_filename_base=probe_filename_base
         )
-        # No final training here
     else:
         if weighting_method == "weighted_loss":
             fit_params["use_weighted_loss"] = True
@@ -259,15 +225,30 @@ def evaluate_probe(
         train_class_counts = rebuild_config.get('class_counts')
         train_class_percents = rebuild_config.get('class_percents')
         train_total_samples = rebuild_config.get('total_samples')
-        eval_ds = Dataset.rebuild_train_balanced_eval(
-            orig_ds,
-            train_class_counts=train_class_counts,
-            train_class_percents=train_class_percents,
-            train_total_samples=train_total_samples,
-            val_size=val_size,
-            test_size=test_size,
-            seed=seed
-        )
+        llm_upsample = rebuild_config.get('llm_upsample', False)
+        if llm_upsample:
+            # Find run_name from results_dir
+            run_name = str(results_dir).split('/')[-2] if 'results' in str(results_dir) else 'default_run'
+            llm_csv_path = Path('results') / run_name / 'llm_samples.csv'
+            eval_ds = Dataset.make_llm_upsampled_dataset(
+                orig_ds,
+                class_counts=train_class_counts,
+                llm_upsample=llm_upsample,
+                llm_csv_path=llm_csv_path,
+                val_size=val_size,
+                test_size=test_size,
+                seed=seed
+            )
+        else:
+            eval_ds = Dataset.rebuild_train_balanced_eval(
+                orig_ds,
+                train_class_counts=train_class_counts,
+                train_class_percents=train_class_percents,
+                train_total_samples=train_total_samples,
+                val_size=val_size,
+                test_size=test_size,
+                seed=seed
+            )
     else:
         eval_ds = Dataset(eval_dataset_name, model=model, device=device, seed=seed)
         eval_ds.split_data(train_size=train_size, val_size=val_size, test_size=test_size, seed=seed)
