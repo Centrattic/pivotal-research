@@ -189,13 +189,17 @@ def main():
                 else:
                     rebuild_configs.extend(rc if isinstance(rc, list) else [rc])
             for rebuild_params in rebuild_configs:
+                contrast_fn = None
+                if experiment and 'contrast_fn' in experiment:
+                    contrast_fn = Dataset.load_contrast_fn(experiment['contrast_fn'])
                 train_probe(
                     model=model, d_model=d_model, train_dataset_name=train_ds,
                     layer=layer, component=comp, architecture_name=arch_name, config_name=conf_name,
                     device=config['device'], aggregation=arch_agg, use_cache=config['cache_activations'], seed=global_seed,
                     results_dir=experiment_dir, cache_dir=cache_dir, logger=logger, retrain=retrain,
                     hyperparameter_tuning=hyperparameter_tuning, rebuild_config=rebuild_params, metric=metric,
-                    retrain_with_best_hparams=retrain_with_best_hparams
+                    retrain_with_best_hparams=retrain_with_best_hparams,
+                    contrast_fn=contrast_fn
                 )
 
         # Step 3: Evaluation Phase
@@ -242,13 +246,17 @@ def main():
                                     if not probe_save_dir.exists():
                                         logger.log(f"  - [SKIP] Probe dir does not exist: {probe_save_dir}")
                                         continue
+                                    contrast_fn = None
+                                    if 'contrast_fn' in experiment:
+                                        contrast_fn = Dataset.load_contrast_fn(experiment['contrast_fn'])
                                     metrics = evaluate_probe(
                                         train_dataset_name=train_dataset, eval_dataset_name=eval_dataset,
                                         layer=layer, component=component, architecture_config=arch_config,
                                         aggregation=arch_config['aggregation'], results_dir=experiment_dir, logger=logger, seed=global_seed,
                                         model=model, d_model=d_model, device=config['device'],
                                         use_cache=config['cache_activations'], cache_dir=cache_dir, reevaluate=reevaluate,
-                                        score_options=score_options, rebuild_config=rebuild_params, return_metrics=True
+                                        score_options=score_options, rebuild_config=rebuild_params, return_metrics=True,
+                                        contrast_fn=contrast_fn
                                     )
                                     key = resample_params_to_str(rebuild_params)
                                     all_eval_results[key] = metrics

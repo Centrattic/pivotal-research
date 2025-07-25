@@ -10,6 +10,7 @@ import numpy as np
 import torch
 import copy
 import json
+import importlib
 
 def get_probe_architecture(architecture_name: str, d_model: int, device, aggregation: str = "mean"):
     if architecture_name == "linear":
@@ -43,9 +44,10 @@ def train_probe(
     train_size: float = 0.75, val_size: float = 0.10, test_size: float = 0.15,
     hyperparameter_tuning: bool = False,
     rebuild_config: dict = None,
-    return_probe_and_test: bool = False,  # new arg for visualization
+    # return_probe_and_test: bool = False,
     metric: str = 'acc',
     retrain_with_best_hparams: bool = False,
+    contrast_fn: Any = None,
 ):
     # Only raise error if both hyperparameter_tuning and retrain_with_best_hparams are set
     if hyperparameter_tuning and retrain_with_best_hparams:
@@ -97,9 +99,15 @@ def train_probe(
         train_ds = Dataset(train_dataset_name, model=model, device=device, seed=seed)
         train_ds.split_data(train_size=train_size, val_size=val_size, test_size=test_size, seed=seed)
 
-    train_acts, y_train = train_ds.get_train_set_activations(layer, component)
-    val_acts, y_val = train_ds.get_val_set_activations(layer, component)
-    test_acts, y_test = train_ds.get_test_set_activations(layer, component)
+    # Use contrast activations if contrast_fn is provided
+    if contrast_fn is not None:
+        train_acts, y_train = train_ds.get_contrast_activations(contrast_fn, layer, component, split='train')
+        val_acts, y_val = train_ds.get_contrast_activations(contrast_fn, layer, component, split='val')
+        # test_acts, y_test = train_ds.get_contrast_activations(contrast_fn, layer, component, split='test')
+    else:
+        train_acts, y_train = train_ds.get_train_set_activations(layer, component)
+        val_acts, y_val = train_ds.get_val_set_activations(layer, component)
+        # test_acts, y_test = train_ds.get_test_set_activations(layer, component)
 
     probe = get_probe_architecture(architecture_name, d_model=d_model, device=device, aggregation=aggregation)
     fit_params = asdict(PROBE_CONFIGS[config_name])
@@ -169,8 +177,8 @@ def train_probe(
     with open(probe_json_path, 'w') as f:
         json.dump(meta, f, indent=2)
     logger.log(f"  - 🔥 Probe state saved to {probe_state_path.name}")
-    if return_probe_and_test:
-        return probe, test_acts, y_test
+    # if return_probe_and_test:
+    #     return probe, test_acts, y_test
 
 
 def evaluate_probe(
@@ -181,6 +189,7 @@ def evaluate_probe(
     logit_diff_threshold: float = 4, score_options: list = None,
     rebuild_config: dict = None,
     return_metrics: bool = False,
+    contrast_fn: Any = None,  # NEW
 ):
     if score_options is None:
         score_options = ['all']
@@ -236,7 +245,11 @@ def evaluate_probe(
     else:
         eval_ds = Dataset(eval_dataset_name, model=model, device=device, seed=seed)
         eval_ds.split_data(train_size=train_size, val_size=val_size, test_size=test_size, seed=seed)
-    test_acts, y_test = eval_ds.get_test_set_activations(layer, component)
+    # Use contrast activations if contrast_fn is provided
+    if contrast_fn is not None:
+        test_acts, y_test = eval_ds.get_contrast_activations(contrast_fn, layer, component, split='test')
+    else:
+        test_acts, y_test = eval_ds.get_test_set_activations(layer, component)
 
     # Calculate metrics based on score options
     combined_metrics = {}

@@ -11,6 +11,7 @@ from transformer_lens import HookedTransformer
 
 from src.logger import Logger
 from src.activations import ActivationManager
+import importlib
 
 __all__ = [
     "Dataset",
@@ -72,8 +73,9 @@ class Dataset:
         df = pd.read_csv(csv_path).dropna(subset=["prompt", "target"])
         self.df = df
 
+        # Placeholder, updated before generating activations
         self.max_len = ( # We can safely divide by 2 because this is character length vs. token count, and avg > 2
-            df["prompt_len"].max()/2 if "prompt_len" in df.columns else df["prompt"].str.len().max()/2
+            df["prompt_len"].max()//2 if "prompt_len" in df.columns else df["prompt"].str.len().max()//2
         )
 
         if "classification" in self.task_type:
@@ -177,18 +179,24 @@ class Dataset:
     def get_train_set_activations(self, layer: int, component: str):
         if self.X_train_text is None:
             raise ValueError("Data not split yet. Call split_data() first.")
+        # Update max_len for this split
+        self.max_len = max(len(p) for p in self.X_train_text) // 2
         acts = self.act_manager.get_activations_for_texts(self.X_train_text, layer, component)
         return acts, self.y_train
 
     def get_val_set_activations(self, layer: int, component: str):
         if self.X_val_text is None:
             raise ValueError("Data not split yet. Call split_data() first.")
+        # Update max_len for this split
+        self.max_len = max(len(p) for p in self.X_val_text) // 2
         acts = self.act_manager.get_activations_for_texts(self.X_val_text, layer, component)
         return acts, self.y_val
 
     def get_test_set_activations(self, layer: int, component: str):
         if self.X_test_text is None:
             raise ValueError("Data not split yet. Call split_data() first.")
+        # Update max_len for this split
+        self.max_len = max(len(p) for p in self.X_test_text) // 2
         acts = self.act_manager.get_activations_for_texts(self.X_test_text, layer, component)
         return acts, self.y_test
     
@@ -407,6 +415,65 @@ class Dataset:
             val_indices=val_indices_new,
             test_indices=test_indices_new,
         )
+
+    def get_contrast_pairs(self, contrast_fn):
+        """
+        For each row in the dataset, apply contrast_fn(row) to get (original_row, contrast_row).
+        Returns a list of (original_row, contrast_row) tuples.
+        """
+        pairs = []
+        for _, row in self.df.iterrows():
+            orig, contrast = contrast_fn(row)
+            pairs.append((orig, contrast))
+        return pairs
+
+    def get_contrast_activations(self, contrast_fn, layer: int, component: str, split: str = "train"):
+        """
+        For each data point in the specified split, generate (original, contrast) prompts using contrast_fn,
+        get activations for both using the activation cache, and return the subtracted activations and labels.
+        Also updates self.max_len to the maximum prompt length in the contrast pairs.
+        """
+        if split == "train":
+            if self.train_indices is None:
+                raise ValueError("Data not split yet. Call split_data() first.")
+            indices = self.train_indices
+        elif split == "val":
+            if self.val_indices is None:
+                raise ValueError("Data not split yet. Call split_data() first.")
+            indices = self.val_indices
+        elif split == "test":
+            if self.test_indices is None:
+                raise ValueError("Data not split yet. Call split_data() first.")
+            indices = self.test_indices
+        else:
+            raise ValueError(f"Unknown split: {split}")
+
+        orig_prompts = []
+        contrast_prompts = []
+        labels = []
+        all_lengths = []
+        for idx in indices:
+            row = self.df.iloc[idx]
+            orig, contrast = contrast_fn(row)
+            orig_prompts.append(orig['prompt'])
+            contrast_prompts.append(contrast['prompt'])
+            labels.append(orig['target'])  # Use original label
+            all_lengths.append(len(orig['prompt']))
+            all_lengths.append(len(contrast['prompt']))
+        # Update max_len for activation extraction
+        self.max_len = max(all_lengths) // 2  # match original logic (character length / 2)
+        orig_acts = self.act_manager.get_activations_for_texts(orig_prompts, layer, component)
+        contrast_acts = self.act_manager.get_activations_for_texts(contrast_prompts, layer, component)
+        contrast_sub = orig_acts - contrast_acts
+        return contrast_sub, np.array(labels)
+
+    @staticmethod
+    def load_contrast_fn(fn_name: str):
+        """
+        Dynamically import and return the contrast function from contrast_probing/methods.py by name.
+        """
+        methods = importlib.import_module("src.contrast_probing.methods")
+        return getattr(methods, fn_name)
 
 def get_available_datasets(data_dir: Path = Path("datasets/cleaned")) -> List[str]:
     return [f.stem for f in data_dir.glob("*.csv")]

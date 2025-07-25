@@ -85,6 +85,27 @@ experiments:
         - {class_counts: {0: 3750, 1: 250}, llm_upsample: True, seed: 42}
         - {class_counts: {0: 3500, 1: 500}, llm_upsample: True, seed: 42}
         - {class_counts: {0: 3250, 1: 750}, llm_upsample: True, seed: 42}
+  - name: gender-pred-contrast-auc
+    metric: auc
+    class_names: {0: "Male", 1: "Female"}
+    train_on: 4_hist_fig_ismale
+    evaluate_on:
+      - 4_hist_fig_ismale
+    score:
+      - all
+    contrast_fn: gender_swap_contrast
+    rebuild_config:
+      increasing_female_fixed_total:
+        - {class_counts: {0: 3997, 1: 5}, seed: 42} # add contrast_fn method to this dict instead hmm?
+        - {class_counts: {0: 3997, 1: 10}, seed: 42}
+        - {class_counts: {0: 3997, 1: 20}, seed: 42}
+        - {class_counts: {0: 3997, 1: 35}, seed: 42}
+        - {class_counts: {0: 3950, 1: 50}, seed: 42}
+        - {class_counts: {0: 3900, 1: 100}, seed: 42}
+        - {class_counts: {0: 3850, 1: 150}, seed: 42}
+        - {class_counts: {0: 3750, 1: 250}, seed: 42}
+        - {class_counts: {0: 3500, 1: 500}, seed: 42}
+        - {class_counts: {0: 3250, 1: 750}, seed: 42}
 
 # model_check: # perhaps merge this check into experiment list as well?
 #   - name: gender-pred
