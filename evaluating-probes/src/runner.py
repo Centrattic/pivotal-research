@@ -276,13 +276,43 @@ def evaluate_probe(
     test_scores = test_scores.tolist()
     test_labels = y_test.tolist()
 
+    # Compute filtered indices if filtered scoring is requested
+    filtered_indices = None
+    if 'filtered' in score_options:
+        # Try to get filtered indices from score_filtered
+        runthrough_dir = results_dir / f"runthrough_{eval_dataset_name}"
+        import pandas as pd
+        import numpy as np
+        import os
+        csv_files = list(runthrough_dir.glob("*logit_diff*.csv"))
+        if csv_files:
+            df = pd.read_csv(csv_files[0])
+            logit_diff_threshold = logit_diff_threshold if 'logit_diff_threshold' in locals() else 1.0
+            mask_filter = np.abs(df['logit_diff'].values) > logit_diff_threshold
+            filtered_indices = np.where(mask_filter)[0]
+    # Save both all and filtered scores
+    all_scores_dict = {
+        "scores": test_scores,
+        "labels": test_labels,
+        "filtered": False
+    }
+    if filtered_indices is not None and len(filtered_indices) > 0:
+        filtered_scores_dict = {
+            "scores": [test_scores[i] for i in filtered_indices],
+            "labels": [test_labels[i] for i in filtered_indices],
+            "filtered": True
+        }
+    else:
+        filtered_scores_dict = None
+    # For backward compatibility, set 'scores' to filtered if available, else all
+    scores_field = filtered_scores_dict if filtered_scores_dict is not None else all_scores_dict
     output_dict = {
         "metrics": combined_metrics,
-        "scores": {
-            "scores": test_scores,
-            "labels": test_labels
-        }
+        "scores": scores_field,
+        "all_scores": all_scores_dict
     }
+    if filtered_scores_dict is not None:
+        output_dict["filtered_scores"] = filtered_scores_dict
     with open(eval_results_path, "w") as f:
         json.dump(output_dict, f, indent=2)
     

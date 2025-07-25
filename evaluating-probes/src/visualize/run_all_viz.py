@@ -14,6 +14,10 @@ from src.visualize.utils_viz import (
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('-c', '--config', required=True, help='Config name (without _config.yaml)')
+    # Adding these as args since I don't want to save separate visualizations for filtered and all scores, can just re-run visualizations
+    parser.add_argument('--filtered', dest='filtered', action='store_true', help='Use filtered scores (default)')
+    parser.add_argument('--all', dest='filtered', action='store_false', help='Use all scores (not filtered)')
+    parser.set_defaults(filtered=True)
     args = parser.parse_args()
     config_path = Path('configs') / f'{args.config}_config.yaml'
     with open(config_path, 'r') as f:
@@ -63,12 +67,12 @@ def main():
             # Recall@FPR
             save_path = viz_root / f"recall_at_fpr_{arch}.png"
             plot_multi_folder_recall_at_fpr(
-                dataclass_folders, folder_labels, arch, class_names=class_names, save_path=save_path, colors=colors
+                dataclass_folders, folder_labels, arch, class_names=class_names, save_path=save_path, colors=colors, filtered=args.filtered
             )
             # AUC vs n_class1
             save_path = viz_root / f"auc_vs_n_class1_{arch}.png"
             plot_multi_folder_auc_vs_n_class1(
-                dataclass_folders, folder_labels, arch, class_names=class_names, save_path=save_path, colors=colors
+                dataclass_folders, folder_labels, arch, class_names=class_names, save_path=save_path, colors=colors, filtered=args.filtered
             )
 
     # 3. For each of the experiment folders 1-, 2-, 3-, 4-, plot all probe loss curves

@@ -20,6 +20,42 @@ def extract_probe_info_from_filename(filename):
     return f"{arch}_L{layer}_c0_{class0}_c1_{class1}"
 
 
+def _get_scores_and_labels_from_result_file(result_path, filtered=True):
+    with open(result_path, 'r') as f:
+        d = json.load(f)
+    # Try to use filtered_scores if present and requested
+    if filtered:
+        if 'filtered_scores' in d:
+            scores = np.array(d['filtered_scores']['scores'])
+            labels = np.array(d['filtered_scores']['labels'])
+            return scores, labels
+        elif 'scores' in d and d['scores'].get('filtered', False):
+            scores = np.array(d['scores']['scores'])
+            labels = np.array(d['scores']['labels'])
+            return scores, labels
+        elif 'all_scores' in d:
+            scores = np.array(d['all_scores']['scores'])
+            labels = np.array(d['all_scores']['labels'])
+            return scores, labels
+    else:
+        if 'all_scores' in d:
+            scores = np.array(d['all_scores']['scores'])
+            labels = np.array(d['all_scores']['labels'])
+            return scores, labels
+        elif 'scores' in d and not d['scores'].get('filtered', False):
+            scores = np.array(d['scores']['scores'])
+            labels = np.array(d['scores']['labels'])
+            return scores, labels
+        elif 'filtered_scores' in d:
+            scores = np.array(d['filtered_scores']['scores'])
+            labels = np.array(d['filtered_scores']['labels'])
+            return scores, labels
+    # fallback
+    scores = np.array(d['scores']['scores'])
+    labels = np.array(d['scores']['labels'])
+    return scores, labels
+
+
 def plot_logit_diffs_from_csv(csv_path, class_names, save_path=None, bins=50, x_range=(-10, 10)):
     df = pd.read_csv(csv_path)
     plt.figure(figsize=(8, 5))
@@ -49,7 +85,7 @@ def plot_logit_diffs_from_csv(csv_path, class_names, save_path=None, bins=50, x_
         plt.show()
 
 
-def plot_multi_folder_recall_at_fpr(folders, folder_labels, architecture, class_names=None, save_path=None, fpr_target=0.01, max_probes=9, colors=None):
+def plot_multi_folder_recall_at_fpr(folders, folder_labels, architecture, class_names=None, save_path=None, fpr_target=0.01, max_probes=9, colors=None, filtered=True):
     from scipy.special import expit
     if colors is None:
         colors = [f"C{i}" for i in range(len(folders))]
@@ -63,10 +99,7 @@ def plot_multi_folder_recall_at_fpr(folders, folder_labels, architecture, class_
             n_class1 = int(match.group(1)) if match else None
             if n_class1 is None:
                 continue
-            with open(f, 'r') as jf:
-                d = json.load(jf)
-            scores = np.array(d['scores']['scores'])
-            labels = np.array(d['scores']['labels'])
+            scores, labels = _get_scores_and_labels_from_result_file(f, filtered=filtered)
             scores = expit(scores)
             thresholds = np.unique(scores)[::-1]
             best_recall = 0.0
@@ -90,7 +123,7 @@ def plot_multi_folder_recall_at_fpr(folders, folder_labels, architecture, class_
             plt.plot(n_class1s, recalls, 'o-', color=colors[i], label=label)
             for x, y in zip(n_class1s, recalls):
                 plt.text(x, y + 0.01, f"{y:.2f}", ha='center', va='bottom', fontsize=8, color=colors[i])
-    plt.title(f"{architecture.capitalize()} Probes: Recall at FPR={fpr_target}")
+    plt.title(f"{architecture.capitalize()} Probes: Recall at FPR={fpr_target}" + (" (filtered)" if filtered else " (all)"))
     plt.ylabel("Recall")
     plt.xlabel("Number of class 1 (positive) samples in train set")
     plt.ylim(0, 1)
@@ -104,7 +137,7 @@ def plot_multi_folder_recall_at_fpr(folders, folder_labels, architecture, class_
         plt.show()
 
 
-def plot_multi_folder_auc_vs_n_class1(folders, folder_labels, architecture, class_names=None, save_path=None, max_probes=9, colors=None):
+def plot_multi_folder_auc_vs_n_class1(folders, folder_labels, architecture, class_names=None, save_path=None, max_probes=9, colors=None, filtered=True):
     from scipy.special import expit
     from sklearn.metrics import roc_auc_score
     if colors is None:
@@ -119,10 +152,7 @@ def plot_multi_folder_auc_vs_n_class1(folders, folder_labels, architecture, clas
             n_class1 = int(match.group(1)) if match else None
             if n_class1 is None:
                 continue
-            with open(f, 'r') as jf:
-                d = json.load(jf)
-            scores = np.array(d['scores']['scores'])
-            labels = np.array(d['scores']['labels'])
+            scores, labels = _get_scores_and_labels_from_result_file(f, filtered=filtered)
             scores = expit(scores)
             try:
                 auc = roc_auc_score(labels, scores)
@@ -135,7 +165,7 @@ def plot_multi_folder_auc_vs_n_class1(folders, folder_labels, architecture, clas
             plt.plot(n_class1s, aucs, 'o-', color=colors[i], label=label)
             for x, y in zip(n_class1s, aucs):
                 plt.text(x, y + 0.01, f"{y:.2f}", ha='center', va='bottom', fontsize=8, color=colors[i])
-    plt.title(f"{architecture.capitalize()} Probes: AUC vs. #class1")
+    plt.title(f"{architecture.capitalize()} Probes: AUC vs. #class1" + (" (filtered)" if filtered else " (all)"))
     plt.ylabel("AUC")
     plt.xlabel("Number of class 1 (positive) samples in train set")
     plt.ylim(0, 1)
