@@ -1,5 +1,6 @@
 run_name: "gender_experiment_gemma"
 model_name: "gemma-2-9b" # 1.2 B multilignual model, 512 seq length
+d_model: 3584 # 3584 for gemma-2-9b
 device: "cuda:0"
 cache_activations: True
 seed: "42"
@@ -21,7 +22,7 @@ architectures:
 
 # List of experiments to run
 experiments:
-  - name: gender-pred-auc # these will rerurn og experiment 3 times, perhaps that should be avoided.
+  - name: 1-gender-pred-auc # these will rerurn og experiment 3 times, perhaps that should be avoided.
     metric: auc
     class_names: {0: "Male", 1: "Female"}
     train_on: 4_hist_fig_ismale
@@ -29,6 +30,7 @@ experiments:
       - 4_hist_fig_ismale
     score:
       - all
+      - filtered
     # rebuild_config:
     #   constant_female_increasing_male:
     #     - {class_counts: {0: 50, 1: 50}, seed: 42}
@@ -44,7 +46,7 @@ experiments:
     #     - {class_percents: {0: 0.95, 1: 0.05}, total_samples: 3050, seed: 42}
     #     # - {class_percents: {0: 0.95, 1: 0.05}, total_samples: 5050, seed: 42}
     #     - {class_percents: {0: 0.95, 1: 0.05}, total_samples: 7050, seed: 42}
-  - name: gender-pred-auc-increasing-female-fixed-total
+  - name: 2-gender-pred-auc-increasing-female-fixed-total
     metric: auc
     class_names: {0: "Male", 1: "Female"}
     train_on: 4_hist_fig_ismale
@@ -52,19 +54,21 @@ experiments:
       - 4_hist_fig_ismale
     score:
       - all
+      - filtered
     rebuild_config:
       increasing_female_fixed_total:
-        - {class_counts: {0: 3997, 1: 5}, seed: 42}
-        - {class_counts: {0: 3997, 1: 10}, seed: 42}
-        - {class_counts: {0: 3997, 1: 20}, seed: 42}
-        - {class_counts: {0: 3997, 1: 35}, seed: 42}
+        - {class_counts: {0: 3998, 1: 2}, seed: 42}
+        - {class_counts: {0: 3995, 1: 5}, seed: 42}
+        - {class_counts: {0: 3990, 1: 10}, seed: 42}
+        - {class_counts: {0: 3980, 1: 20}, seed: 42}
+        - {class_counts: {0: 3965, 1: 35}, seed: 42}
         - {class_counts: {0: 3950, 1: 50}, seed: 42}
         - {class_counts: {0: 3900, 1: 100}, seed: 42}
         - {class_counts: {0: 3850, 1: 150}, seed: 42}
         - {class_counts: {0: 3750, 1: 250}, seed: 42}
         - {class_counts: {0: 3500, 1: 500}, seed: 42}
         - {class_counts: {0: 3250, 1: 750}, seed: 42}
-  - name: gender-pred-auc-llm-upsampling
+  - name: 3-gender-pred-auc-llm-upsampling
     metric: auc
     class_names: {0: "Male", 1: "Female"}
     train_on: 4_hist_fig_ismale
@@ -72,11 +76,13 @@ experiments:
       - 4_hist_fig_ismale
     score:
       - all
+      - filtered
     rebuild_config:
       increasing_female_fixed_total:
-        - {class_counts: {0: 3997, 1: 5}, llm_upsample: False, seed: 42}
-        - {class_counts: {0: 3997, 1: 10}, llm_upsample: True, seed: 42}
-        - {class_counts: {0: 3997, 1: 20}, llm_upsample: True, seed: 42}
+        - {class_counts: {0: 3998, 1: 2}, llm_upsample: False, seed: 42} 
+        - {class_counts: {0: 3995, 1: 5}, llm_upsample: True, seed: 42} # we upsample from 5 examples 
+        - {class_counts: {0: 3990, 1: 10}, llm_upsample: True, seed: 42}
+        - {class_counts: {0: 3980, 1: 20}, llm_upsample: True, seed: 42}
         - {class_counts: {0: 3997, 1: 35}, llm_upsample: True, seed: 42}
         - {class_counts: {0: 3950, 1: 50}, llm_upsample: True, seed: 42} # not upsampled, original 50 samples
         - {class_counts: {0: 3900, 1: 100}, llm_upsample: True, seed: 42} # upsampled to 100 samples
@@ -84,10 +90,33 @@ experiments:
         - {class_counts: {0: 3750, 1: 250}, llm_upsample: True, seed: 42}
         - {class_counts: {0: 3500, 1: 500}, llm_upsample: True, seed: 42}
         - {class_counts: {0: 3250, 1: 750}, llm_upsample: True, seed: 42}
+  - name: 4-gender-pred-contrast-auc
+    metric: auc
+    class_names: {0: "Male", 1: "Female"}
+    train_on: 4_hist_fig_ismale
+    evaluate_on:
+      - 4_hist_fig_ismale
+    score:
+      - all
+      - filtered
+    contrast_fn: gender_swap_contrast
+    rebuild_config:
+      increasing_female_fixed_total:
+        - {class_counts: {0: 3998, 1: 2}, seed: 42}
+        - {class_counts: {0: 3995, 1: 5}, seed: 42} # add contrast_fn method to this dict instead hmm?
+        - {class_counts: {0: 3990, 1: 10}, seed: 42}
+        - {class_counts: {0: 3980, 1: 20}, seed: 42}
+        - {class_counts: {0: 3965, 1: 35}, seed: 42}
+        - {class_counts: {0: 3950, 1: 50}, seed: 42}
+        - {class_counts: {0: 3900, 1: 100}, seed: 42}
+        - {class_counts: {0: 3850, 1: 150}, seed: 42}
+        - {class_counts: {0: 3750, 1: 250}, seed: 42}
+        - {class_counts: {0: 3500, 1: 500}, seed: 42}
+        - {class_counts: {0: 3250, 1: 750}, seed: 42}
 
-# model_check: # perhaps merge this check into experiment list as well?
-#   - name: gender-pred
-#     hf_model_name: "google/gemma-2-9b-it"
-#     check_on: "4_hist_fig_ismale"
-#     check_prompt: "In one word, {prompt}’s gender was:"
-#     class_names: {0: "Male", 1: "Female"}
+model_check: # perhaps merge this check into experiment list as well?
+  - name: gender-pred
+    hf_model_name: "google/gemma-2-9b-it"
+    check_on: "4_hist_fig_ismale"
+    check_prompt: "In one word, {prompt}’s gender was:"
+    class_names: {0: "Male", 1: "Female"}

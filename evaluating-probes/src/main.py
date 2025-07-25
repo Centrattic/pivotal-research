@@ -175,7 +175,7 @@ def main():
         logger.log("\n" + "="*25 + " TRAINING PHASE " + "="*25)
         for i, (experiment_name, train_ds, layer, comp, arch_name, arch_agg, conf_name) in enumerate(valid_training_jobs):
             logger.log("-" * 60)
-            logger.log(f"\U0001fa60 Training job {i+1}/{len(valid_training_jobs)}: {experiment_name}, {train_ds}, {arch_name}, L{layer}, {comp}")
+            logger.log(f"🫠 Training job {i+1}/{len(valid_training_jobs)}: {experiment_name}, {train_ds}, {arch_name}, L{layer}, {comp}")
             experiment = next((exp for exp in config['experiments'] if exp['name'] == experiment_name), None)
             experiment_dir = results_dir / experiment_name
             experiment_dir.mkdir(parents=True, exist_ok=True)

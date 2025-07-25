@@ -311,7 +311,7 @@ class Dataset:
         seed: int = 42,
         llm_upsample: bool = False,
         llm_csv_path=None,
-        num_real_pos: int = 5,
+        num_real_pos: int = 2,
     ):
         """
         Returns a single Dataset object with precomputed splits:
@@ -357,7 +357,7 @@ class Dataset:
         if llm_upsample:
             n_real_neg = train_class_counts.get(0, 0) if train_class_counts else 0
             n_pos = train_class_counts.get(1, 0) if train_class_counts else 0
-            # Use as many real positives as available (should always be num_real_pos of them), rest from LLM
+            # Use as many real positives as available (should always be num_real_pos of them max), rest from LLM
             n_real_pos = min(np.sum(y_avail == 1), num_real_pos)
             n_llm_pos = n_pos - n_real_pos
             real_neg = df.iloc[available_indices][df.iloc[available_indices]['target'] == 0].sample(n=n_real_neg, random_state=seed)
