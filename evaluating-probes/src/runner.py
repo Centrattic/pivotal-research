@@ -2,26 +2,40 @@ from pathlib import Path
 from dataclasses import asdict
 from typing import Optional, Any, List
 from src.data import Dataset, get_available_datasets
-from src.probes import LinearProbe, AttentionProbe
+from src.probes import LinearProbe, AttentionProbe, MassMeanProbe
 from src.logger import Logger
 from configs.probes import PROBE_CONFIGS
-from dataclasses import asdict
 import numpy as np
 import torch
 import copy
 import json
-import importlib
 
 def get_probe_architecture(architecture_name: str, d_model: int, device, aggregation: str = "mean"):
     if architecture_name == "linear":
         return LinearProbe(d_model=d_model, device=device, aggregation=aggregation)
     if architecture_name == "attention":
         return AttentionProbe(d_model=d_model, device=device)
+    if architecture_name == "mass_mean":
+        # Basic mass-mean probe (use_iid will be set from config)
+        return MassMeanProbe(d_model=d_model, device=device, use_iid=False)
+    if architecture_name == "mass_mean_iid":
+        # IID version (Fisher's LDA)
+        return MassMeanProbe(d_model=d_model, device=device, use_iid=True)
     raise ValueError(f"Unknown architecture: {architecture_name}")
 
-def get_probe_filename_prefix(train_ds, arch_name, aggregation, layer, component):
-    # For attention probes, aggregation is not used in the model, but we keep it in filename for consistency
-    return f"train_on_{train_ds}_{arch_name}_{aggregation}_L{layer}_{component}"
+def get_probe_filename_prefix(train_ds, arch_name, aggregation, layer, component, contrast_fn=None):
+    # For attention probes and mass-mean probes, aggregation is not used in the model, but we keep it in filename for consistency
+    if arch_name in ["attention", "mass_mean", "mass_mean_iid"]:
+        # Use "mean" as default aggregation for these probes
+        agg_name = "mean"
+    else:
+        agg_name = aggregation
+    base_prefix = f"train_on_{train_ds}_{arch_name}_{agg_name}_L{layer}_{component}"
+    if contrast_fn is not None:
+        # Add contrast function name to filename to distinguish from regular probes
+        contrast_name = contrast_fn.__name__ if hasattr(contrast_fn, '__name__') else 'contrast'
+        base_prefix += f"_{contrast_name}"
+    return base_prefix
 
 def rebuild_suffix(rebuild_config):
     if not rebuild_config:
@@ -52,7 +66,7 @@ def train_probe(
     # Only raise error if both hyperparameter_tuning and retrain_with_best_hparams are set
     if hyperparameter_tuning and retrain_with_best_hparams:
         raise ValueError("Cannot use both hyperparameter_tuning and retrain_with_best_hparams at the same time.")
-    probe_filename_base = get_probe_filename_prefix(train_dataset_name, architecture_name, aggregation, layer, component)
+    probe_filename_base = get_probe_filename_prefix(train_dataset_name, architecture_name, aggregation, layer, component, contrast_fn)
     probe_save_dir = results_dir / f"train_{train_dataset_name}"
     # If rebuilding, save in dataclass_exps_{dataset_name}
     if rebuild_config is not None:
@@ -111,7 +125,19 @@ def train_probe(
 
     probe = get_probe_architecture(architecture_name, d_model=d_model, device=device, aggregation=aggregation)
     fit_params = asdict(PROBE_CONFIGS[config_name])
-    weighting_method = fit_params.pop("weighting_method", "weighted_loss")
+    
+    # Handle mass-mean probe configuration specially
+    if architecture_name in ["mass_mean", "mass_mean_iid"]:
+        # Mass-mean probes don't have weighting_method, they're computed analytically
+        weighting_method = "mass_mean"
+        # Extract use_iid parameter if present
+        use_iid = fit_params.get("use_iid", False)
+        # Update the probe's use_iid parameter
+        if hasattr(probe, 'use_iid'):
+            probe.use_iid = use_iid
+            probe.model.use_iid = use_iid
+    else:
+        weighting_method = fit_params.pop("weighting_method", "weighted_loss")
 
     if retrain_with_best_hparams:
         logger.log(f"  - Using best hyperparameters from best_hparams.json for {config_name}.")
@@ -126,7 +152,11 @@ def train_probe(
         with open(best_hparams_path, 'r') as f:
             best_params = json.load(f)
         fit_params.update(best_params)
-        if weighting_method == "weighted_loss":
+        if weighting_method == "mass_mean":
+            # Mass-mean probe is computed analytically, no training needed
+            logger.log(f"  - Computing mass-mean probe analytically...")
+            probe.fit(train_acts, y_train, **fit_params)
+        elif weighting_method == "weighted_loss":
             fit_params["use_weighted_loss"] = True
             fit_params["use_weighted_sampler"] = False
             probe.fit(train_acts, y_train, **fit_params)
@@ -146,7 +176,11 @@ def train_probe(
             probe_save_dir=probe_save_dir, probe_filename_base=probe_filename_base
         )
     else:
-        if weighting_method == "weighted_loss":
+        if weighting_method == "mass_mean":
+            # Mass-mean probe is computed analytically, no training needed
+            logger.log(f"  - Computing mass-mean probe analytically...")
+            probe.fit(train_acts, y_train, **fit_params)
+        elif weighting_method == "weighted_loss":
             fit_params["use_weighted_loss"] = True
             fit_params["use_weighted_sampler"] = False
             probe.fit(train_acts, y_train, **fit_params)
@@ -196,15 +230,20 @@ def evaluate_probe(
     
     architecture_name = architecture_config["name"]
     config_name = architecture_config["config_name"]
-    # For attention probes, we use "attention" as the aggregation name in results
-    agg_name = "attention" if architecture_name == "attention" else aggregation
+    # For attention probes and mass-mean probes, we use specific aggregation names in results
+    if architecture_name == "attention":
+        agg_name = "attention"
+    elif architecture_name in ["mass_mean", "mass_mean_iid"]:
+        agg_name = "mean"
+    else:
+        agg_name = aggregation
 
-    probe_filename_base = get_probe_filename_prefix(train_dataset_name, architecture_name, aggregation, layer, component)
+    probe_filename_base = get_probe_filename_prefix(train_dataset_name, architecture_name, aggregation, layer, component, contrast_fn)
     if rebuild_config is not None:
         probe_save_dir = results_dir / f"dataclass_exps_{train_dataset_name}"
         suffix = rebuild_suffix(rebuild_config)
         probe_state_path = probe_save_dir / f"{probe_filename_base}_{suffix}_state.npz"
-        eval_results_path = probe_save_dir / f"eval_on_{eval_dataset_name}__{probe_filename_base}_{suffix}_{agg_name}_results.json"
+        eval_results_path = probe_save_dir / f"eval_on_{eval_dataset_name}__{probe_filename_base}_{agg_name}_results.json"
     else:
         probe_save_dir = results_dir / f"train_{train_dataset_name}"
         probe_state_path = probe_save_dir / f"{probe_filename_base}_state.npz"

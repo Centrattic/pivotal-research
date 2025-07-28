@@ -39,7 +39,7 @@ except Exception as e:
     print(f"Warning: Could not set CUDA device early: {e}")
 
 # Now import transformer_lens after setting CUDA device
-from src.runner import train_probe, evaluate_probe
+from src.runner import train_probe, evaluate_probe, get_probe_filename_prefix
 from src.data import Dataset, get_available_datasets
 from src.logger import Logger
 from src.utils import should_skip_dataset
@@ -149,9 +149,18 @@ def main():
                             if arch_config['name'] == 'linear':
                                 agg = arch_config['aggregation']
                                 config_name = arch_config.get('config_name') or f"linear_{agg}"
-                            else:
+                            elif arch_config['name'] in ['mass_mean', 'mass_mean_iid']:
+                                # Mass-mean probes don't use aggregation, use "mean" as default
+                                agg = "mean"
                                 config_name = arch_config.get('config_name')
-                            training_jobs.add((experiment_name, train_dataset, layer, component, arch_config['name'], arch_config['aggregation'], config_name))
+                            elif arch_config['name'] == 'attention':
+                                # Attention probes don't use aggregation, use "attention" as default
+                                agg = "attention"
+                                config_name = arch_config.get('config_name')
+                            else:
+                                agg = arch_config.get('aggregation', 'mean')  # Default to mean if not specified
+                                config_name = arch_config.get('config_name')
+                            training_jobs.add((experiment_name, train_dataset, layer, component, arch_config['name'], agg, config_name))
 
         # Check all datasets that will be used for either training or evaluation
         valid_dataset_metadata = {}
@@ -260,7 +269,7 @@ def main():
                                     )
                                     key = resample_params_to_str(rebuild_params)
                                     all_eval_results[key] = metrics
-                                probe_filename_base = f"{train_dataset}_{arch_config['name']}_{arch_config['aggregation']}_L{layer}_{component}"
+                                probe_filename_base = get_probe_filename_prefix(train_dataset, arch_config['name'], arch_config['aggregation'], layer, component, contrast_fn)
                                 eval_results_path = experiment_dir / f"train_{train_dataset}" / f"eval_on_{eval_dataset}__{probe_filename_base}_allres.json"
                                 with open(eval_results_path, "w") as f:
                                     json.dump(all_eval_results, f, indent=2)

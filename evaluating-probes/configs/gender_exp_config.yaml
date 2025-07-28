@@ -19,6 +19,10 @@ architectures:
   - name: "attention"
     aggregation: "attention"
     config_name: "default_attention"
+  - name: "mass_mean"
+    config_name: "default_mass_mean"
+  - name: "mass_mean_iid"
+    config_name: "mass_mean_iid"
 
 # List of experiments to run
 experiments:

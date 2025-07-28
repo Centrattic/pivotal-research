@@ -27,6 +27,12 @@ class PytorchAttentionProbeConfig(ProbeConfig):
     weighting_method: str = 'weighted_sampler'  # 'weighted_loss', 'weighted_sampler', or 'pcngd'
     # Add more as needed
 
+@dataclass
+class MassMeanProbeConfig(ProbeConfig):
+    """Configuration for the Mass Mean probe (no training needed)."""
+    use_iid: bool = False  # Whether to use IID version (Fisher's LDA)
+    # Note: No training parameters needed since mass-mean is computed analytically
+
 # A dictionary to easily access configs by name. Configs are updated by -ht flag (Optuna tuning).
 # The issue is we'd need separate for each dataset
 PROBE_CONFIGS = {
@@ -52,4 +58,7 @@ PROBE_CONFIGS = {
     "default_attention": PytorchAttentionProbeConfig(weighting_method='weighted_sampler'),
     "high_reg_attention": PytorchAttentionProbeConfig(weight_decay=1e-2, weighting_method='weighted_sampler'),
     "no_reg_attention": PytorchAttentionProbeConfig(weight_decay=0.0, weighting_method='weighted_sampler'),
+    # Mass-mean probe configs
+    "default_mass_mean": MassMeanProbeConfig(use_iid=False),
+    "mass_mean_iid": MassMeanProbeConfig(use_iid=True),
 }

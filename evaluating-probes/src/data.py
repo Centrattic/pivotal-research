@@ -403,7 +403,7 @@ class Dataset:
             print("No overlap between train, val, and test sets.")
         return Dataset.from_dataframe(
             all_df,
-            dataset_name=original_dataset.dataset_name + ('_llm_upsampled' if llm_upsample else ''),
+            dataset_name=original_dataset.dataset_name + ('_llm_upsampled' if llm_upsample else ''), # new dataset name creates new activation cache
             model=original_dataset.model,
             device=original_dataset.device,
             cache_root=original_dataset.cache_root,
@@ -432,6 +432,7 @@ class Dataset:
         For each data point in the specified split, generate (original, contrast) prompts using contrast_fn,
         get activations for both using the activation cache, and return the subtracted activations and labels.
         Also updates self.max_len to the maximum prompt length in the contrast pairs.
+        Creates a separate activation cache for contrast probing to avoid mixing with original activations.
         """
         if split == "train":
             if self.train_indices is None:
@@ -460,10 +461,24 @@ class Dataset:
             labels.append(orig['target'])  # Use original label
             all_lengths.append(len(orig['prompt']))
             all_lengths.append(len(contrast['prompt']))
+        
         # Update max_len for activation extraction
         self.max_len = max(all_lengths) // 2  # match original logic (character length / 2)
-        orig_acts = self.act_manager.get_activations_for_texts(orig_prompts, layer, component)
-        contrast_acts = self.act_manager.get_activations_for_texts(contrast_prompts, layer, component)
+        
+        # Create a separate activation manager for contrast probing
+        # This ensures contrast activations are cached separately from original activations
+        contrast_cache_dir = self.cache_root / self.model.cfg.model_name / f"{self.dataset_name}_contrast"
+        self.contrast_act_manager = ActivationManager(
+            model=self.model,
+            device=self.device,
+            d_model=self.model.cfg.d_model,
+            max_len=self.max_len,
+            cache_dir=contrast_cache_dir,
+        )
+        
+        # Get activations using the separate contrast cache
+        orig_acts = self.contrast_act_manager.get_activations_for_texts(orig_prompts, layer, component)
+        contrast_acts = self.contrast_act_manager.get_activations_for_texts(contrast_prompts, layer, component)
         contrast_sub = orig_acts - contrast_acts
         return contrast_sub, np.array(labels)
 
