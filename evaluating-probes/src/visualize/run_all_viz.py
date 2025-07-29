@@ -93,5 +93,4 @@ def main():
                 save_path = viz_root / f'loss_curves_{sub}.png'
                 plot_all_probe_loss_curves_in_folder(str(loss_folder), save_path=save_path)
 
-if __name__ == '__main__':
-    main() 
+main() 
