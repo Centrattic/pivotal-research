@@ -61,11 +61,15 @@ experiments:
       - filtered
     rebuild_config:
       increasing_female_fixed_total:
+        - {class_counts: {0: 3999, 1: 1}, seed: 42}
         - {class_counts: {0: 3998, 1: 2}, seed: 42}
         - {class_counts: {0: 3995, 1: 5}, seed: 42}
         - {class_counts: {0: 3990, 1: 10}, seed: 42}
+        - {class_counts: {0: 3985, 1: 15}, seed: 42}
         - {class_counts: {0: 3980, 1: 20}, seed: 42}
+        - {class_counts: {0: 3975, 1: 25}, seed: 42}
         - {class_counts: {0: 3965, 1: 35}, seed: 42}
+        - {class_counts: {0: 3955, 1: 45}, seed: 42}
         - {class_counts: {0: 3950, 1: 50}, seed: 42}
         - {class_counts: {0: 3900, 1: 100}, seed: 42}
         - {class_counts: {0: 3850, 1: 150}, seed: 42}
@@ -83,11 +87,15 @@ experiments:
       - filtered
     rebuild_config:
       increasing_female_fixed_total:
-        - {class_counts: {0: 3998, 1: 2}, llm_upsample: False, seed: 42} 
-        - {class_counts: {0: 3995, 1: 5}, llm_upsample: True, seed: 42} # we upsample from 5 examples 
+        - {class_counts: {0: 3999, 1: 1}, llm_upsample: False, seed: 42} # but note: we upsampled giving 5 samples to Gemini
+        - {class_counts: {0: 3998, 1: 2}, llm_upsample: True, seed: 42}
+        - {class_counts: {0: 3995, 1: 5}, llm_upsample: True, seed: 42}
         - {class_counts: {0: 3990, 1: 10}, llm_upsample: True, seed: 42}
+        - {class_counts: {0: 3985, 1: 15}, llm_upsample: True, seed: 42}
         - {class_counts: {0: 3980, 1: 20}, llm_upsample: True, seed: 42}
-        - {class_counts: {0: 3997, 1: 35}, llm_upsample: True, seed: 42}
+        - {class_counts: {0: 3975, 1: 25}, llm_upsample: True, seed: 42}
+        - {class_counts: {0: 3965, 1: 35}, llm_upsample: True, seed: 42}
+        - {class_counts: {0: 3955, 1: 45}, llm_upsample: True, seed: 42}
         - {class_counts: {0: 3950, 1: 50}, llm_upsample: True, seed: 42} # not upsampled, original 50 samples
         - {class_counts: {0: 3900, 1: 100}, llm_upsample: True, seed: 42} # upsampled to 100 samples
         - {class_counts: {0: 3850, 1: 150}, llm_upsample: True, seed: 42}
@@ -106,11 +114,15 @@ experiments:
     contrast_fn: gender_swap_contrast
     rebuild_config:
       increasing_female_fixed_total:
+        - {class_counts: {0: 3999, 1: 1}, seed: 42}
         - {class_counts: {0: 3998, 1: 2}, seed: 42}
-        - {class_counts: {0: 3995, 1: 5}, seed: 42} # add contrast_fn method to this dict instead hmm?
+        - {class_counts: {0: 3995, 1: 5}, seed: 42}
         - {class_counts: {0: 3990, 1: 10}, seed: 42}
+        - {class_counts: {0: 3985, 1: 15}, seed: 42}
         - {class_counts: {0: 3980, 1: 20}, seed: 42}
+        - {class_counts: {0: 3975, 1: 25}, seed: 42}
         - {class_counts: {0: 3965, 1: 35}, seed: 42}
+        - {class_counts: {0: 3955, 1: 45}, seed: 42}
         - {class_counts: {0: 3950, 1: 50}, seed: 42}
         - {class_counts: {0: 3900, 1: 100}, seed: 42}
         - {class_counts: {0: 3850, 1: 150}, seed: 42}

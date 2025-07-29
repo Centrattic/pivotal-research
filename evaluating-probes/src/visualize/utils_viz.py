@@ -126,7 +126,14 @@ def plot_multi_folder_recall_at_fpr(folders, folder_labels, architecture, class_
     plt.title(f"{architecture.capitalize()} Probes: Recall at FPR={fpr_target}" + (" (filtered)" if filtered else " (all)"))
     plt.ylabel("Recall")
     plt.xlabel("Number of class 1 (positive) samples in train set")
-    plt.ylim(0, 1)
+    plt.xscale('log')
+    # Set y-axis to start at a reasonable nonzero value based on the data
+    if recalls:
+        min_recall = min(recalls) if recalls else 0.0
+        y_min = max(0.0, min_recall - 0.1)  # Start at least 0.1 below the minimum, but not below 0
+        plt.ylim(y_min, 1)
+    else:
+        plt.ylim(0, 1)
     plt.legend()
     plt.tight_layout()
     if save_path:
@@ -168,7 +175,14 @@ def plot_multi_folder_auc_vs_n_class1(folders, folder_labels, architecture, clas
     plt.title(f"{architecture.capitalize()} Probes: AUC vs. #class1" + (" (filtered)" if filtered else " (all)"))
     plt.ylabel("AUC")
     plt.xlabel("Number of class 1 (positive) samples in train set")
-    plt.ylim(0, 1)
+    plt.xscale('log')
+    # Set y-axis to start at a reasonable nonzero value based on the data
+    if aucs:
+        min_auc = min(aucs) if aucs else 0.0
+        y_min = max(0.0, min_auc - 0.1)  # Start at least 0.1 below the minimum, but not below 0
+        plt.ylim(y_min, 1)
+    else:
+        plt.ylim(0, 1)
     plt.legend()
     plt.tight_layout()
     if save_path:

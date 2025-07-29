@@ -30,8 +30,9 @@ class PytorchAttentionProbeConfig(ProbeConfig):
 @dataclass
 class MassMeanProbeConfig(ProbeConfig):
     """Configuration for the Mass Mean probe (no training needed)."""
-    use_iid: bool = False  # Whether to use IID version (Fisher's LDA)
-    # Note: No training parameters needed since mass-mean is computed analytically
+    # Note: use_iid is now determined by architecture name in runner.py
+    # No parameters needed since mass-mean is computed analytically
+    pass
 
 # A dictionary to easily access configs by name. Configs are updated by -ht flag (Optuna tuning).
 # The issue is we'd need separate for each dataset
@@ -59,6 +60,7 @@ PROBE_CONFIGS = {
     "high_reg_attention": PytorchAttentionProbeConfig(weight_decay=1e-2, weighting_method='weighted_sampler'),
     "no_reg_attention": PytorchAttentionProbeConfig(weight_decay=0.0, weighting_method='weighted_sampler'),
     # Mass-mean probe configs
-    "default_mass_mean": MassMeanProbeConfig(use_iid=False),
-    "mass_mean_iid": MassMeanProbeConfig(use_iid=True),
+    # Note: use_iid is determined by architecture name (mass_mean vs mass_mean_iid)
+    "default_mass_mean": MassMeanProbeConfig(),
+    "mass_mean_iid": MassMeanProbeConfig(),
 }

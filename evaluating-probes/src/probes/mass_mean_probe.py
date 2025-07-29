@@ -16,11 +16,10 @@ class MassMeanProbeNet(nn.Module):
     - p_mm(x) = σ(θ_mm^T x) for basic mass-mean
     - p_iid_mm(x) = σ(θ_mm^T Σ^(-1) x) for IID version (Fisher's LDA)
     """
-    def __init__(self, d_model: int, device: str = "cpu", use_iid: bool = False):
+    def __init__(self, d_model: int, device: str = "cpu"):
         super().__init__()
         self.d_model = d_model
         self.device = device
-        self.use_iid = use_iid
         
         # These will be computed during fit
         self.theta_mm = None  # θ_mm = μ_+ - μ_-
@@ -30,7 +29,7 @@ class MassMeanProbeNet(nn.Module):
         
         self.to(device)
 
-    def compute_mass_mean_direction(self, X: torch.Tensor, y: torch.Tensor, mask: torch.Tensor):
+    def compute_mass_mean_direction(self, X: torch.Tensor, y: torch.Tensor, mask: torch.Tensor, use_iid: bool = False):
         """
         Compute the mass-mean direction θ_mm = μ_+ - μ_-
         
@@ -38,6 +37,7 @@ class MassMeanProbeNet(nn.Module):
             X: Input features, shape (N, seq, d_model)
             y: Labels, shape (N,) with binary values {0, 1}
             mask: Mask, shape (N, seq)
+            use_iid: Whether to use IID version (Fisher's LDA)
         """
         # Apply aggregation first
         X_agg = self._aggregate(X, mask)  # (N, d_model)
@@ -60,7 +60,7 @@ class MassMeanProbeNet(nn.Module):
         self.theta_mm = self.mu_plus - self.mu_minus  # (d_model,)
         
         # For IID version, compute covariance matrix and its inverse
-        if self.use_iid:
+        if use_iid:
             # Center the data: subtract μ_+ from positive samples, μ_- from negative samples
             X_pos_centered = X_pos - self.mu_plus.unsqueeze(0)   # (N_pos, d_model)
             X_neg_centered = X_neg - self.mu_minus.unsqueeze(0)  # (N_neg, d_model)
@@ -104,7 +104,7 @@ class MassMeanProbeNet(nn.Module):
         # Apply aggregation
         x_agg = self._aggregate(x, mask)  # (batch, d_model)
         
-        if self.use_iid and self.sigma_inv is not None:
+        if self.sigma_inv is not None:
             # IID version: θ_mm^T Σ^(-1) x
             logits = torch.matmul(x_agg, torch.matmul(self.sigma_inv, self.theta_mm))
         else:
@@ -118,18 +118,14 @@ class MassMeanProbe(BaseProbe):
     Mass Mean probe that computes the direction between class means.
     This probe requires no training - it's computed analytically.
     """
-    def __init__(self, d_model: int, device: str = "cpu", task_type: str = "classification", 
-                 use_iid: bool = False):
-        self.use_iid = use_iid
+    def __init__(self, d_model: int, device: str = "cpu", task_type: str = "classification"):
         super().__init__(d_model, device, task_type, aggregation="mean")
 
     def _init_model(self):
-        self.model = MassMeanProbeNet(self.d_model, device=self.device, use_iid=self.use_iid)
+        self.model = MassMeanProbeNet(self.d_model, device=self.device)
 
     def fit(self, X: np.ndarray, y: np.ndarray, mask: Optional[np.ndarray] = None, 
-            epochs: int = 20, lr: float = 1e-3, batch_size: int = 256, weight_decay: float = 0.0, 
-            verbose: bool = True, early_stopping: bool = True, patience: int = 20, min_delta: float = 0.005,
-            use_weighted_loss: bool = True, use_weighted_sampler: bool = False):
+            use_iid: bool = False, **kwargs):
         """
         Compute the mass-mean direction. No training needed - computed analytically.
         
@@ -137,13 +133,14 @@ class MassMeanProbe(BaseProbe):
             X: Input features, shape (N, seq, d_model)
             y: Labels, shape (N,) with binary values {0, 1}
             mask: Optional mask, shape (N, seq)
-            Other args: Ignored for mass-mean probe
+            use_iid: Whether to use IID version (Fisher's LDA)
+            **kwargs: Ignored for mass-mean probe
         """
         print(f"\n=== MASS MEAN PROBE COMPUTATION ===")
         print(f"Input X shape: {X.shape}")
         print(f"Input y shape: {y.shape}")
         print(f"Mask shape: {mask.shape if mask is not None else 'None'}")
-        print(f"Use IID: {self.use_iid}")
+        print(f"Use IID: {use_iid}")
         print(f"Aggregation: mean (fixed)")
         
         X = torch.tensor(X, dtype=torch.float32, device=self.device)
@@ -165,14 +162,14 @@ class MassMeanProbe(BaseProbe):
             print(f"Remapped labels: {unique_labels[0]} -> 0, {unique_labels[1]} -> 1")
         
         # Compute mass-mean direction
-        self.model.compute_mass_mean_direction(X, y, mask)
+        self.model.compute_mass_mean_direction(X, y, mask, use_iid=use_iid)
         
         # Compute some statistics for debugging
         pos_count = (y == 1).sum().item()
         neg_count = (y == 0).sum().item()
         print(f"Positive samples: {pos_count}, Negative samples: {neg_count}")
         print(f"θ_mm norm: {torch.norm(self.model.theta_mm).item():.4f}")
-        if self.use_iid and self.model.sigma_inv is not None:
+        if use_iid and self.model.sigma_inv is not None:
             print(f"Σ^(-1) computed successfully")
         
         print(f"=== MASS MEAN PROBE COMPUTATION COMPLETE ===\n")
@@ -198,7 +195,6 @@ class MassMeanProbe(BaseProbe):
             'sigma_inv': self.model.sigma_inv.cpu() if self.model.sigma_inv is not None else None,
             'mu_plus': self.model.mu_plus.cpu() if self.model.mu_plus is not None else None,
             'mu_minus': self.model.mu_minus.cpu() if self.model.mu_minus is not None else None,
-            'use_iid': self.use_iid,
             'd_model': self.d_model,
             'task_type': self.task_type,
             'aggregation': self.aggregation,
@@ -211,7 +207,6 @@ class MassMeanProbe(BaseProbe):
         train_info = {
             "loss_history": self.loss_history,
             "method": "mass_mean_analytical",
-            "use_iid": self.use_iid,
         }
         with open(log_path, "w") as f:
             json.dump(train_info, f, indent=2)
@@ -223,7 +218,6 @@ class MassMeanProbe(BaseProbe):
         self.d_model = checkpoint['d_model']
         self.task_type = checkpoint['task_type']
         self.aggregation = checkpoint['aggregation']
-        self.use_iid = checkpoint.get('use_iid', False)
         
         # Reinitialize the model
         self._init_model()

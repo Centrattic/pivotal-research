@@ -261,6 +261,8 @@ class Dataset:
         obj.df = df.copy()
         obj.model = model
         obj.device = device
+        obj.cache_root = cache_root  # Add missing cache_root attribute
+        obj.seed = seed  # Add missing seed attribute
         obj.max_len = max_len if max_len is not None else (df["prompt_len"].max() if "prompt_len" in df.columns else df["prompt"].str.len().max())
         obj.task_type = task_type
         obj.n_classes = n_classes

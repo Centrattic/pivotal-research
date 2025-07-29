@@ -15,12 +15,9 @@ def get_probe_architecture(architecture_name: str, d_model: int, device, aggrega
         return LinearProbe(d_model=d_model, device=device, aggregation=aggregation)
     if architecture_name == "attention":
         return AttentionProbe(d_model=d_model, device=device)
-    if architecture_name == "mass_mean":
-        # Basic mass-mean probe (use_iid will be set from config)
-        return MassMeanProbe(d_model=d_model, device=device, use_iid=False)
-    if architecture_name == "mass_mean_iid":
-        # IID version (Fisher's LDA)
-        return MassMeanProbe(d_model=d_model, device=device, use_iid=True)
+    if architecture_name in ["mass_mean", "mass_mean_iid"]:
+        # Mass-mean probe - use_iid will be set during fit()
+        return MassMeanProbe(d_model=d_model, device=device)
     raise ValueError(f"Unknown architecture: {architecture_name}")
 
 def get_probe_filename_prefix(train_ds, arch_name, aggregation, layer, component, contrast_fn=None):
@@ -130,12 +127,10 @@ def train_probe(
     if architecture_name in ["mass_mean", "mass_mean_iid"]:
         # Mass-mean probes don't have weighting_method, they're computed analytically
         weighting_method = "mass_mean"
-        # Extract use_iid parameter if present
-        use_iid = fit_params.get("use_iid", False)
-        # Update the probe's use_iid parameter
-        if hasattr(probe, 'use_iid'):
-            probe.use_iid = use_iid
-            probe.model.use_iid = use_iid
+        # Extract use_iid parameter from config
+        use_iid = (architecture_name == "mass_mean_iid")
+        # Add use_iid to fit_params
+        fit_params["use_iid"] = use_iid
     else:
         weighting_method = fit_params.pop("weighting_method", "weighted_loss")
 
