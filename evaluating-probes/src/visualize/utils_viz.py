@@ -90,6 +90,7 @@ def plot_multi_folder_recall_at_fpr(folders, folder_labels, architecture, class_
     if colors is None:
         colors = [f"C{i}" for i in range(len(folders))]
     plt.figure(figsize=(7, 5))
+    all_recalls = []  # Collect all recall values across all folders
     for i, (folder, label) in enumerate(zip(folders, folder_labels)):
         result_files = sorted(glob.glob(os.path.join(folder, f'*{architecture}*_results.json')))
         n_class1s = []
@@ -118,6 +119,7 @@ def plot_multi_folder_recall_at_fpr(folders, folder_labels, architecture, class_
             if best_recall > 0 or best_fpr <= fpr_target:
                 n_class1s.append(n_class1)
                 recalls.append(best_recall)
+                all_recalls.append(best_recall)  # Add to global collection
         if n_class1s:
             n_class1s, recalls = zip(*sorted(zip(n_class1s, recalls)))
             plt.plot(n_class1s, recalls, 'o-', color=colors[i], label=label)
@@ -128,8 +130,8 @@ def plot_multi_folder_recall_at_fpr(folders, folder_labels, architecture, class_
     plt.xlabel("Number of class 1 (positive) samples in train set")
     plt.xscale('log')
     # Set y-axis to start at a reasonable nonzero value based on the data
-    if recalls:
-        min_recall = min(recalls) if recalls else 0.0
+    if all_recalls:
+        min_recall = min(all_recalls)
         y_min = max(0.0, min_recall - 0.1)  # Start at least 0.1 below the minimum, but not below 0
         plt.ylim(y_min, 1)
     else:
@@ -150,6 +152,7 @@ def plot_multi_folder_auc_vs_n_class1(folders, folder_labels, architecture, clas
     if colors is None:
         colors = [f"C{i}" for i in range(len(folders))]
     plt.figure(figsize=(7, 5))
+    all_aucs = []  # Collect all AUC values across all folders
     for i, (folder, label) in enumerate(zip(folders, folder_labels)):
         result_files = sorted(glob.glob(os.path.join(folder, f'*{architecture}*_results.json')))
         n_class1s = []
@@ -167,6 +170,7 @@ def plot_multi_folder_auc_vs_n_class1(folders, folder_labels, architecture, clas
                 continue
             n_class1s.append(n_class1)
             aucs.append(auc)
+            all_aucs.append(auc)  # Add to global collection
         if n_class1s:
             n_class1s, aucs = zip(*sorted(zip(n_class1s, aucs)))
             plt.plot(n_class1s, aucs, 'o-', color=colors[i], label=label)
@@ -177,8 +181,8 @@ def plot_multi_folder_auc_vs_n_class1(folders, folder_labels, architecture, clas
     plt.xlabel("Number of class 1 (positive) samples in train set")
     plt.xscale('log')
     # Set y-axis to start at a reasonable nonzero value based on the data
-    if aucs:
-        min_auc = min(aucs) if aucs else 0.0
+    if all_aucs:
+        min_auc = min(all_aucs)
         y_min = max(0.0, min_auc - 0.1)  # Start at least 0.1 below the minimum, but not below 0
         plt.ylim(y_min, 1)
     else:

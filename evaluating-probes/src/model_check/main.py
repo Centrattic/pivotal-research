@@ -64,7 +64,7 @@ def run_model_check(config):
         model, tokenizer = load_hf_model_and_tokenizer(model_name)
 
         ds = Dataset(ds_name, model=model, device=device)
-        ds.split_data(train_size=0.75, val_size=0.10, test_size=0.15, seed=42)
+        ds.build_imbalanced_train_balanced_eval(train_size=0.75, val_size=0.10, test_size=0.15, seed=42)
         X_test, y_test = ds.get_test_set() # only need test set
         check_prompts = prepare_check_prompts(X_test, prompt_template)
         max_len = recompute_max_len(check_prompts)

@@ -168,7 +168,6 @@ def main():
             try:
                 logger.log(dataset_name)
                 data = get_dataset(dataset_name, model, device, global_seed)
-                data.split_data(test_size=0.15, seed=global_seed)
                 if should_skip_dataset(dataset_name, data, logger):
                     continue
                 valid_dataset_metadata[dataset_name] = {

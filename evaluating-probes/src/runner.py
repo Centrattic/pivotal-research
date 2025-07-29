@@ -315,9 +315,6 @@ def evaluate_probe(
     if 'filtered' in score_options:
         # Try to get filtered indices from score_filtered
         runthrough_dir = results_dir / f"runthrough_{eval_dataset_name}"
-        import pandas as pd
-        import numpy as np
-        import os
         csv_files = list(runthrough_dir.glob("*logit_diff*.csv"))
         if csv_files:
             df = pd.read_csv(csv_files[0])

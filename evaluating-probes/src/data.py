@@ -73,7 +73,7 @@ class Dataset:
         df = pd.read_csv(csv_path).dropna(subset=["prompt", "target"])
         self.df = df
 
-        # Placeholder, updated before generating activations
+        # Calculate max_len from the entire dataset upfront
         self.max_len = ( # We can safely divide by 2 because this is character length vs. token count, and avg > 2
             df["prompt_len"].max()//2 if "prompt_len" in df.columns else df["prompt"].str.len().max()//2
         )
@@ -179,24 +179,18 @@ class Dataset:
     def get_train_set_activations(self, layer: int, component: str):
         if self.X_train_text is None:
             raise ValueError("Data not split yet. Call split_data() first.")
-        # Update max_len for this split
-        self.max_len = max(len(p) for p in self.X_train_text) // 2
         acts = self.act_manager.get_activations_for_texts(self.X_train_text, layer, component)
         return acts, self.y_train
 
     def get_val_set_activations(self, layer: int, component: str):
         if self.X_val_text is None:
             raise ValueError("Data not split yet. Call split_data() first.")
-        # Update max_len for this split
-        self.max_len = max(len(p) for p in self.X_val_text) // 2
         acts = self.act_manager.get_activations_for_texts(self.X_val_text, layer, component)
         return acts, self.y_val
 
     def get_test_set_activations(self, layer: int, component: str):
         if self.X_test_text is None:
             raise ValueError("Data not split yet. Call split_data() first.")
-        # Update max_len for this split
-        self.max_len = max(len(p) for p in self.X_test_text) // 2
         acts = self.act_manager.get_activations_for_texts(self.X_test_text, layer, component)
         return acts, self.y_test
     
@@ -322,6 +316,7 @@ class Dataset:
         - If llm_upsample is True, upsample positives in train split using LLM samples from llm_csv_path
         - Default split: 75% train, 10% val, 15% test
         - No overlap between splits
+        - Calculates max_len from all possible data upfront to avoid activation manager recreation
         """
         import copy
         import pandas as pd
@@ -334,6 +329,16 @@ class Dataset:
         n_val = int(round(val_size * n_total))
         n_per_class_test = n_test // len(classes)
         n_per_class_val = n_val // len(classes)
+        
+        # Calculate max_len from all possible data upfront
+        all_lengths = df["prompt_len"].max() if "prompt_len" in df.columns else df["prompt"].str.len().max()
+        if llm_upsample and llm_csv_path is not None:
+            llm_df = pd.read_csv(llm_csv_path)
+            llm_lengths = llm_df["prompt_len"].max() if "prompt_len" in llm_df.columns else llm_df["prompt"].str.len().max()
+            all_lengths = max(all_lengths, llm_lengths)
+        
+        max_len = all_lengths // 2  # match original logic (character length / 2)
+        
         # Build test/val indices (real data only, 50/50)
         test_indices, val_indices, used_indices = [], [], set()
         for cls in classes:
@@ -412,7 +417,7 @@ class Dataset:
             seed=seed,
             task_type=original_dataset.task_type,
             n_classes=original_dataset.n_classes,
-            max_len=original_dataset.max_len,
+            max_len=max_len,  # Use the precalculated max_len
             train_indices=train_indices_new,
             val_indices=val_indices_new,
             test_indices=test_indices_new,
@@ -433,7 +438,7 @@ class Dataset:
         """
         For each data point in the specified split, generate (original, contrast) prompts using contrast_fn,
         get activations for both using the activation cache, and return the subtracted activations and labels.
-        Also updates self.max_len to the maximum prompt length in the contrast pairs.
+        Uses a fixed max_len calculated from all possible contrast prompts to avoid recreating activation managers.
         Creates a separate activation cache for contrast probing to avoid mixing with original activations.
         """
         if split == "train":
@@ -454,29 +459,35 @@ class Dataset:
         orig_prompts = []
         contrast_prompts = []
         labels = []
+        
+        # Calculate max_len from all possible contrast prompts in the entire dataset
+        # This ensures we never need to recreate the activation manager
         all_lengths = []
+        for _, row in self.df.iterrows():
+            orig, contrast = contrast_fn(row)
+            all_lengths.append(len(orig['prompt']))
+            all_lengths.append(len(contrast['prompt']))
+        
+        contrast_max_len = max(all_lengths) // 2  # match original logic (character length / 2)
+        
+        # Only collect prompts for the requested split
         for idx in indices:
             row = self.df.iloc[idx]
             orig, contrast = contrast_fn(row)
             orig_prompts.append(orig['prompt'])
             contrast_prompts.append(contrast['prompt'])
             labels.append(orig['target'])  # Use original label
-            all_lengths.append(len(orig['prompt']))
-            all_lengths.append(len(contrast['prompt']))
         
-        # Update max_len for activation extraction
-        self.max_len = max(all_lengths) // 2  # match original logic (character length / 2)
-        
-        # Create a separate activation manager for contrast probing
-        # This ensures contrast activations are cached separately from original activations
-        contrast_cache_dir = self.cache_root / self.model.cfg.model_name / f"{self.dataset_name}_contrast"
-        self.contrast_act_manager = ActivationManager(
-            model=self.model,
-            device=self.device,
-            d_model=self.model.cfg.d_model,
-            max_len=self.max_len,
-            cache_dir=contrast_cache_dir,
-        )
+        # Create contrast activation manager only once with the maximum possible max_len
+        if not hasattr(self, 'contrast_act_manager'):
+            contrast_cache_dir = self.cache_root / self.model.cfg.model_name / f"{self.dataset_name}_contrast"
+            self.contrast_act_manager = ActivationManager(
+                model=self.model,
+                device=self.device,
+                d_model=self.model.cfg.d_model,
+                max_len=contrast_max_len,
+                cache_dir=contrast_cache_dir,
+            )
         
         # Get activations using the separate contrast cache
         orig_acts = self.contrast_act_manager.get_activations_for_texts(orig_prompts, layer, component)

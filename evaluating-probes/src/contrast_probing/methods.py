@@ -37,3 +37,25 @@ def language_swap_contrast(row):
     original_row = {'prompt': prompt_orig, 'target': target, 'length': length_orig}
     contrast_row = {'prompt': prompt_contrast, 'target': target, 'length': length_contrast}
     return original_row, contrast_row
+
+def spam_swap_contrast(row):
+    """
+    Given a row with a message and spam label, return two dicts:
+    - original: prompt explicitly states the original classification
+    - contrast: prompt explicitly states the swapped classification
+    Both dicts have 'prompt', 'target', and 'length' fields.
+    Example: original prompt 'Free entry in 2 a wkly comp', target 1 (Spam)
+    -> original: 'This text message is spam: Free entry in 2 a wkly comp', 
+       contrast: 'This text message is ham: Free entry in 2 a wkly comp'
+    """
+    message = row['prompt']
+    target = row['target']
+    classification_word = 'spam' if target == 1 else 'not spam'
+    swapped_classification_word = 'not spam' if classification_word == 'spam' else 'spam'
+    prompt_orig = f"This text message is {classification_word}: {message}"
+    prompt_contrast = f"This text message is {swapped_classification_word}: {message}"
+    length_orig = len(prompt_orig)
+    length_contrast = len(prompt_contrast)
+    original_row = {'prompt': prompt_orig, 'target': target, 'length': length_orig}
+    contrast_row = {'prompt': prompt_contrast, 'target': target, 'length': length_contrast}
+    return original_row, contrast_row

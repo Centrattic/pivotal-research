@@ -405,10 +405,9 @@ class BaseProbe:
             
             # Get the test set texts to match with CSV
             from src.data import Dataset
-            # We need to recreate the dataset to get the test texts
-            # This is a bit hacky but necessary to match activations with CSV rows
+            # recreate the dataset to get the test texts
             temp_ds = Dataset(dataset_name, model=None, device=self.device)
-            temp_ds.split_data(test_size=test_size, seed=42)
+            temp_ds.build_imbalanced_train_balanced_eval(test_size=test_size, seed=seed)
             test_texts = temp_ds.get_test_set()[0]
             
             # Filter based on logit_diff threshold
