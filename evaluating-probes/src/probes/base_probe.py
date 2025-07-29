@@ -403,12 +403,26 @@ class BaseProbe:
                 print(f"Warning: 'logit_diff' column not found in {csv_path}. Using unfiltered scoring.")
                 return self.score(X, y, mask)
             
+            # Validate that CSV has the same number of rows as our test set
+            if len(df) != len(y):
+                print(f"Warning: CSV has {len(df)} rows but test set has {len(y)} examples. Dataset mismatch detected!")
+                print("This could indicate that the model_check and evaluation are using different datasets.")
+                print("Using unfiltered scoring.")
+                return self.score(X, y, mask)
+            
             # Get the test set texts to match with CSV
             from src.data import Dataset
-            # recreate the dataset to get the test texts
-            temp_ds = Dataset(dataset_name, model=None, device=self.device)
-            temp_ds.build_imbalanced_train_balanced_eval(test_size=test_size, seed=seed)
+            # recreate the dataset to get the test texts using the same method as evaluation
+            temp_ds = Dataset(dataset_name, model=None, device=self.device, seed=seed)
+            temp_ds = Dataset.build_imbalanced_train_balanced_eval(temp_ds, test_size=test_size, seed=seed)
             test_texts = temp_ds.get_test_set()[0]
+            
+            # Validate that the recreated test set matches our current test set size
+            if len(test_texts) != len(y):
+                print(f"Warning: Recreated test set has {len(test_texts)} examples but current test set has {len(y)} examples.")
+                print("This indicates a dataset creation inconsistency.")
+                print("Using unfiltered scoring.")
+                return self.score(X, y, mask)
             
             # Filter based on logit_diff threshold
             mask_filter = np.abs(df['logit_diff'].values) > logit_diff_threshold

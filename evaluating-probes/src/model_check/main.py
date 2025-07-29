@@ -60,12 +60,20 @@ def run_model_check(config):
         run_name = config.get("run_name", "run")
         device = config.get("device")
         batch_size = check.get('batch_size', 8)  # Default batch size
+        seed = config.get("seed")  # Use the same seed as the main run
         print(f"Loading HuggingFace model:", model_name)
         model, tokenizer = load_hf_model_and_tokenizer(model_name)
 
-        ds = Dataset(ds_name, model=model, device=device)
-        ds.build_imbalanced_train_balanced_eval(train_size=0.75, val_size=0.10, test_size=0.15, seed=42)
+        # Use the same dataset creation method as in evaluation to ensure consistency
+        ds = Dataset(ds_name, model=model, device=device, seed=seed)
+        ds = Dataset.build_imbalanced_train_balanced_eval(ds, val_size=0.10, test_size=0.15, seed=seed)
         X_test, y_test = ds.get_test_set() # only need test set
+        
+        # Validate that we have the expected test set size and class distribution
+        print(f"Test set size: {len(X_test)}")
+        unique_labels, counts = np.unique(y_test, return_counts=True)
+        print(f"Test set class distribution: {dict(zip(unique_labels, counts))}")
+        
         check_prompts = prepare_check_prompts(X_test, prompt_template)
         max_len = recompute_max_len(check_prompts)
 
@@ -93,6 +101,11 @@ def run_model_check(config):
             print(f"CSV {csv_path} already exists. Skipping model run and using existing CSV for plots.")
             df = pd.read_csv(csv_path)
             all_labels = df['label'].tolist()
+            
+            # Validate that the CSV matches our current test set
+            if len(all_labels) != len(y_test):
+                raise ValueError(f"CSV has {len(all_labels)} labels but test set has {len(y_test)} examples. Dataset mismatch detected!")
+            
             for _, row in df.iterrows():
                 logit_dict = {}
                 for idx, name in class_names.items():

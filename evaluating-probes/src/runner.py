@@ -9,6 +9,7 @@ import numpy as np
 import torch
 import copy
 import json
+import pandas as pd
 
 def get_probe_architecture(architecture_name: str, d_model: int, device, aggregation: str = "mean"):
     if architecture_name == "linear":
@@ -40,13 +41,13 @@ def rebuild_suffix(rebuild_config):
     if 'class_counts' in rebuild_config:
         cc = rebuild_config['class_counts']
         cc_str = '_'.join([f"class{cls}_{cc[cls]}" for cls in sorted(cc)])
-        return f"{cc_str}_seed{rebuild_config.get('seed', 42)}"
+        return f"{cc_str}_seed{rebuild_config.get('seed')}"
     elif 'class_percents' in rebuild_config:
         cp = rebuild_config['class_percents']
         cp_str = '_'.join([f"class{cls}_{int(cp[cls]*100)}pct" for cls in sorted(cp)])
-        return f"{cp_str}_total{rebuild_config['total_samples']}_seed{rebuild_config.get('seed', 42)}"
+        return f"{cp_str}_total{rebuild_config['total_samples']}_seed{rebuild_config.get('seed')}"
     else:
-        return f"custom_seed{rebuild_config.get('seed', 42)}"
+        return f"custom_seed{rebuild_config.get('seed')}"
 
 def train_probe(
     model, d_model: int, train_dataset_name: str, layer: int, component: str,
@@ -310,40 +311,40 @@ def evaluate_probe(
     test_scores = test_scores.tolist()
     test_labels = y_test.tolist()
 
-    # Compute filtered indices if filtered scoring is requested
-    filtered_indices = None
-    if 'filtered' in score_options:
-        # Try to get filtered indices from score_filtered
-        runthrough_dir = results_dir / f"runthrough_{eval_dataset_name}"
-        csv_files = list(runthrough_dir.glob("*logit_diff*.csv"))
-        if csv_files:
-            df = pd.read_csv(csv_files[0])
-            logit_diff_threshold = logit_diff_threshold if 'logit_diff_threshold' in locals() else 1.0
-            mask_filter = np.abs(df['logit_diff'].values) > logit_diff_threshold
-            filtered_indices = np.where(mask_filter)[0]
-    # Save both all and filtered scores
-    all_scores_dict = {
-        "scores": test_scores,
-        "labels": test_labels,
-        "filtered": False
-    }
-    if filtered_indices is not None and len(filtered_indices) > 0:
-        filtered_scores_dict = {
-            "scores": [test_scores[i] for i in filtered_indices],
-            "labels": [test_labels[i] for i in filtered_indices],
-            "filtered": True
-        }
-    else:
-        filtered_scores_dict = None
-    # For backward compatibility, set 'scores' to filtered if available, else all
-    scores_field = filtered_scores_dict if filtered_scores_dict is not None else all_scores_dict
+    # Build output structure - always save all scores in main scores field
     output_dict = {
         "metrics": combined_metrics,
-        "scores": scores_field,
-        "all_scores": all_scores_dict
+        "scores": {
+            "scores": test_scores,
+            "labels": test_labels,
+            "filtered": False
+        }
     }
-    if filtered_scores_dict is not None:
-        output_dict["filtered_scores"] = filtered_scores_dict
+    
+    # Add filtered scores only if filtering was requested and actually removed data points
+    if 'filtered' in score_options and 'filtered_examples' in combined_metrics:
+        filtered_metrics = combined_metrics["filtered_examples"]
+        if filtered_metrics.get("filtered", False) and filtered_metrics.get("removed_count", 0) > 0:
+            # Get filtered indices from the CSV file
+            runthrough_dir = results_dir / f"runthrough_{eval_dataset_name}"
+            csv_files = list(runthrough_dir.glob("*logit_diff*.csv"))
+            if csv_files:
+                df = pd.read_csv(csv_files[0])
+                if 'logit_diff' in df.columns:
+                    mask_filter = np.abs(df['logit_diff'].values) > logit_diff_threshold
+                    filtered_indices = np.where(mask_filter)[0]
+                    
+                    if len(filtered_indices) > 0:
+                        output_dict["filtered_scores"] = {
+                            "scores": [test_scores[i] for i in filtered_indices],
+                            "labels": [test_labels[i] for i in filtered_indices],
+                            "filtered": True,
+                            "logit_diff_threshold": logit_diff_threshold,
+                            "original_size": len(test_scores),
+                            "filtered_size": len(filtered_indices),
+                            "removed_count": len(test_scores) - len(filtered_indices)
+                        }
+    
     with open(eval_results_path, "w") as f:
         json.dump(output_dict, f, indent=2)
     

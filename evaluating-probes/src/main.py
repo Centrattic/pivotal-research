@@ -55,13 +55,13 @@ def resample_params_to_str(params):
     if 'class_counts' in params:
         cc = params['class_counts']
         cc_str = '_'.join([f"class{cls}_{cc[cls]}" for cls in sorted(cc)])
-        return f"{cc_str}_seed{params.get('seed', 42)}"
+        return f"{cc_str}_seed{params.get('seed')}"
     elif 'class_percents' in params:
         cp = params['class_percents']
         cp_str = '_'.join([f"class{cls}_{int(cp[cls]*100)}pct" for cls in sorted(cp)])
-        return f"{cp_str}_total{params['total_samples']}_seed{params.get('seed', 42)}"
+        return f"{cp_str}_total{params['total_samples']}_seed{params.get('seed')}"
     else:
-        return f"custom_seed{params.get('seed', 42)}"
+        return f"custom_seed{params.get('seed')}"
 
 def main():
     # Clear GPU memory and set device
@@ -116,7 +116,7 @@ def main():
         model = HookedTransformer.from_pretrained(config['model_name'], device) # Load to get activations if needed
         d_model = model.cfg.d_model
 
-        global_seed = int(config.get('seed', 42))
+        global_seed = int(config.get('seed'))
         available_datasets = get_available_datasets()
 
         # Step 1: Pre-flight check and gather all unique training jobs
