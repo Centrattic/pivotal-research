@@ -14,11 +14,17 @@ components:
 
 architectures:
   - name: "linear"
-    aggregation: "mean"
-    config_name: "default_linear"
+    config_name: "linear_mean"
+  - name: "linear"
+    config_name: "linear_max"
+  - name: "linear"
+    config_name: "linear_last"
+  - name: "linear"
+    config_name: "linear_softmax"
   - name: "attention"
-    aggregation: "attention"
     config_name: "default_attention"
+  - name: "mass_mean"
+    config_name: "default_mass_mean"
 
 # List of experiments to run
 experiments:

@@ -11,13 +11,8 @@ components:
 
 architectures:
   - name: "linear"
-    aggregation: "mean"
-    config_name: "default_linear"
-  # - name: "linear"
-  #   aggregation: "mean"
-  #   config_name: "default_linear"
+    config_name: "linear_mean"
   - name: "attention"
-    aggregation: "attention"
     config_name: "default_attention"
   # The mass mean are a p bad baseline for few samples, which is logical perhaps?
   # - name: "mass_mean"

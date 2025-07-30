@@ -118,14 +118,18 @@ class MassMeanProbe(BaseProbe):
     Mass Mean probe that computes the direction between class means.
     This probe requires no training - it's computed analytically.
     """
-    def __init__(self, d_model: int, device: str = "cpu", task_type: str = "classification"):
-        super().__init__(d_model, device, task_type, aggregation="mean")
+    def __init__(self, d_model: int, device: str = "cpu", task_type: str = "classification", use_iid: bool = False, **kwargs):
+        # Store any additional config parameters for this probe
+        for key, value in kwargs.items():
+            setattr(self, key, value)
+        self.use_iid = use_iid
+        self.aggregation = "mean"  # Mass-mean probes always use mean aggregation
+        super().__init__(d_model, device, task_type)
 
     def _init_model(self):
         self.model = MassMeanProbeNet(self.d_model, device=self.device)
 
-    def fit(self, X: np.ndarray, y: np.ndarray, mask: Optional[np.ndarray] = None, 
-            use_iid: bool = False, **kwargs):
+    def fit(self, X: np.ndarray, y: np.ndarray, mask: Optional[np.ndarray] = None, **kwargs):
         """
         Compute the mass-mean direction. No training needed - computed analytically.
         
@@ -133,9 +137,9 @@ class MassMeanProbe(BaseProbe):
             X: Input features, shape (N, seq, d_model)
             y: Labels, shape (N,) with binary values {0, 1}
             mask: Optional mask, shape (N, seq)
-            use_iid: Whether to use IID version (Fisher's LDA)
             **kwargs: Ignored for mass-mean probe
         """
+        use_iid = getattr(self, 'use_iid', False)
         print(f"\n=== MASS MEAN PROBE COMPUTATION ===")
         print(f"Input X shape: {X.shape}")
         print(f"Input y shape: {y.shape}")

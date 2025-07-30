@@ -11,23 +11,33 @@ import copy
 import json
 import pandas as pd
 
-def get_probe_architecture(architecture_name: str, d_model: int, device, aggregation: str = "mean"):
+def extract_aggregation_from_config(config_name: str, architecture_name: str) -> str:
+    """Extract aggregation from config for backward compatibility."""
+    config = PROBE_CONFIGS[config_name]
+    if hasattr(config, 'aggregation'):
+        return config.aggregation
+    elif architecture_name == "attention":
+        return "attention"
+    elif architecture_name in ["mass_mean", "mass_mean_iid"]:
+        return "mean"
+    else:
+        return "mean"  # Default fallback
+
+def get_probe_architecture(architecture_name: str, d_model: int, device, config: dict):
+    """Create probe architecture with all config parameters passed directly."""
     if architecture_name == "linear":
-        return LinearProbe(d_model=d_model, device=device, aggregation=aggregation)
+        return LinearProbe(d_model=d_model, device=device, **config)
     if architecture_name == "attention":
-        return AttentionProbe(d_model=d_model, device=device)
+        return AttentionProbe(d_model=d_model, device=device, **config)
     if architecture_name in ["mass_mean", "mass_mean_iid"]:
-        # Mass-mean probe - use_iid will be set during fit()
-        return MassMeanProbe(d_model=d_model, device=device)
+        # Mass-mean probes need use_iid parameter from config
+        return MassMeanProbe(d_model=d_model, device=device, **config)
     raise ValueError(f"Unknown architecture: {architecture_name}")
 
-def get_probe_filename_prefix(train_ds, arch_name, aggregation, layer, component, contrast_fn=None):
-    # For attention probes and mass-mean probes, aggregation is not used in the model, but we keep it in filename for consistency
-    if arch_name in ["attention", "mass_mean", "mass_mean_iid"]:
-        # Use "mean" as default aggregation for these probes
-        agg_name = "mean"
-    else:
-        agg_name = aggregation
+def get_probe_filename_prefix(train_ds, arch_name, layer, component, config_name, contrast_fn=None):
+    # Should ideally just use arch_name and not agg_name but now we need to be backward compatible
+    agg_name = extract_aggregation_from_config(config_name, arch_name)
+    
     base_prefix = f"train_on_{train_ds}_{arch_name}_{agg_name}_L{layer}_{component}"
     if contrast_fn is not None:
         # Add contrast function name to filename to distinguish from regular probes
@@ -51,7 +61,7 @@ def rebuild_suffix(rebuild_config):
 
 def train_probe(
     model, d_model: int, train_dataset_name: str, layer: int, component: str,
-    architecture_name: str, aggregation: str, config_name: str, device: str, use_cache: bool,
+    architecture_name: str, config_name: str, device: str, use_cache: bool,
     seed: int, results_dir: Path, cache_dir: Path, logger: Logger, retrain: bool,
     train_size: float = 0.75, val_size: float = 0.10, test_size: float = 0.15,
     hyperparameter_tuning: bool = False,
@@ -64,7 +74,7 @@ def train_probe(
     # Only raise error if both hyperparameter_tuning and retrain_with_best_hparams are set
     if hyperparameter_tuning and retrain_with_best_hparams:
         raise ValueError("Cannot use both hyperparameter_tuning and retrain_with_best_hparams at the same time.")
-    probe_filename_base = get_probe_filename_prefix(train_dataset_name, architecture_name, aggregation, layer, component, contrast_fn)
+    probe_filename_base = get_probe_filename_prefix(train_dataset_name, architecture_name, layer, component, config_name, contrast_fn)
     probe_save_dir = results_dir / f"train_{train_dataset_name}"
     # If rebuilding, save in dataclass_exps_{dataset_name}
     if rebuild_config is not None:
@@ -121,7 +131,7 @@ def train_probe(
         val_acts, y_val = train_ds.get_val_set_activations(layer, component)
         # test_acts, y_test = train_ds.get_test_set_activations(layer, component)
 
-    probe = get_probe_architecture(architecture_name, d_model=d_model, device=device, aggregation=aggregation)
+    probe = get_probe_architecture(architecture_name, d_model=d_model, device=device, config=asdict(PROBE_CONFIGS[config_name]))
     fit_params = asdict(PROBE_CONFIGS[config_name])
     
     # Handle mass-mean probe configuration specially
@@ -197,7 +207,7 @@ def train_probe(
         'layer': layer,
         'component': component,
         'architecture_name': architecture_name,
-        'aggregation': aggregation,
+        'aggregation': extract_aggregation_from_config(config_name, architecture_name) if hasattr(probe, 'aggregation') else None,
         'config_name': config_name,
         'rebuild_config': copy.deepcopy(rebuild_config),
         'probe_state_path': str(probe_state_path),
@@ -213,7 +223,7 @@ def train_probe(
 
 def evaluate_probe(
     train_dataset_name: str, eval_dataset_name: str, layer: int, component: str,
-    architecture_config: dict, aggregation: str, results_dir: Path, logger: Logger,
+    architecture_config: dict, results_dir: Path, logger: Logger,
     seed: int, model, d_model: int, device: str, use_cache: bool, cache_dir: Path, reevaluate: bool,
     train_size: float = 0.75, val_size: float = 0.10, test_size: float = 0.15, 
     logit_diff_threshold: float = 4, score_options: list = None,
@@ -226,15 +236,10 @@ def evaluate_probe(
     
     architecture_name = architecture_config["name"]
     config_name = architecture_config["config_name"]
-    # For attention probes and mass-mean probes, we use specific aggregation names in results
-    if architecture_name == "attention":
-        agg_name = "attention"
-    elif architecture_name in ["mass_mean", "mass_mean_iid"]:
-        agg_name = "mean"
-    else:
-        agg_name = aggregation
+    # Extract aggregation from config for results, to be backward compatible
+    agg_name = extract_aggregation_from_config(config_name, architecture_name)
 
-    probe_filename_base = get_probe_filename_prefix(train_dataset_name, architecture_name, aggregation, layer, component, contrast_fn)
+    probe_filename_base = get_probe_filename_prefix(train_dataset_name, architecture_name, layer, component, config_name, contrast_fn)
     if rebuild_config is not None:
         probe_save_dir = results_dir / f"dataclass_exps_{train_dataset_name}"
         suffix = rebuild_suffix(rebuild_config)
@@ -253,7 +258,7 @@ def evaluate_probe(
         return
 
     # Load probe
-    probe = get_probe_architecture(architecture_name, d_model=d_model, device=device, aggregation=aggregation)
+    probe = get_probe_architecture(architecture_name, d_model=d_model, device=device, config=asdict(PROBE_CONFIGS[config_name]))
     probe.load_state(probe_state_path)
 
     if rebuild_config is not None:

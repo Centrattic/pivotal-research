@@ -35,6 +35,12 @@ class AttentionProbeNet(nn.Module):
         return sequence_logits
 
 class AttentionProbe(BaseProbe):
+    def __init__(self, d_model: int, device: str = "cpu", task_type: str = "classification", **kwargs):
+        # Store any additional config parameters for this probe
+        for key, value in kwargs.items():
+            setattr(self, key, value)
+        super().__init__(d_model, device, task_type)
+
     def _init_model(self):
         self.model = AttentionProbeNet(self.d_model, device=self.device)
 
@@ -53,7 +59,9 @@ class AttentionProbe(BaseProbe):
             lr = trial.suggest_loguniform('lr', 1e-5, 1e-2)
             weight_decay = trial.suggest_loguniform('weight_decay', 1e-8, 1e-2)
             epochs = 50
-            probe = AttentionProbe(self.d_model, device=self.device)
+            # Re-init probe for each trial - pass all config parameters
+            config_params = {k: v for k, v in self.__dict__.items() if k not in ['d_model', 'device', 'task_type', 'aggregation', 'model', 'loss_history']}
+            probe = AttentionProbe(self.d_model, device=self.device, **config_params)
             if weighting_method == 'pcngd':
                 probe.fit_pcngd(X_train, y_train, mask=mask_train, epochs=epochs, lr=lr, weight_decay=weight_decay, verbose=False)
             else:

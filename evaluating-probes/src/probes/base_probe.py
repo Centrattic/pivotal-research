@@ -16,11 +16,10 @@ class BaseProbe:
     """
     General wrapper for PyTorch-based probes. Handles training, evaluation, and saving/loading.
     """
-    def __init__(self, d_model: int, device: str = "cpu", task_type: str = "classification", aggregation: str = "mean"):
+    def __init__(self, d_model: int, device: str = "cpu", task_type: str = "classification"):
         self.d_model = d_model
         self.device = device
         self.task_type = task_type  # 'classification' or 'regression'
-        self.aggregation = aggregation
         self.model: Optional[nn.Module] = None
         self.loss_history = []
         self._init_model()
@@ -494,12 +493,15 @@ class BaseProbe:
         return combined_results
 
     def save_state(self, path: Path):
-        torch.save({
+        save_dict = {
             'model_state_dict': self.model.state_dict(),
             'd_model': self.d_model,
             'task_type': self.task_type,
-            'aggregation': self.aggregation,
-        }, path)
+        }
+        # Only save aggregation if it exists (for backward compatibility)
+        if hasattr(self, 'aggregation'):
+            save_dict['aggregation'] = self.aggregation
+        torch.save(save_dict, path)
         print(f"Saved probe to {path}")
         # Save training info (loss history, etc.)
         log_path = path.with_name(path.stem + "_train_log.json")
@@ -515,7 +517,9 @@ class BaseProbe:
         checkpoint = torch.load(path, map_location=self.device)
         self.d_model = checkpoint['d_model']
         self.task_type = checkpoint['task_type']
-        self.aggregation = checkpoint['aggregation']
+        # Load aggregation if it exists (for backward compatibility)
+        if 'aggregation' in checkpoint:
+            self.aggregation = checkpoint['aggregation']
         self._init_model()
         self.model.load_state_dict(checkpoint['model_state_dict'])
         print(f"Loaded probe from {path}")

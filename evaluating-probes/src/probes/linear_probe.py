@@ -40,6 +40,13 @@ class LinearProbeNet(nn.Module):
         return logits
 
 class LinearProbe(BaseProbe):
+    def __init__(self, d_model: int, device: str = "cpu", task_type: str = "classification", aggregation: str = "mean", **kwargs):
+        # Store any additional config parameters for this probe
+        for key, value in kwargs.items():
+            setattr(self, key, value)
+        self.aggregation = aggregation
+        super().__init__(d_model, device, task_type)
+
     def _init_model(self):
         self.model = LinearProbeNet(self.d_model, aggregation=self.aggregation, device=self.device)
 
@@ -58,8 +65,9 @@ class LinearProbe(BaseProbe):
             lr = trial.suggest_loguniform('lr', 1e-5, 1e-2)
             weight_decay = trial.suggest_loguniform('weight_decay', 1e-8, 1e-2)
             epochs = 50
-            # Re-init probe for each trial
-            probe = LinearProbe(self.d_model, device=self.device, aggregation=self.aggregation)
+            # Re-init probe for each trial - pass all config parameters
+            config_params = {k: v for k, v in self.__dict__.items() if k not in ['d_model', 'device', 'task_type', 'aggregation', 'model', 'loss_history']}
+            probe = LinearProbe(self.d_model, device=self.device, aggregation=self.aggregation, **config_params)
             if weighting_method == 'pcngd':
                 probe.fit_pcngd(X_train, y_train, mask=mask_train, epochs=epochs, lr=lr, weight_decay=weight_decay, verbose=False)
             else:
