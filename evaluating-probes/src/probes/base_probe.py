@@ -389,7 +389,14 @@ class BaseProbe:
         print(f"Logit diff threshold: {logit_diff_threshold}")
         
         # Read the CSV file to get logit_diff values
-        runthrough_dir = results_dir / f"runthrough_{dataset_name}"
+        # Runthrough directory is always in the parent directory (results/{experiment_name}/)
+        parent_dir = results_dir.parent
+        runthrough_dir = parent_dir / f"runthrough_{dataset_name}"
+        
+        if not runthrough_dir.exists():
+            print(f"Warning: No runthrough directory found at {runthrough_dir}. Using unfiltered scoring.")
+            return self.score(X, y, mask)
+        
         csv_files = list(runthrough_dir.glob("*logit_diff*.csv"))
         if not csv_files:
             print(f"Warning: No logit_diff*.csv file found in {runthrough_dir}. Using unfiltered scoring.")

@@ -147,7 +147,7 @@ def main():
                     for layer in config['layers']:
                         for component in config['components']:
                             if arch_config['name'] == 'linear':
-                                agg = arch_config['aggregation']
+                                agg = arch_config.get('aggregation', 'mean')
                                 config_name = arch_config.get('config_name') or f"linear_{agg}"
                             elif arch_config['name'] in ['mass_mean', 'mass_mean_iid']:
                                 # Mass-mean probes don't use aggregation, use "mean" as default
@@ -168,6 +168,7 @@ def main():
             try:
                 logger.log(dataset_name)
                 data = get_dataset(dataset_name, model, device, global_seed)
+                data.split_data(test_size=0.15, seed=global_seed) # necessary for checking
                 if should_skip_dataset(dataset_name, data, logger):
                     continue
                 valid_dataset_metadata[dataset_name] = {
@@ -257,10 +258,22 @@ def main():
                                     contrast_fn = None
                                     if 'contrast_fn' in experiment:
                                         contrast_fn = Dataset.load_contrast_fn(experiment['contrast_fn'])
+                                    # Handle aggregation key safely
+                                    if arch_config['name'] == 'linear':
+                                        agg = arch_config.get('aggregation', 'mean')
+                                    elif arch_config['name'] in ['mass_mean', 'mass_mean_iid']:
+                                        # Mass-mean probes don't use aggregation, use "mean" as default
+                                        agg = "mean"
+                                    elif arch_config['name'] == 'attention':
+                                        # Attention probes don't use aggregation, use "attention" as default
+                                        agg = "attention"
+                                    else:
+                                        agg = arch_config.get('aggregation', 'mean')  # Default to mean if not specified
+                                    
                                     metrics = evaluate_probe(
                                         train_dataset_name=train_dataset, eval_dataset_name=eval_dataset,
                                         layer=layer, component=component, architecture_config=arch_config,
-                                        aggregation=arch_config['aggregation'], results_dir=experiment_dir, logger=logger, seed=global_seed,
+                                        aggregation=agg, results_dir=experiment_dir, logger=logger, seed=global_seed,
                                         model=model, d_model=d_model, device=config['device'],
                                         use_cache=config['cache_activations'], cache_dir=cache_dir, reevaluate=reevaluate,
                                         score_options=score_options, rebuild_config=rebuild_params, return_metrics=True,
@@ -268,7 +281,7 @@ def main():
                                     )
                                     key = resample_params_to_str(rebuild_params)
                                     all_eval_results[key] = metrics
-                                probe_filename_base = get_probe_filename_prefix(train_dataset, arch_config['name'], arch_config['aggregation'], layer, component, contrast_fn)
+                                probe_filename_base = get_probe_filename_prefix(train_dataset, arch_config['name'], agg, layer, component, contrast_fn)
                                 eval_results_path = experiment_dir / f"train_{train_dataset}" / f"eval_on_{eval_dataset}__{probe_filename_base}_allres.json"
                                 with open(eval_results_path, "w") as f:
                                     json.dump(all_eval_results, f, indent=2)

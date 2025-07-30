@@ -59,7 +59,7 @@ def run_model_check(config):
         model_name = check['hf_model_name']
         run_name = config.get("run_name", "run")
         device = config.get("device")
-        batch_size = check.get('batch_size', 8)  # Default batch size
+        batch_size = check.get('batch_size', 2)  # Default batch size
         seed = config.get("seed")  # Use the same seed as the main run
         print(f"Loading HuggingFace model:", model_name)
         model, tokenizer = load_hf_model_and_tokenizer(model_name)
@@ -69,8 +69,16 @@ def run_model_check(config):
         ds = Dataset.build_imbalanced_train_balanced_eval(ds, val_size=0.10, test_size=0.15, seed=seed)
         X_test, y_test = ds.get_test_set() # only need test set
         
-        # Validate that we have the expected test set size and class distribution
+        # Add debugging information
+        print(f"Dataset total size: {len(ds.df)}")
         print(f"Test set size: {len(X_test)}")
+        print(f"Test set shape: {y_test.shape if hasattr(y_test, 'shape') else 'no shape'}")
+        print(f"Test set type: {type(y_test)}")
+        
+        # Validate that we have the expected test set size and class distribution
+        if len(X_test) == 0:
+            raise ValueError("Test set is empty! This indicates an issue with the data splitting.")
+        
         unique_labels, counts = np.unique(y_test, return_counts=True)
         print(f"Test set class distribution: {dict(zip(unique_labels, counts))}")
         

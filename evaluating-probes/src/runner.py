@@ -326,7 +326,10 @@ def evaluate_probe(
         filtered_metrics = combined_metrics["filtered_examples"]
         if filtered_metrics.get("filtered", False) and filtered_metrics.get("removed_count", 0) > 0:
             # Get filtered indices from the CSV file
-            runthrough_dir = results_dir / f"runthrough_{eval_dataset_name}"
+            # Runthrough directory is always in the parent directory (results/{experiment_name}/)
+            parent_dir = results_dir.parent
+            runthrough_dir = parent_dir / f"runthrough_{eval_dataset_name}"
+            
             csv_files = list(runthrough_dir.glob("*logit_diff*.csv"))
             if csv_files:
                 df = pd.read_csv(csv_files[0])

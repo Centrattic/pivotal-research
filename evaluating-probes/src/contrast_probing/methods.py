@@ -52,8 +52,8 @@ def spam_swap_contrast(row):
     target = row['target']
     classification_word = 'spam' if target == 1 else 'not spam'
     swapped_classification_word = 'not spam' if classification_word == 'spam' else 'spam'
-    prompt_orig = f"This text message is {classification_word}: {message}"
-    prompt_contrast = f"This text message is {swapped_classification_word}: {message}"
+    prompt_orig = f"This email is {classification_word}: {message}"
+    prompt_contrast = f"This email is {swapped_classification_word}: {message}"
     length_orig = len(prompt_orig)
     length_contrast = len(prompt_contrast)
     original_row = {'prompt': prompt_orig, 'target': target, 'length': length_orig}

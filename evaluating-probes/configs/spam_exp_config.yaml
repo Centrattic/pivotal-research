@@ -3,7 +3,7 @@ model_name: "gemma-2-9b" # 1.2 B multilignual model, 512 seq length
 d_model: 3584 # 3584 for gemma-2-9b
 device: "cuda:0"
 cache_activations: True
-seed: "42"
+seed: 42
 
 layers: [20] # Where SAE probes found layers peform the best
 components:
@@ -26,18 +26,18 @@ experiments:
   - name: 1-spam-pred-auc
     metric: auc
     class_names: {0: "Ham", 1: "Spam"}
-    train_on: 87_is_spam
+    train_on: 94_better_spam
     evaluate_on:
-      - 87_is_spam
+      - 94_better_spam
     score:
       - all
       - filtered
   - name: 2-spam-pred-auc-increasing-spam-fixed-total
     metric: auc
     class_names: {0: "Ham", 1: "Spam"}
-    train_on: 87_is_spam
+    train_on: 94_better_spam
     evaluate_on:
-      - 87_is_spam
+      - 94_better_spam
     score:
       - all
       - filtered
@@ -61,9 +61,9 @@ experiments:
   - name: 3-spam-pred-auc-llm-upsampling
     metric: auc
     class_names: {0: "Ham", 1: "Spam"}
-    train_on: 87_is_spam
+    train_on: 94_better_spam
     evaluate_on:
-      - 87_is_spam
+      - 94_better_spam
     score:
       - all
       - filtered
@@ -87,9 +87,9 @@ experiments:
   - name: 4-spam-pred-contrast-auc
     metric: auc
     class_names: {0: "Ham", 1: "Spam"}
-    train_on: 87_is_spam
+    train_on: 94_better_spam
     evaluate_on:
-      - 87_is_spam
+      - 94_better_spam
     score:
       - all
       - filtered
@@ -115,6 +115,6 @@ experiments:
 model_check:
   - name: spam-pred
     hf_model_name: "google/gemma-2-9b-it"
-    check_on: "87_is_spam"
-    check_prompt: "Is this text message spam? Answer in one word, either Yes or No. \n {prompt}"
+    check_on: "94_better_spam"
+    check_prompt: "Is this email spam? Answer in one word, either Yes or No. \n {prompt}"
     class_names: {0: "Yes", 1: "No"} # if this comes bad, check capitalization here.

@@ -8,9 +8,9 @@ from pathlib import Path
 def should_skip_dataset(dataset_name, data, logger=None):
     """ This defines conditions for datasets we should always skip. We have separate conditions for skipping a dataset for evaluation if you trained on it. """
     # SKIP: Max length
-    if hasattr(data, "max_len") and data.max_len > 512:
-        if logger: logger.log(f"  - ⏭️  INVALID Dataset '{dataset_name}': Max length ({data.max_len}) exceeds 512.")
-        return True
+    # if hasattr(data, "max_len") and data.max_len > 512:
+    #     if logger: logger.log(f"  - ⏭️  INVALID Dataset '{dataset_name}': Max length ({data.max_len}) exceeds 512.")
+    #     return True
     # SKIP: Continuous
     if hasattr(data, "task_type") and "continuous" in data.task_type.strip().lower():
         if logger: logger.log(f"  - ⏭️  INVALID Dataset '{dataset_name}': Continuous data is not supported.")
