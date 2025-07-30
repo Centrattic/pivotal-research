@@ -1,5 +1,5 @@
 run_name: "gender_experiment_gemma"
-model_name: "gemma-2-9b" # 1.2 B multilignual model, 512 seq length
+model_name: "gemma-2-9b"
 d_model: 3584 # 3584 for gemma-2-9b
 device: "cuda:0"
 cache_activations: True

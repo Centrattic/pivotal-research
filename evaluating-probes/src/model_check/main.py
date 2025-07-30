@@ -125,7 +125,8 @@ def run_model_check(config):
             for i in range(0, len(X_test), batch_size):
                 batch_prompts = check_prompts[i:i+batch_size]
                 batch_labels = y_test[i:i+batch_size]
-                inputs = tokenizer(batch_prompts, return_tensors='pt', padding=True, truncation=True)
+                # Limit max_length to 2048 tokens to prevent memory issues
+                inputs = tokenizer(batch_prompts, return_tensors='pt', padding=True, truncation=True, max_length=4096)
                 if torch.cuda.is_available():
                     inputs = {k: v.cuda() for k, v in inputs.items()}
                 with torch.no_grad():

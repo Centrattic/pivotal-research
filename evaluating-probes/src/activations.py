@@ -108,20 +108,25 @@ class ActivationManager:
         return {h.decode(): i for i, h in enumerate(hashes)}
 
     # ~~~ mmap open helpers ~~~
-    def _rows_from_shape(self, shape_path: Path, act_path: Path) -> int:
+    def _rows_from_shape(self, shape_path: Path, act_path: Path, max_length: int = None) -> int:
+        if max_length is None:
+            max_length = min(self.max_len, 4096)  # Use truncated length by default
         if shape_path.exists():
             return json.loads(shape_path.read_text())["rows"]
-        # infer
-        rows = act_path.stat().st_size // self._row_bytes if act_path.exists() else 0
+        # infer using the actual max_length
+        row_bytes = max_length * self.d_model * np.dtype(np.float16).itemsize
+        rows = act_path.stat().st_size // row_bytes if act_path.exists() else 0
         shape_path.write_text(json.dumps({"rows": rows}))
         return rows
 
-    def _open_act(self, act_path: Path, shape_path: Path, *, writable: bool):
-        rows = self._rows_from_shape(shape_path, act_path)
+    def _open_act(self, act_path: Path, shape_path: Path, *, writable: bool, max_length: int = None):
+        if max_length is None:
+            max_length = min(self.max_len, 4096)  # Use truncated length by default
+        rows = self._rows_from_shape(shape_path, act_path, max_length)
         if rows == 0 and not writable:
-            return np.empty((0, self.max_len, self.d_model), dtype=np.float16)
+            return np.empty((0, max_length, self.d_model), dtype=np.float16)
         mode = "r+" if writable else "r"
-        return np.memmap(act_path, dtype=np.float16, mode=mode, shape=(rows, self.max_len, self.d_model))
+        return np.memmap(act_path, dtype=np.float16, mode=mode, shape=(rows, max_length, self.d_model))
 
     def _open_hash(self, hash_path: Path, rows: int, *, writable: bool):
         if rows == 0 and not writable:
@@ -139,24 +144,29 @@ class ActivationManager:
         act_path: Path,
         hash_path: Path,
         shape_path: Path,
-        bs: int = 4,
+        bs: int = 1,
     ):
         if not missing:
             return
         new_hashes, new_prompts = zip(*missing)
         N_new = len(new_prompts)
 
-        old_rows = self._rows_from_shape(shape_path, act_path)
+        # Define max_length at the beginning to avoid UnboundLocalError
+        max_length = min(self.max_len, 4096)
+        
+        old_rows = self._rows_from_shape(shape_path, act_path, max_length)
         new_rows = old_rows + N_new
         # --- resize / create activation mmap ---
-        act_mm = self._grow_act(act_path, old_rows, new_rows)
+        # Use truncated max_length for memmap to match actual activation shapes
+        act_mm = self._grow_act(act_path, old_rows, new_rows, max_length)
         hash_mm = self._grow_hash(hash_path, old_rows, new_rows)
 
         # --- extract activations for the new prompts ---
         hook = f"blocks.{layer}.hook_{component}"
+        
         for s in tqdm(range(0, N_new, bs), desc=f"Extract L{layer} {component}"):
             batch_prompts = list(new_prompts[s : s + bs])
-            toks = self.tokenizer(batch_prompts, return_tensors="pt", padding="max_length", truncation=True, max_length=self.max_len)
+            toks = self.tokenizer(batch_prompts, return_tensors="pt", padding="max_length", truncation=True, max_length=max_length)
             toks = {k: v.to(self.device) for k, v in toks.items()}
             with torch.no_grad():
                 _, cache = self.model.run_with_cache(toks["input_ids"], names_filter=[hook], device=self.device)
@@ -175,11 +185,13 @@ class ActivationManager:
             index[h] = old_rows + off
 
     # ---- grow helpers ----
-    def _grow_act(self, act_path: Path, old_rows: int, new_rows: int):
-        shape = (new_rows, self.max_len, self.d_model)
+    def _grow_act(self, act_path: Path, old_rows: int, new_rows: int, max_length: int = None):
+        if max_length is None:
+            max_length = min(self.max_len, 4096)  # Use truncated length by default
+        shape = (new_rows, max_length, self.d_model)
         if not act_path.exists():
             return np.memmap(act_path, dtype=np.float16, mode="w+", shape=shape)
-        old_mm = np.memmap(act_path, dtype=np.float16, mode="r", shape=(old_rows, self.max_len, self.d_model))
+        old_mm = np.memmap(act_path, dtype=np.float16, mode="r", shape=(old_rows, max_length, self.d_model))
         tmp = np.memmap(act_path.with_suffix(".tmp"), dtype=np.float16, mode="w+", shape=shape)
         tmp[:old_rows] = old_mm[:]
         act_path.unlink(); tmp.flush(); tmp._mmap.close()

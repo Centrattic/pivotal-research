@@ -85,7 +85,7 @@ def plot_logit_diffs_from_csv(csv_path, class_names, save_path=None, bins=50, x_
         plt.show()
 
 
-def plot_multi_folder_recall_at_fpr(folders, folder_labels, architecture, class_names=None, save_path=None, fpr_target=0.01, max_probes=9, colors=None, filtered=True):
+def plot_multi_folder_recall_at_fpr(folders, folder_labels, architecture, class_names=None, save_path=None, fpr_target=0.01, max_probes=20, colors=None, filtered=True):
     from scipy.special import expit
     if colors is None:
         colors = [f"C{i}" for i in range(len(folders))]
@@ -146,7 +146,7 @@ def plot_multi_folder_recall_at_fpr(folders, folder_labels, architecture, class_
         plt.show()
 
 
-def plot_multi_folder_auc_vs_n_class1(folders, folder_labels, architecture, class_names=None, save_path=None, max_probes=9, colors=None, filtered=True):
+def plot_multi_folder_auc_vs_n_class1(folders, folder_labels, architecture, class_names=None, save_path=None, max_probes=20, colors=None, filtered=True):
     from scipy.special import expit
     from sklearn.metrics import roc_auc_score
     if colors is None:

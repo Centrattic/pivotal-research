@@ -29,7 +29,7 @@ class BaseProbe:
         raise NotImplementedError("Subclasses must implement _init_model to set self.model")
 
     def fit(self, X: np.ndarray, y: np.ndarray, mask: Optional[np.ndarray] = None, 
-            epochs: int = 20, lr: float = 1e-3, batch_size: int = 750, weight_decay: float = 0.0, 
+            epochs: int = 20, lr: float = 1e-3, batch_size: int = 200, weight_decay: float = 0.0, 
             verbose: bool = True, early_stopping: bool = True, patience: int = 20, min_delta: float = 0.005,
             use_weighted_loss: bool = True, use_weighted_sampler: bool = False):
         """
