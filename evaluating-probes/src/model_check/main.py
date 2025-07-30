@@ -80,17 +80,43 @@ def run_model_check(config):
         if class_names is None:
             raise ValueError("You must specify class_names in your model_check config for generalization.")
         
-        # Extract class token IDs directly
+        # Extract class token IDs - support both single strings and arrays of strings
         class_token_ids = {}
-        for idx, name in class_names.items():
-            # Encode the class name with no space (as it would appear in model response)
-            token_id = tokenizer.encode(f"{name}", add_special_tokens=False)[0]
-            class_token_ids[int(idx)] = token_id
+        class_name_mapping = {}  # Keep track of which name was chosen for each class
         
-        print(f"Extracted class token IDs: {class_token_ids}")
-        for idx, token_id in class_token_ids.items():
-            token = tokenizer.decode([token_id])
-            print(f"  Class {idx} ({class_names[idx]}): token_id={token_id}, token='{token}'")
+        for idx, name_or_names in class_names.items():
+            idx = int(idx)
+            
+            # Convert to list if it's a single string
+            if isinstance(name_or_names, str):
+                name_list = [name_or_names]
+            elif isinstance(name_or_names, list):
+                name_list = name_or_names
+            else:
+                raise ValueError(f"Class names must be strings or lists of strings, got {type(name_or_names)}")
+            
+            # Get token IDs for all names in this class
+            token_ids_for_class = []
+            for name in name_list:
+                try:
+                    token_id = tokenizer.encode(f"{name}", add_special_tokens=False)[0]
+                    token_ids_for_class.append((token_id, name))
+                except IndexError:
+                    print(f"Warning: Could not encode '{name}' for class {idx}")
+                    continue
+            
+            if not token_ids_for_class:
+                raise ValueError(f"No valid tokens found for class {idx}")
+            
+            # Store all token IDs for this class (we'll choose the best one per prompt)
+            class_token_ids[idx] = token_ids_for_class
+        
+        print(f"Extracted class token IDs:")
+        for idx, token_ids_list in class_token_ids.items():
+            print(f"  Class {idx}:")
+            for token_id, name in token_ids_list:
+                token = tokenizer.decode([token_id])
+                print(f"    '{name}' -> token_id={token_id}, token='{token}'")
 
         # Create messages for each test prompt
         messages_list = []
@@ -124,33 +150,49 @@ def run_model_check(config):
             # Get logits for the last token (where the model would predict the next token)
             response_logits = logits[0, -1]  # Remove batch dim
             
-            # Extract logits for each class
-            logit_values = {}
-            for idx, token_id in class_token_ids.items():
-                logit_values[idx] = response_logits[token_id].item()
-            
             # Compute log probabilities
             log_probs = torch.log_softmax(response_logits, dim=-1)
+            
+            # Extract logits and log probabilities for each class, choosing the best token from each class array
+            logit_values = {}
             log_prob_values = {}
-            for idx, token_id in class_token_ids.items():
-                log_prob_values[idx] = log_probs[token_id].item()
+            chosen_tokens = {}  # Keep track of which token was chosen for each class
+            
+            for idx, token_ids_list in class_token_ids.items():
+                best_log_prob = float('-inf')
+                best_token_id = None
+                best_token_name = None
+                best_logit = None
+                
+                # Find the token with highest log probability for this class
+                for token_id, name in token_ids_list:
+                    log_prob_val = log_probs[token_id].item()
+                    if log_prob_val > best_log_prob:
+                        best_log_prob = log_prob_val
+                        best_token_id = token_id
+                        best_token_name = name
+                        best_logit = response_logits[token_id].item()
+                
+                logit_values[idx] = best_logit
+                log_prob_values[idx] = best_log_prob
+                chosen_tokens[idx] = best_token_name
             
             # Debug: Print top 5 tokens in the logit distribution
             values, indices = torch.topk(response_logits, 5)
-            # print(f"\nTop 5 tokens for prompt {i+1}:")
-            # for j, (value, index) in enumerate(zip(values.tolist(), indices.tolist())):
-            #     token = tokenizer.decode([index])
-            #     log_prob = log_probs[index].item()
-            #     print(f"  {j+1}. Token '{token}' (ID: {index}): logit={value:.3f}, log_prob={log_prob:.3f}")
+            print(f"\nTop 5 tokens for prompt {i+1}:")
+            for j, (value, index) in enumerate(zip(values.tolist(), indices.tolist())):
+                token = tokenizer.decode([index])
+                log_prob = log_probs[index].item()
+                print(f"  {j+1}. Token '{token}' (ID: {index}): logit={value:.3f}, log_prob={log_prob:.3f}")
             
-            # # Also show the class token logits specifically
-            # print("Class token logits:")
-            # for idx, token_id in class_token_ids.items():
-            #     token = tokenizer.decode([token_id])
-            #     logit_val = logit_values[idx]
-            #     log_prob_val = log_prob_values[idx]
-            #     print(f"  Class {idx} ('{token}'): logit={logit_val:.3f}, log_prob={log_prob_val:.3f}")
-            # print("-" * 50)
+            # Also show the class token logits specifically
+            print("Class token logits (chosen from arrays):")
+            for idx in class_token_ids.keys():
+                logit_val = logit_values[idx]
+                log_prob_val = log_prob_values[idx]
+                chosen_name = chosen_tokens[idx]
+                print(f"  Class {idx} (chose '{chosen_name}'): logit={logit_val:.3f}, log_prob={log_prob_val:.3f}")
+            print("-" * 50)
             
             # Create CSV row
             row = {
@@ -160,11 +202,13 @@ def run_model_check(config):
             
             # Add logits
             for idx, val in logit_values.items():
-                row[f"logit_{class_names[idx]}"] = val
+                chosen_name = chosen_tokens[idx]
+                row[f"logit_{chosen_name}"] = val
             
             # Add log probabilities
             for idx, val in log_prob_values.items():
-                row[f"logprob_{class_names[idx]}"] = val
+                chosen_name = chosen_tokens[idx]
+                row[f"logprob_{chosen_name}"] = val
             
             # Add logit difference (assuming binary classification with classes 0 and 1)
             if len(logit_values) == 2:

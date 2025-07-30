@@ -1,63 +1,20 @@
 from pathlib import Path
 from dataclasses import asdict
-from typing import Optional, Any, List
-from src.data import Dataset, get_available_datasets
-from src.probes import LinearProbe, AttentionProbe, MassMeanProbe
+from typing import Any
+from src.data import Dataset
 from src.logger import Logger
 from configs.probes import PROBE_CONFIGS
+from src.utils import (
+    extract_aggregation_from_config,
+    get_probe_architecture,
+    get_probe_filename_prefix,
+    rebuild_suffix
+)
 import numpy as np
 import torch
 import copy
 import json
 import pandas as pd
-
-def extract_aggregation_from_config(config_name: str, architecture_name: str) -> str:
-    """Extract aggregation from config for backward compatibility."""
-    config = PROBE_CONFIGS[config_name]
-    if hasattr(config, 'aggregation'):
-        return config.aggregation
-    elif architecture_name == "attention":
-        return "attention"
-    elif architecture_name in ["mass_mean", "mass_mean_iid"]:
-        return "mean"
-    else:
-        return "mean"  # Default fallback
-
-def get_probe_architecture(architecture_name: str, d_model: int, device, config: dict):
-    """Create probe architecture with all config parameters passed directly."""
-    if architecture_name == "linear":
-        return LinearProbe(d_model=d_model, device=device, **config)
-    if architecture_name == "attention":
-        return AttentionProbe(d_model=d_model, device=device, **config)
-    if architecture_name in ["mass_mean", "mass_mean_iid"]:
-        # Mass-mean probes need use_iid parameter from config
-        return MassMeanProbe(d_model=d_model, device=device, **config)
-    raise ValueError(f"Unknown architecture: {architecture_name}")
-
-def get_probe_filename_prefix(train_ds, arch_name, layer, component, config_name, contrast_fn=None):
-    # Should ideally just use arch_name and not agg_name but now we need to be backward compatible
-    agg_name = extract_aggregation_from_config(config_name, arch_name)
-    
-    base_prefix = f"train_on_{train_ds}_{arch_name}_{agg_name}_L{layer}_{component}"
-    if contrast_fn is not None:
-        # Add contrast function name to filename to distinguish from regular probes
-        contrast_name = contrast_fn.__name__ if hasattr(contrast_fn, '__name__') else 'contrast'
-        base_prefix += f"_{contrast_name}"
-    return base_prefix
-
-def rebuild_suffix(rebuild_config):
-    if not rebuild_config:
-        return "original"
-    if 'class_counts' in rebuild_config:
-        cc = rebuild_config['class_counts']
-        cc_str = '_'.join([f"class{cls}_{cc[cls]}" for cls in sorted(cc)])
-        return f"{cc_str}_seed{rebuild_config.get('seed')}"
-    elif 'class_percents' in rebuild_config:
-        cp = rebuild_config['class_percents']
-        cp_str = '_'.join([f"class{cls}_{int(cp[cls]*100)}pct" for cls in sorted(cp)])
-        return f"{cp_str}_total{rebuild_config['total_samples']}_seed{rebuild_config.get('seed')}"
-    else:
-        return f"custom_seed{rebuild_config.get('seed')}"
 
 def train_probe(
     model, d_model: int, train_dataset_name: str, layer: int, component: str,
@@ -132,18 +89,23 @@ def train_probe(
         # test_acts, y_test = train_ds.get_test_set_activations(layer, component)
 
     probe = get_probe_architecture(architecture_name, d_model=d_model, device=device, config=asdict(PROBE_CONFIGS[config_name]))
-    fit_params = asdict(PROBE_CONFIGS[config_name])
+    
+    # Get fit parameters by filtering out initialization-only parameters
+    all_params = asdict(PROBE_CONFIGS[config_name])
+    fit_params = {}
+    
+    # Parameters that should be passed to fit() method
+    fit_param_names = ['lr', 'epochs', 'batch_size', 'weight_decay', 'verbose', 'early_stopping', 'patience', 'min_delta']
+    for key, value in all_params.items():
+        if key in fit_param_names:
+            fit_params[key] = value
     
     # Handle mass-mean probe configuration specially
     if architecture_name in ["mass_mean", "mass_mean_iid"]:
         # Mass-mean probes don't have weighting_method, they're computed analytically
         weighting_method = "mass_mean"
-        # Extract use_iid parameter from config
-        use_iid = (architecture_name == "mass_mean_iid")
-        # Add use_iid to fit_params
-        fit_params["use_iid"] = use_iid
     else:
-        weighting_method = fit_params.pop("weighting_method", "weighted_loss")
+        weighting_method = all_params.get("weighting_method", "weighted_sampler")
 
     if retrain_with_best_hparams:
         logger.log(f"  - Using best hyperparameters from best_hparams.json for {config_name}.")

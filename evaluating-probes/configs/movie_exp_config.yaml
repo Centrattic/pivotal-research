@@ -113,4 +113,4 @@ model_check:
     hf_model_name: "google/gemma-2-9b-it"
     check_on: "96_is_movie"
     check_prompt: "In one word, is '{prompt}' a movie?"
-    class_names: {0: "Yes", 1: "No"} 
+    class_names: {0: ["Yes", "yes", " Yes"], 1: ["No", "no", " No"]} 

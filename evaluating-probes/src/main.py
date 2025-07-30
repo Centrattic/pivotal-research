@@ -42,26 +42,12 @@ except Exception as e:
 from src.runner import train_probe, evaluate_probe, get_probe_filename_prefix
 from src.data import Dataset, get_available_datasets
 from src.logger import Logger
-from src.utils import should_skip_dataset
+from src.utils import should_skip_dataset, resample_params_to_str
 from src.model_check.main import run_model_check
 from transformer_lens import HookedTransformer
 
 def get_dataset(name, model, device, seed):
     return Dataset(name, model=model, device=device, seed=seed)
-
-def resample_params_to_str(params):
-    if params is None:
-        return "original"
-    if 'class_counts' in params:
-        cc = params['class_counts']
-        cc_str = '_'.join([f"class{cls}_{cc[cls]}" for cls in sorted(cc)])
-        return f"{cc_str}_seed{params.get('seed')}"
-    elif 'class_percents' in params:
-        cp = params['class_percents']
-        cp_str = '_'.join([f"class{cls}_{int(cp[cls]*100)}pct" for cls in sorted(cp)])
-        return f"{cp_str}_total{params['total_samples']}_seed{params.get('seed')}"
-    else:
-        return f"custom_seed{params.get('seed')}"
 
 def main():
     # Clear GPU memory and set device
