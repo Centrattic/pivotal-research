@@ -1,0 +1,121 @@
+run_name: "movie_experiment_gemma"
+model_name: "gemma-2-9b"
+d_model: 3584 # 3584 for gemma-2-9b
+device: "cuda:0"
+cache_activations: True
+seed: 42
+
+layers: [20] # Where SAE probes found layers peform the best
+components:
+  - "resid_post"
+
+architectures:
+  - name: "linear"
+    aggregation: "mean"
+    config_name: "default_linear"
+  # - name: "linear"
+  #   aggregation: "mean"
+  #   config_name: "default_linear"
+  - name: "attention"
+    aggregation: "attention"
+    config_name: "default_attention"
+  # The mass mean are a p bad baseline for few samples, which is logical perhaps?
+  # - name: "mass_mean"
+  #   config_name: "default_mass_mean"
+  # - name: "mass_mean_iid"
+  #   config_name: "mass_mean_iid"
+
+# List of experiments to run
+experiments:
+  - name: 1-movie-pred-auc
+    metric: auc
+    class_names: {0: "Not Movie", 1: "Movie"}
+    train_on: 96_is_movie
+    evaluate_on:
+      - 96_is_movie
+    score:
+      - filtered
+  - name: 2-movie-pred-auc-increasing-movie-fixed-total
+    metric: auc
+    class_names: {0: "Not Movie", 1: "Movie"}
+    train_on: 96_is_movie
+    evaluate_on:
+      - 96_is_movie
+    score:
+      - all
+      - filtered
+    rebuild_config:
+      increasing_movie_fixed_total:
+        - {class_counts: {0: 3999, 1: 1}, seed: 42}
+        - {class_counts: {0: 3998, 1: 2}, seed: 42}
+        - {class_counts: {0: 3995, 1: 5}, seed: 42}
+        - {class_counts: {0: 3990, 1: 10}, seed: 42}
+        - {class_counts: {0: 3985, 1: 15}, seed: 42}
+        - {class_counts: {0: 3980, 1: 20}, seed: 42}
+        - {class_counts: {0: 3975, 1: 25}, seed: 42}
+        - {class_counts: {0: 3965, 1: 35}, seed: 42}
+        - {class_counts: {0: 3955, 1: 45}, seed: 42}
+        - {class_counts: {0: 3950, 1: 50}, seed: 42}
+        - {class_counts: {0: 3900, 1: 100}, seed: 42}
+        - {class_counts: {0: 3850, 1: 150}, seed: 42}
+        - {class_counts: {0: 3750, 1: 250}, seed: 42}
+        - {class_counts: {0: 3500, 1: 500}, seed: 42}
+        - {class_counts: {0: 3250, 1: 750}, seed: 42}
+  - name: 3-movie-pred-auc-llm-upsampling
+    metric: auc
+    class_names: {0: "Not Movie", 1: "Movie"}
+    train_on: 96_is_movie
+    evaluate_on:
+      - 96_is_movie
+    score:
+      - filtered
+    rebuild_config:
+      increasing_movie_fixed_total:
+        - {class_counts: {0: 3999, 1: 1}, llm_upsample: False, seed: 42}
+        - {class_counts: {0: 3998, 1: 2}, llm_upsample: True, seed: 42}
+        - {class_counts: {0: 3995, 1: 5}, llm_upsample: True, seed: 42}
+        - {class_counts: {0: 3990, 1: 10}, llm_upsample: True, seed: 42}
+        - {class_counts: {0: 3985, 1: 15}, llm_upsample: True, seed: 42}
+        - {class_counts: {0: 3980, 1: 20}, llm_upsample: True, seed: 42}
+        - {class_counts: {0: 3975, 1: 25}, llm_upsample: True, seed: 42}
+        - {class_counts: {0: 3965, 1: 35}, llm_upsample: True, seed: 42}
+        - {class_counts: {0: 3955, 1: 45}, llm_upsample: True, seed: 42}
+        - {class_counts: {0: 3950, 1: 50}, llm_upsample: True, seed: 42}
+        - {class_counts: {0: 3900, 1: 100}, llm_upsample: True, seed: 42}
+        - {class_counts: {0: 3850, 1: 150}, llm_upsample: True, seed: 42}
+        - {class_counts: {0: 3750, 1: 250}, llm_upsample: True, seed: 42}
+        - {class_counts: {0: 3500, 1: 500}, llm_upsample: True, seed: 42}
+        - {class_counts: {0: 3250, 1: 750}, llm_upsample: True, seed: 42}
+  - name: 4-movie-pred-contrast-auc
+    metric: auc
+    class_names: {0: "Not Movie", 1: "Movie"}
+    train_on: 96_is_movie
+    evaluate_on:
+      - 96_is_movie
+    score:
+      - filtered
+    contrast_fn: movie_swap_contrast
+    rebuild_config:
+      increasing_movie_fixed_total:
+        - {class_counts: {0: 3999, 1: 1}, seed: 42}
+        - {class_counts: {0: 3998, 1: 2}, seed: 42}
+        - {class_counts: {0: 3995, 1: 5}, seed: 42}
+        - {class_counts: {0: 3990, 1: 10}, seed: 42}
+        - {class_counts: {0: 3985, 1: 15}, seed: 42}
+        - {class_counts: {0: 3980, 1: 20}, seed: 42}
+        - {class_counts: {0: 3975, 1: 25}, seed: 42}
+        - {class_counts: {0: 3965, 1: 35}, seed: 42}
+        - {class_counts: {0: 3955, 1: 45}, seed: 42}
+        - {class_counts: {0: 3950, 1: 50}, seed: 42}
+        - {class_counts: {0: 3900, 1: 100}, seed: 42}
+        - {class_counts: {0: 3850, 1: 150}, seed: 42}
+        - {class_counts: {0: 3750, 1: 250}, seed: 42}
+        - {class_counts: {0: 3500, 1: 500}, seed: 42}
+        - {class_counts: {0: 3250, 1: 750}, seed: 42}
+
+model_check:
+  - name: movie-pred
+    hf_model_name: "google/gemma-2-9b-it"
+    check_on: "96_is_movie"
+    check_prompt: "In one word, is '{prompt}' a movie?"
+    class_names: {0: "Yes", 1: "No"} 

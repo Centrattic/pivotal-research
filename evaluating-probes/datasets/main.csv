@@ -93,3 +93,5 @@ number,source,name,tag,save_name,Probe from,Probe to,Data type,probe from extrac
 92,"sciq-train.parquet,commonsense_qa.json",cs_f_sci_t,Science True + Commonsense False,cs_f_sci_t.csv,,,Binary Classification,,,science_commonsense_merge
 93,"sciq-train.parquet,commonsense_qa.json",sci_f_cs_t,Science False + Commonsense True,sci_f_cs_t.csv,,,Binary Classification,,,science_commonsense_merge
 94,spam2.csv,better_spam, Spam dataset 2,better_spam.csv,"Subject,Message","Spam/Ham",Binary Classification,"Subject + '\n' + Message","Spam/Ham",robust_simple
+95,art.csv,is_book, Art,is_book.csv,title,entity_type,Binary Classification,title,entity_type == 'book',simple
+96,art.csv,is_movie, Art,is_movie.csv,title,entity_type,Binary Classification,title,entity_type == 'movie',simple

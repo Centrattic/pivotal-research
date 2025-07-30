@@ -32,13 +32,6 @@ def load_hf_model_and_tokenizer(model_name):
         model = model.cuda()
     return model, tokenizer
 
-def prepare_check_prompts(original_prompts, prompt_template):
-    """Return new prompts: template with {prompt} replaced by each original."""
-    return [prompt_template.format(prompt=p) for p in original_prompts]
-
-def recompute_max_len(prompts):
-    return max([len(p) for p in prompts])
-
 def print_top_logits(logits, tokenizer, topk=10):
     # logits: (seq_len, vocab_size) or (1, seq_len, vocab_size)
     if logits.dim() == 3:
@@ -82,90 +75,107 @@ def run_model_check(config):
         unique_labels, counts = np.unique(y_test, return_counts=True)
         print(f"Test set class distribution: {dict(zip(unique_labels, counts))}")
         
-        check_prompts = prepare_check_prompts(X_test, prompt_template)
-        max_len = recompute_max_len(check_prompts)
-
-        print(f"Running model over all {len(check_prompts)} prompts with batch size {batch_size}...")
-        logit_dicts = []
-        csv_rows = []
-
+        # Get class names from config
         class_names = check.get('class_names')
         if class_names is None:
             raise ValueError("You must specify class_names in your model_check config for generalization.")
-        # Use class_names values as the tokens to extract, with a space prepended
-        class_token_ids = {int(idx): tokenizer.encode(f" {name}", add_special_tokens=False)[0] for idx, name in class_names.items()}
+        
+        # Extract class token IDs directly
+        class_token_ids = {}
+        for idx, name in class_names.items():
+            # Encode the class name with no space (as it would appear in model response)
+            token_id = tokenizer.encode(f"{name}", add_special_tokens=False)[0]
+            class_token_ids[int(idx)] = token_id
+        
+        print(f"Extracted class token IDs: {class_token_ids}")
+        for idx, token_id in class_token_ids.items():
+            token = tokenizer.decode([token_id])
+            print(f"  Class {idx} ({class_names[idx]}): token_id={token_id}, token='{token}'")
 
-        # Visualization
+        # Create messages for each test prompt
+        messages_list = []
+        for prompt in X_test:
+            formatted_prompt = prompt_template.format(prompt=prompt)
+            messages = [{"role": "user", "content": formatted_prompt}]
+            messages_list.append(messages)
+
+        print(f"Running model over all {len(messages_list)} prompts...")
+        
+        # Save CSV path
         plot_dir = Path(f"results/{run_name}/runthrough_{ds_name}")
         plot_dir.mkdir(parents=True, exist_ok=True)
-        plot_path = plot_dir / f"logit_hist_{check['name']}_model_check.png"
-
-        # Save CSV path
         csv_path = plot_dir / f"logit_diff_{check['name']}_model_check.csv"
-        all_top_logits = []
-        all_labels = []
-        # If CSV exists, skip model run and just plot
-        if csv_path.exists():
-            print(f"CSV {csv_path} already exists. Skipping model run and using existing CSV for plots.")
-            df = pd.read_csv(csv_path)
-            all_labels = df['label'].tolist()
+        
+        csv_rows = []
+        
+        # Process each message using apply_chat_template and extract logits
+        for i, messages in tqdm(enumerate(messages_list)):
+            # print(f"Processing prompt {i+1}/{len(messages_list)}")
             
-            # Validate that the CSV matches our current test set
-            if len(all_labels) != len(y_test):
-                raise ValueError(f"CSV has {len(all_labels)} labels but test set has {len(y_test)} examples. Dataset mismatch detected!")
+            # Apply chat template and get logits
+            input_ids = tokenizer.apply_chat_template(messages, return_tensors="pt", return_dict=True)
+            if torch.cuda.is_available():
+                input_ids = {k: v.cuda() for k, v in input_ids.items()}
             
-            for _, row in df.iterrows():
-                logit_dict = {}
-                for idx, name in class_names.items():
-                    col = f"logit_{name}"
-                    if col in row:
-                        logit_dict[idx] = row[col]
-                all_top_logits.append(logit_dict)
-        else:
-            for i in range(0, len(X_test), batch_size):
-                batch_prompts = check_prompts[i:i+batch_size]
-                batch_labels = y_test[i:i+batch_size]
-                # Limit max_length to 2048 tokens to prevent memory issues
-                inputs = tokenizer(batch_prompts, return_tensors='pt', padding=True, truncation=True, max_length=4096)
-                if torch.cuda.is_available():
-                    inputs = {k: v.cuda() for k, v in inputs.items()}
-                with torch.no_grad():
-                    outputs = model(**inputs)
-                    logits = outputs.logits  # (batch, seq, vocab)
-                # For each prompt in batch
-                for j in range(len(batch_prompts)):
-                    last_token_logits = logits[j, -1]
-                    logit_values = {idx: last_token_logits[token_id].item() for idx, token_id in class_token_ids.items()}
-                    all_top_logits.append(logit_values)
-                    row = {"prompt": X_test[i+j], "label": batch_labels[j]}
-                    for idx, val in logit_values.items():
-                        row[f"logit_{class_names[idx]}"] = val
-                    if len(logit_values) == 2:
-                        row["logit_diff"] = logit_values[0] - logit_values[1]
-                    csv_rows.append(row)
-            all_labels = y_test.tolist()
-            pd.DataFrame(csv_rows).to_csv(csv_path, index=False)
-            print(f"Saved CSV of logit diffs to: {csv_path}")
-
-
-        # # Generalized logit diff histogram
-        # diff_hist_path = plot_dir / f"logit_diff_hist_{check['name']}_model_check.png"
-        # plot_logit_diffs_by_class(
-        #     diff_file=str(csv_path),
-        #     class_names=class_names,
-        #     save_path=str(diff_hist_path)
-        # )
-
-        # class_logit_path = plot_dir / f"logit_hist_{check['name']}_model_check.png"
-        # plot_class_logit_distributions(
-        #     all_top_logits=all_top_logits,
-        #     all_labels=all_labels,
-        #     class_names=class_names,
-        #     run_name=run_name,
-        #     save_path=class_logit_path,
-        #     bins=20,
-        #     x_range=(-10, 10)
-        # )
+            with torch.no_grad():
+                outputs = model(**input_ids)
+                logits = outputs.logits  # (1, seq, vocab)
+            
+            # Get logits for the last token (where the model would predict the next token)
+            response_logits = logits[0, -1]  # Remove batch dim
+            
+            # Extract logits for each class
+            logit_values = {}
+            for idx, token_id in class_token_ids.items():
+                logit_values[idx] = response_logits[token_id].item()
+            
+            # Compute log probabilities
+            log_probs = torch.log_softmax(response_logits, dim=-1)
+            log_prob_values = {}
+            for idx, token_id in class_token_ids.items():
+                log_prob_values[idx] = log_probs[token_id].item()
+            
+            # Debug: Print top 5 tokens in the logit distribution
+            values, indices = torch.topk(response_logits, 5)
+            # print(f"\nTop 5 tokens for prompt {i+1}:")
+            # for j, (value, index) in enumerate(zip(values.tolist(), indices.tolist())):
+            #     token = tokenizer.decode([index])
+            #     log_prob = log_probs[index].item()
+            #     print(f"  {j+1}. Token '{token}' (ID: {index}): logit={value:.3f}, log_prob={log_prob:.3f}")
+            
+            # # Also show the class token logits specifically
+            # print("Class token logits:")
+            # for idx, token_id in class_token_ids.items():
+            #     token = tokenizer.decode([token_id])
+            #     logit_val = logit_values[idx]
+            #     log_prob_val = log_prob_values[idx]
+            #     print(f"  Class {idx} ('{token}'): logit={logit_val:.3f}, log_prob={log_prob_val:.3f}")
+            # print("-" * 50)
+            
+            # Create CSV row
+            row = {
+                "prompt": X_test[i], 
+                "label": y_test[i]
+            }
+            
+            # Add logits
+            for idx, val in logit_values.items():
+                row[f"logit_{class_names[idx]}"] = val
+            
+            # Add log probabilities
+            for idx, val in log_prob_values.items():
+                row[f"logprob_{class_names[idx]}"] = val
+            
+            # Add logit difference (assuming binary classification with classes 0 and 1)
+            if len(logit_values) == 2:
+                row["logit_diff"] = logit_values[0] - logit_values[1]
+            
+            csv_rows.append(row)
+        
+        # Save to CSV
+        pd.DataFrame(csv_rows).to_csv(csv_path, index=False)
+        print(f"Saved CSV of logit diffs to: {csv_path}")
+        
         # Free model and clear CUDA memory after each check
         del model
         if torch.cuda.is_available():
