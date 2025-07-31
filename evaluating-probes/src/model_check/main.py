@@ -129,7 +129,6 @@ def run_model_check(config):
         
         # Save CSV path
         plot_dir = Path(f"results/{run_name}/runthrough_{ds_name}")
-        plot_dir.mkdir(parents=True, exist_ok=True)
         csv_path = plot_dir / f"logit_diff_{check['name']}_model_check.csv"
         
         csv_rows = []
@@ -179,20 +178,20 @@ def run_model_check(config):
             
             # Debug: Print top 5 tokens in the logit distribution
             values, indices = torch.topk(response_logits, 5)
-            print(f"\nTop 5 tokens for prompt {i+1}:")
-            for j, (value, index) in enumerate(zip(values.tolist(), indices.tolist())):
-                token = tokenizer.decode([index])
-                log_prob = log_probs[index].item()
-                print(f"  {j+1}. Token '{token}' (ID: {index}): logit={value:.3f}, log_prob={log_prob:.3f}")
+            # print(f"\nTop 5 tokens for prompt {i+1}:")
+            # for j, (value, index) in enumerate(zip(values.tolist(), indices.tolist())):
+            #     token = tokenizer.decode([index])
+            #     log_prob = log_probs[index].item()
+            #     print(f"  {j+1}. Token '{token}' (ID: {index}): logit={value:.3f}, log_prob={log_prob:.3f}")
             
-            # Also show the class token logits specifically
-            print("Class token logits (chosen from arrays):")
-            for idx in class_token_ids.keys():
-                logit_val = logit_values[idx]
-                log_prob_val = log_prob_values[idx]
-                chosen_name = chosen_tokens[idx]
-                print(f"  Class {idx} (chose '{chosen_name}'): logit={logit_val:.3f}, log_prob={log_prob_val:.3f}")
-            print("-" * 50)
+            # # Also show the class token logits specifically
+            # print("Class token logits (chosen from arrays):")
+            # for idx in class_token_ids.keys():
+            #     logit_val = logit_values[idx]
+            #     log_prob_val = log_prob_values[idx]
+            #     chosen_name = chosen_tokens[idx]
+            #     print(f"  Class {idx} (chose '{chosen_name}'): logit={logit_val:.3f}, log_prob={log_prob_val:.3f}")
+            # print("-" * 50)
             
             # Create CSV row
             row = {
@@ -217,6 +216,7 @@ def run_model_check(config):
             csv_rows.append(row)
         
         # Save to CSV
+        plot_dir.mkdir(parents=True, exist_ok=True)
         pd.DataFrame(csv_rows).to_csv(csv_path, index=False)
         print(f"Saved CSV of logit diffs to: {csv_path}")
         

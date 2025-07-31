@@ -49,6 +49,25 @@ from transformer_lens import HookedTransformer
 def get_dataset(name, model, device, seed):
     return Dataset(name, model=model, device=device, seed=seed)
 
+def get_effective_seeds(config):
+    """Extract seeds from config, supporting both single seed and multiple seeds.
+    Returns a list of seeds for uniform processing.
+    """
+    if 'seeds' in config:
+        # Multiple seeds specified
+        seeds = config['seeds']
+        if isinstance(seeds, list):
+            return seeds
+        else:
+            # Handle case where seeds might be a single value
+            return [seeds]
+    elif 'seed' in config:
+        # Single seed specified (backward compatibility)
+        return [config['seed']]
+    else:
+        # Default seed if none specified
+        return [42]
+
 def main():
     # Clear GPU memory and set device
     torch.cuda.empty_cache()
@@ -78,6 +97,10 @@ def main():
 
     logger = Logger(results_dir / "output.log")
 
+    # Get all seeds to process
+    all_seeds = get_effective_seeds(config)
+    logger.log(f"Processing {len(all_seeds)} seeds: {all_seeds}")
+
     # Run model check first if present
     if 'model_check' in config:
         run_name = config.get('run_name', 'default_run')
@@ -102,7 +125,6 @@ def main():
         model = HookedTransformer.from_pretrained(config['model_name'], device) # Load to get activations if needed
         d_model = model.cfg.d_model
 
-        global_seed = int(config.get('seed'))
         available_datasets = get_available_datasets()
 
         # Step 1: Pre-flight check and gather all unique training jobs
@@ -132,36 +154,36 @@ def main():
                 for arch_config in config.get('architectures', []):
                     for layer in config['layers']:
                         for component in config['components']:
-                            architecture_name = arch_config['name']
-                            config_name = arch_config.get('config_name')
-                            training_jobs.add((experiment_name, train_dataset, layer, component, architecture_name, config_name))
-
-        # Check all datasets that will be used for either training or evaluation
-        valid_dataset_metadata = {}
-        for dataset_name in sorted(list(all_dataset_names_to_check)):
-            try:
-                logger.log(dataset_name)
-                data = get_dataset(dataset_name, model, device, global_seed)
-                data.split_data(test_size=0.15, seed=global_seed) # necessary for checking
-                if should_skip_dataset(dataset_name, data, logger):
-                    continue
-                valid_dataset_metadata[dataset_name] = {
-                    'task_type': getattr(data, 'task_type', None), 
-                    'n_classes': getattr(data, 'n_classes', None)
-                }
-            except Exception as e:
-                logger.log(f"  - 💀 ERROR checking dataset '{dataset_name}': {e}")
-
-        valid_training_jobs = [job for job in training_jobs if job[1] in valid_dataset_metadata]
+                            for seed in all_seeds:
+                                architecture_name = arch_config['name']
+                                config_name = arch_config.get('config_name')
+                                training_jobs.add((experiment_name, train_dataset, layer, component, architecture_name, config_name, seed))
 
         # Step 2: Training Phase
         logger.log("\n" + "="*25 + " TRAINING PHASE " + "="*25)
-        for i, (experiment_name, train_ds, layer, comp, arch_name, conf_name) in enumerate(valid_training_jobs):
+        for i, (experiment_name, train_ds, layer, comp, arch_name, conf_name, seed) in enumerate(training_jobs):
             logger.log("-" * 60)
-            logger.log(f"🫠 Training job {i+1}/{len(valid_training_jobs)}: {experiment_name}, {train_ds}, {arch_name}, L{layer}, {comp}")
+            logger.log(f"🫠 Training job {i+1}/{len(training_jobs)}: {experiment_name}, {train_ds}, {arch_name}, L{layer}, {comp}, seed={seed}")
+            
+            # Validate dataset for this specific seed
+            try:
+                logger.log(f"Validating dataset '{train_ds}' with seed {seed}")
+                data = get_dataset(train_ds, model, device, seed)
+                data.split_data(test_size=0.15, seed=seed) # necessary for checking
+                if should_skip_dataset(train_ds, data, logger):
+                    logger.log(f"  - Skipping training job due to dataset validation failure")
+                    continue
+            except Exception as e:
+                logger.log(f"  - 💀 ERROR validating dataset '{train_ds}' with seed {seed}: {e}")
+                continue
+            
             experiment = next((exp for exp in config['experiments'] if exp['name'] == experiment_name), None)
-            experiment_dir = results_dir / experiment_name
+            
+            # Create seed-specific directory structure
+            seed_dir = results_dir / f"seed_{seed}"
+            experiment_dir = seed_dir / experiment_name
             experiment_dir.mkdir(parents=True, exist_ok=True)
+            
             metric = experiment.get('metric', 'acc')
             rebuild_configs = [None]
             if experiment and 'rebuild_config' in experiment:
@@ -178,7 +200,7 @@ def main():
                 train_probe(
                     model=model, d_model=d_model, train_dataset_name=train_ds,
                     layer=layer, component=comp, architecture_name=arch_name, config_name=conf_name,
-                    device=config['device'], use_cache=config['cache_activations'], seed=global_seed,
+                    device=config['device'], use_cache=config['cache_activations'], seed=seed,
                     results_dir=experiment_dir, cache_dir=cache_dir, logger=logger, retrain=retrain,
                     hyperparameter_tuning=hyperparameter_tuning, rebuild_config=rebuild_params, metric=metric,
                     retrain_with_best_hparams=retrain_with_best_hparams,
@@ -189,8 +211,6 @@ def main():
         logger.log("\n" + "="*25 + " EVALUATION PHASE " + "="*25)
         for experiment in config['experiments']:
             experiment_name = experiment['name']
-            experiment_dir = results_dir / experiment_name
-            experiment_dir.mkdir(parents=True, exist_ok=True)
             train_sets = [experiment['train_on']]
             # if experiment['train_on'] == "all": 
             #     train_sets = available_datasets
@@ -206,53 +226,84 @@ def main():
             else:
                 rebuild_configs = [None] # If rebuild config, don't use original set
             for train_dataset in train_sets:
-                if train_dataset not in valid_dataset_metadata: continue
                 eval_sets = experiment['evaluate_on']
                 # if "all" in eval_sets: eval_sets = available_datasets
                 # if "self" in eval_sets: eval_sets = [d if d != "self" else train_dataset for d in eval_sets]
                 for eval_dataset in eval_sets:
-                    if eval_dataset not in valid_dataset_metadata: continue
-                    train_meta = valid_dataset_metadata[train_dataset]
-                    eval_meta = valid_dataset_metadata[eval_dataset]
-                    if train_meta['task_type'] != eval_meta['task_type'] or train_meta['n_classes'] != eval_meta['n_classes']:
-                        logger.log(f"  - 🫡  Skipping evaluation of probe from '{train_dataset}' on '{eval_dataset}' due to task mismatch.")
-                        continue
                     for arch_config in config.get('architectures', []):
                         for layer in config['layers']:
                             for component in config['components']:
-                                all_eval_results = {}
-                                for rebuild_params in rebuild_configs:
-                                    if rebuild_params is not None:
-                                        probe_save_dir = experiment_dir / f"dataclass_exps_{train_dataset}"
-                                    else:
-                                        probe_save_dir = experiment_dir / f"train_{train_dataset}"
-                                    if not probe_save_dir.exists():
-                                        logger.log(f"  - [SKIP] Probe dir does not exist: {probe_save_dir}")
+                                for seed in all_seeds:
+                                    # Validate both train and eval datasets for this specific seed
+                                    try:
+                                        logger.log(f"Validating datasets for evaluation: train='{train_dataset}', eval='{eval_dataset}' with seed {seed}")
+                                        train_data = get_dataset(train_dataset, model, device, seed)
+                                        train_data.split_data(test_size=0.15, seed=seed)
+                                        if should_skip_dataset(train_dataset, train_data, logger):
+                                            logger.log(f"  - Skipping evaluation due to train dataset validation failure")
+                                            continue
+                                        
+                                        eval_data = get_dataset(eval_dataset, model, device, seed)
+                                        eval_data.split_data(test_size=0.15, seed=seed)
+                                        if should_skip_dataset(eval_dataset, eval_data, logger):
+                                            logger.log(f"  - Skipping evaluation due to eval dataset validation failure")
+                                            continue
+                                        
+                                        # Check task compatibility
+                                        train_meta = {
+                                            'task_type': getattr(train_data, 'task_type', None), 
+                                            'n_classes': getattr(train_data, 'n_classes', None)
+                                        }
+                                        eval_meta = {
+                                            'task_type': getattr(eval_data, 'task_type', None), 
+                                            'n_classes': getattr(eval_data, 'n_classes', None)
+                                        }
+                                        if train_meta['task_type'] != eval_meta['task_type'] or train_meta['n_classes'] != eval_meta['n_classes']:
+                                            logger.log(f"  - 🫡  Skipping evaluation of probe from '{train_dataset}' on '{eval_dataset}' due to task mismatch.")
+                                            continue
+                                            
+                                    except Exception as e:
+                                        logger.log(f"  - 💀 ERROR validating datasets for evaluation with seed {seed}: {e}")
                                         continue
-                                    contrast_fn = None
-                                    if 'contrast_fn' in experiment:
-                                        contrast_fn = Dataset.load_contrast_fn(experiment['contrast_fn'])
                                     
-                                    metrics = evaluate_probe(
-                                        train_dataset_name=train_dataset, eval_dataset_name=eval_dataset,
-                                        layer=layer, component=component, architecture_config=arch_config,
-                                        results_dir=experiment_dir, logger=logger, seed=global_seed,
-                                        model=model, d_model=d_model, device=config['device'],
-                                        use_cache=config['cache_activations'], cache_dir=cache_dir, reevaluate=reevaluate,
-                                        score_options=score_options, rebuild_config=rebuild_params, return_metrics=True,
-                                        contrast_fn=contrast_fn
-                                    )
-                                    key = resample_params_to_str(rebuild_params)
-                                    all_eval_results[key] = metrics
-                                probe_filename_base = get_probe_filename_prefix(train_dataset, arch_config['name'], layer, component, contrast_fn)
-                                eval_results_path = experiment_dir / f"train_{train_dataset}" / f"eval_on_{eval_dataset}__{probe_filename_base}_allres.json"
-                                with open(eval_results_path, "w") as f:
-                                    json.dump(all_eval_results, f, indent=2)
-                                if any(rebuild_configs):
-                                    dataclass_eval_results_path = experiment_dir / f"dataclass_exps_{train_dataset}" / f"eval_on_{eval_dataset}__{probe_filename_base}_allres.json"
-                                    dataclass_eval_results_path.parent.mkdir(parents=True, exist_ok=True)
-                                    with open(dataclass_eval_results_path, "w") as f:
+                                    # Create seed-specific directory structure
+                                    seed_dir = results_dir / f"seed_{seed}"
+                                    experiment_dir = seed_dir / experiment_name
+                                    experiment_dir.mkdir(parents=True, exist_ok=True)
+                                    
+                                    all_eval_results = {}
+                                    for rebuild_params in rebuild_configs:
+                                        if rebuild_params is not None:
+                                            probe_save_dir = experiment_dir / f"dataclass_exps_{train_dataset}"
+                                        else:
+                                            probe_save_dir = experiment_dir / f"train_{train_dataset}"
+                                        if not probe_save_dir.exists():
+                                            logger.log(f"  - [SKIP] Probe dir does not exist: {probe_save_dir}")
+                                            continue
+                                        contrast_fn = None
+                                        if 'contrast_fn' in experiment:
+                                            contrast_fn = Dataset.load_contrast_fn(experiment['contrast_fn'])
+                                        
+                                        metrics = evaluate_probe(
+                                            train_dataset_name=train_dataset, eval_dataset_name=eval_dataset,
+                                            layer=layer, component=component, architecture_config=arch_config,
+                                            results_dir=experiment_dir, logger=logger, seed=seed,
+                                            model=model, d_model=d_model, device=config['device'],
+                                            use_cache=config['cache_activations'], cache_dir=cache_dir, reevaluate=reevaluate,
+                                            score_options=score_options, rebuild_config=rebuild_params, return_metrics=True,
+                                            contrast_fn=contrast_fn
+                                        )
+                                        key = resample_params_to_str(rebuild_params)
+                                        all_eval_results[key] = metrics
+                                    probe_filename_base = get_probe_filename_prefix(train_dataset, arch_config['name'], layer, component, contrast_fn)
+                                    eval_results_path = experiment_dir / f"train_{train_dataset}" / f"eval_on_{eval_dataset}__{probe_filename_base}_allres.json"
+                                    with open(eval_results_path, "w") as f:
                                         json.dump(all_eval_results, f, indent=2)
+                                    if any(rebuild_configs):
+                                        dataclass_eval_results_path = experiment_dir / f"dataclass_exps_{train_dataset}" / f"eval_on_{eval_dataset}__{probe_filename_base}_allres.json"
+                                        dataclass_eval_results_path.parent.mkdir(parents=True, exist_ok=True)
+                                        with open(dataclass_eval_results_path, "w") as f:
+                                            json.dump(all_eval_results, f, indent=2)
     finally:
         if 'model' in locals():
             del model

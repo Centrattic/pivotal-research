@@ -70,7 +70,7 @@ def train_probe(
             train_total_samples=train_total_samples,
             val_size=val_size,
             test_size=test_size,
-            seed=seed,
+            seed=seed,  # Use the global seed passed to this function
             llm_upsample=llm_upsample,
             llm_csv_path=llm_csv_path
         )

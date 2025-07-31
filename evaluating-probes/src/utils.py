@@ -84,28 +84,30 @@ def get_probe_filename_prefix(train_ds, arch_name, layer, component, config_name
 def rebuild_suffix(rebuild_config):
     if not rebuild_config:
         return "original"
+    
     if 'class_counts' in rebuild_config:
         cc = rebuild_config['class_counts']
         cc_str = '_'.join([f"class{cls}_{cc[cls]}" for cls in sorted(cc)])
-        return f"{cc_str}_seed{rebuild_config.get('seed')}"
+        return f"{cc_str}"
     elif 'class_percents' in rebuild_config:
         cp = rebuild_config['class_percents']
         cp_str = '_'.join([f"class{cls}_{int(cp[cls]*100)}pct" for cls in sorted(cp)])
-        return f"{cp_str}_total{rebuild_config['total_samples']}_seed{rebuild_config.get('seed')}"
+        return f"{cp_str}_total{rebuild_config['total_samples']}"
     else:
-        return f"custom_seed{rebuild_config.get('seed')}"
+        return "custom"
 
 
 def resample_params_to_str(params):
     if params is None:
         return "original"
+    
     if 'class_counts' in params:
         cc = params['class_counts']
         cc_str = '_'.join([f"class{cls}_{cc[cls]}" for cls in sorted(cc)])
-        return f"{cc_str}_seed{params.get('seed')}"
+        return f"{cc_str}"
     elif 'class_percents' in params:
         cp = params['class_percents']
         cp_str = '_'.join([f"class{cls}_{int(cp[cls]*100)}pct" for cls in sorted(cp)])
-        return f"{cp_str}_total{params['total_samples']}_seed{params.get('seed')}"
+        return f"{cp_str}_total{params['total_samples']}"
     else:
-        return f"custom_seed{params.get('seed')}"
+        return "custom"
