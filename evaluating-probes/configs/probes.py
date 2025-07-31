@@ -12,7 +12,7 @@ class PytorchLinearProbeConfig(ProbeConfig):
     aggregation: str = "mean"  # mean, max, last, softmax
     lr: float = 5e-4
     epochs: int = 150
-    batch_size: int = 512
+    batch_size: int = 1
     weight_decay: float = 0.0
     weighting_method: str = 'weighted_sampler'  # 'weighted_loss', 'weighted_sampler', or 'pcngd'
     # Add more as needed
@@ -22,7 +22,7 @@ class PytorchAttentionProbeConfig(ProbeConfig):
     """Hyperparameters for the PyTorch AttentionProbe."""
     lr: float = 5e-4
     epochs: int = 150
-    batch_size: int = 512
+    batch_size: int = 1
     weight_decay: float = 0.0
     weighting_method: str = 'weighted_sampler'  # 'weighted_loss', 'weighted_sampler', or 'pcngd'
     # Add more as needed
@@ -31,7 +31,15 @@ class PytorchAttentionProbeConfig(ProbeConfig):
 class MassMeanProbeConfig(ProbeConfig):
     """Configuration for the Mass Mean probe (no training needed)."""
     use_iid: bool = False  # Whether to use IID version (Fisher's LDA)
+    batch_size: int = 200  # Batch size for processing to avoid memory issues
     # No other parameters needed since mass-mean is computed analytically
+
+@dataclass
+class ActivationSimilarityProbeConfig(ProbeConfig):
+    """Configuration for the Activation Similarity probe (no training needed)."""
+    aggregation: str = "mean"  # mean, max, last, softmax
+    batch_size: int = 200  # Batch size for processing to avoid memory issues
+    # No other parameters needed since activation similarity is computed analytically
 
 # A dictionary to easily access configs by name. Configs are updated by -ht flag (Optuna tuning).
 # The issue is we'd need separate for each dataset
@@ -64,4 +72,10 @@ PROBE_CONFIGS = {
     "mass_mean": MassMeanProbeConfig(use_iid=False),
     "mass_mean_iid": MassMeanProbeConfig(use_iid=True),
     "default_mass_mean": MassMeanProbeConfig(use_iid=False),
+    # Activation similarity probe configs
+    "act_sim_mean": ActivationSimilarityProbeConfig(aggregation="mean"),
+    "act_sim_max": ActivationSimilarityProbeConfig(aggregation="max"),
+    "act_sim_last": ActivationSimilarityProbeConfig(aggregation="last"),
+    "act_sim_softmax": ActivationSimilarityProbeConfig(aggregation="softmax"),
+    "default_act_sim": ActivationSimilarityProbeConfig(aggregation="mean"),
 }

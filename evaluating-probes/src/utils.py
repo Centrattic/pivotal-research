@@ -5,7 +5,7 @@ from typing import List, Any
 from src.logger import Logger
 from pathlib import Path
 from dataclasses import asdict
-from src.probes import LinearProbe, AttentionProbe, MassMeanProbe
+from src.probes import LinearProbe, AttentionProbe, MassMeanProbe, ActivationSimilarityProbe, BaseProbeNonTrainable
 from configs.probes import PROBE_CONFIGS
 
 def should_skip_dataset(dataset_name, data, logger=None):
@@ -47,18 +47,18 @@ def dump_loss_history(losses: List[float], out_path: Path, logger: Logger | None
 def extract_aggregation_from_config(config_name: str, architecture_name: str) -> str:
     """Extract aggregation from config for backward compatibility."""
     config = PROBE_CONFIGS[config_name]
-    if hasattr(config, 'aggregation'):
+    if hasattr(config, 'aggregation'): # act sim and linear have aggregation in config
         return config.aggregation
     elif architecture_name == "attention":
         return "attention"
     elif architecture_name in ["mass_mean", "mass_mean_iid"]:
-        return "mean"
+        return "mass_mean"  # Mass-mean probes don't use aggregation
     else:
         return "mean"  # Default fallback
 
 
 def get_probe_architecture(architecture_name: str, d_model: int, device, config: dict):
-    """Create probe architecture with all config parameters passed directly."""
+    """Create probe architecture with filtered config parameters."""
     if architecture_name == "linear":
         return LinearProbe(d_model=d_model, device=device, **config)
     if architecture_name == "attention":
@@ -66,6 +66,10 @@ def get_probe_architecture(architecture_name: str, d_model: int, device, config:
     if architecture_name in ["mass_mean", "mass_mean_iid"]:
         # Mass-mean probes need use_iid parameter from config
         return MassMeanProbe(d_model=d_model, device=device, **config)
+    if architecture_name.startswith("act_sim"):
+        # Activation similarity probes - filter out batch_size from constructor args
+        filtered_config = {k: v for k, v in config.items() if k != 'batch_size'}
+        return ActivationSimilarityProbe(d_model=d_model, device=device, **filtered_config)
     raise ValueError(f"Unknown architecture: {architecture_name}")
 
 

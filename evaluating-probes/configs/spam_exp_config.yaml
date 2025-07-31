@@ -40,20 +40,20 @@ experiments:
       - all
     rebuild_config:
       increasing_spam_fixed_total:
-        - {class_counts: {0: 3999, 1: 1}}
-        - {class_counts: {0: 3998, 1: 2}}
-        - {class_counts: {0: 3995, 1: 5}}
-        - {class_counts: {0: 3990, 1: 10}}
-        - {class_counts: {0: 3985, 1: 15}}
-        - {class_counts: {0: 3980, 1: 20}}
-        - {class_counts: {0: 3975, 1: 25}}
-        - {class_counts: {0: 3965, 1: 35}}
-        - {class_counts: {0: 3955, 1: 45}}
-        - {class_counts: {0: 3950, 1: 50}}
-        - {class_counts: {0: 3900, 1: 100}}
-        - {class_counts: {0: 3850, 1: 150}}
-        - {class_counts: {0: 3750, 1: 250}}
-        - {class_counts: {0: 3500, 1: 500}}
+        - {class_counts: {0: 3000, 1: 1}} # we should use all of our examples
+        - {class_counts: {0: 3000, 1: 2}}
+        - {class_counts: {0: 3000, 1: 5}}
+        - {class_counts: {0: 3000, 1: 10}}
+        - {class_counts: {0: 3000, 1: 15}}
+        - {class_counts: {0: 3000, 1: 20}}
+        - {class_counts: {0: 3000, 1: 25}}
+        - {class_counts: {0: 3000, 1: 35}}
+        - {class_counts: {0: 3000, 1: 45}}
+        - {class_counts: {0: 3000, 1: 50}}
+        - {class_counts: {0: 3000, 1: 100}}
+        - {class_counts: {0: 3000, 1: 150}}
+        - {class_counts: {0: 3000, 1: 250}}
+        - {class_counts: {0: 3000, 1: 500}}
         # - {class_counts: {0: 3250, 1: 750}} don't have that many samples
   # - name: 3-spam-pred-auc-llm-upsampling
   #   metric: auc
@@ -128,5 +128,5 @@ model_check:
   - name: spam-pred
     hf_model_name: "google/gemma-2-9b-it"
     check_on: "94_better_spam"
-    check_prompt: "In one word, is this email spam? \n {prompt}"
+    check_prompt: "Is this email spam? Answer with either Yes or No. \n {prompt}"
     class_names: {0: ["Yes", "yes", " Yes", " yes"], 1: ["No", "no", " No", " no"]}

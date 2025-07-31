@@ -348,3 +348,121 @@ def evaluate_probe(
     if return_metrics:
         return combined_metrics
 
+
+def run_non_trainable_probe(
+    model, d_model: int, train_dataset_name: str, layer: int, component: str,
+    architecture_name: str, config_name: str, device: str, use_cache: bool,
+    seed: int, results_dir: Path, cache_dir: Path, logger: Logger, retrain: bool,
+    train_size: float = 0.75, val_size: float = 0.10, test_size: float = 0.15,
+    rebuild_config: dict = None,
+    metric: str = 'acc',
+    contrast_fn: Any = None,
+):
+    """
+    Run non-trainable probes (like activation similarity and mass-mean probes).
+    These probes don't require training but need to compute parameters from training data.
+    """
+    probe_filename_base = get_probe_filename_prefix(train_dataset_name, architecture_name, layer, component, config_name, contrast_fn)
+    probe_save_dir = results_dir / f"train_{train_dataset_name}"
+    
+    # If rebuilding, save in dataclass_exps_{dataset_name}
+    if rebuild_config is not None:
+        probe_save_dir = results_dir / f"dataclass_exps_{train_dataset_name}"
+        probe_save_dir.mkdir(parents=True, exist_ok=True)
+        suffix = rebuild_suffix(rebuild_config)
+        probe_filename = f"{probe_filename_base}_{suffix}_state.npz"
+        probe_state_path = probe_save_dir / probe_filename
+        probe_json_path = probe_save_dir / f"{probe_filename_base}_{suffix}_meta.json"
+        # Check for existing probe file before running
+        if use_cache and probe_state_path.exists() and not retrain:
+            logger.log(f"  - [SKIP] Non-trainable probe already computed in dataclass_exps: {probe_state_path.name}")
+            return
+    else:
+        probe_state_path = probe_save_dir / f"{probe_filename_base}_state.npz"
+        probe_json_path = probe_save_dir / f"{probe_filename_base}_meta.json"
+    
+    if use_cache and probe_state_path.exists() and not retrain:
+        logger.log(f"  - Non-trainable probe already computed. Skipping: {probe_state_path.name}")
+        return
+    
+    logger.log("  - Computing non-trainable probe parameters...")
+
+    # Prepare dataset
+    if rebuild_config is not None:
+        orig_ds = Dataset(train_dataset_name, model=model, device=device, seed=seed)
+        
+        # Check if this is LLM upsampling with new method
+        if 'llm_upsampling' in rebuild_config and rebuild_config['llm_upsampling']:
+            n_real_neg = rebuild_config.get('n_real_neg')
+            n_real_pos = rebuild_config.get('n_real_pos')
+            upsampling_factor = rebuild_config.get('upsampling_factor')
+            llm_csv_base_path = rebuild_config.get('llm_csv_base_path', 'results/llm_samples')
+            
+            if n_real_neg is None or n_real_pos is None or upsampling_factor is None:
+                raise ValueError("For LLM upsampling, 'n_real_neg', 'n_real_pos', and 'upsampling_factor' must be specified")
+            
+            train_ds = Dataset.build_llm_upsampled_dataset(
+                orig_ds,
+                seed=seed,
+                n_real_neg=n_real_neg,
+                n_real_pos=n_real_pos,
+                upsampling_factor=upsampling_factor,
+                val_size=val_size,
+                test_size=test_size,
+                llm_csv_base_path=llm_csv_base_path
+            )
+        else:
+            # Original rebuild_config logic
+            train_class_counts = rebuild_config.get('class_counts')
+            train_class_percents = rebuild_config.get('class_percents')
+            train_total_samples = rebuild_config.get('total_samples')
+            train_ds = Dataset.build_imbalanced_train_balanced_eval(
+                orig_ds,
+                train_class_counts=train_class_counts,
+                train_class_percents=train_class_percents,
+                train_total_samples=train_total_samples,
+                val_size=val_size,
+                test_size=test_size,
+                seed=seed,
+            )
+    else:
+        train_ds = Dataset(train_dataset_name, model=model, device=device, seed=seed)
+        train_ds.split_data(train_size=train_size, val_size=val_size, test_size=test_size, seed=seed)
+
+    # Get training activations
+    if contrast_fn is not None:
+        train_acts, y_train = train_ds.get_contrast_activations(contrast_fn, layer, component, split='train')
+    else:
+        train_acts, y_train = train_ds.get_train_set_activations(layer, component)
+
+    # Create and fit the non-trainable probe
+    probe_config = asdict(PROBE_CONFIGS[config_name])
+    probe = get_probe_architecture(architecture_name, d_model=d_model, device=device, config=probe_config)
+    
+    # For non-trainable probes, we just call fit() to compute parameters
+    # Use batch_size from probe config
+    probe_batch_size = probe_config.get('batch_size', 200)  # Default fallback
+    probe.fit(train_acts, y_train, batch_size=probe_batch_size)
+
+    # Save the probe
+    probe_save_dir.mkdir(parents=True, exist_ok=True)
+    probe.save_state(probe_state_path)
+    
+    # Save metadata/config
+    meta = {
+        'train_dataset_name': train_dataset_name,
+        'layer': layer,
+        'component': component,
+        'architecture_name': architecture_name,
+        'aggregation': extract_aggregation_from_config(config_name, architecture_name) if hasattr(probe, 'aggregation') else None,
+        'config_name': config_name,
+        'rebuild_config': copy.deepcopy(rebuild_config),
+        'probe_state_path': str(probe_state_path),
+        'probe_type': 'non_trainable'
+    }
+    
+    with open(probe_json_path, 'w') as f:
+        json.dump(meta, f, indent=2)
+    
+    logger.log(f"  - 🔥 Non-trainable probe computed and saved to {probe_state_path.name}")
+

@@ -39,7 +39,7 @@ except Exception as e:
     print(f"Warning: Could not set CUDA device early: {e}")
 
 # Now import transformer_lens after setting CUDA device
-from src.runner import train_probe, evaluate_probe, get_probe_filename_prefix
+from src.runner import train_probe, evaluate_probe, get_probe_filename_prefix, run_non_trainable_probe
 from src.data import Dataset, get_available_datasets
 from src.logger import Logger
 from src.utils import should_skip_dataset, resample_params_to_str
@@ -187,10 +187,14 @@ def main():
             
             for train_dataset in train_sets:
                 for arch_config in config.get('architectures', []):
+                    architecture_name = arch_config['name']
+                    # Skip non-trainable architectures in the training phase
+                    if architecture_name.startswith('act_sim') or architecture_name in ['mass_mean', 'mass_mean_iid']:
+                        continue
+                    
                     for layer in config['layers']:
                         for component in config['components']:
                             for seed in all_seeds:
-                                architecture_name = arch_config['name']
                                 config_name = arch_config.get('config_name')
                                 training_jobs.add((experiment_name, train_dataset, layer, component, architecture_name, config_name, seed))
 
@@ -220,14 +224,19 @@ def main():
             experiment_dir.mkdir(parents=True, exist_ok=True)
             
             metric = experiment.get('metric', 'acc')
-            rebuild_configs = [None]
+            rebuild_configs = []
             if experiment and 'rebuild_config' in experiment:
+                # For experiments with rebuild_config, only train the rebuild_config variants
+                # Do NOT include None (original training)
                 rc = experiment['rebuild_config']
                 if isinstance(rc, dict):
                     for group in rc.values():
                         rebuild_configs.extend(group)
                 else:
                     rebuild_configs.extend(rc if isinstance(rc, list) else [rc])
+            else:
+                # For experiments without rebuild_config, train the original probe
+                rebuild_configs = [None]
             for rebuild_params in rebuild_configs:
                 contrast_fn = None
                 if experiment and 'contrast_fn' in experiment:
@@ -246,6 +255,83 @@ def main():
                     contrast_fn=contrast_fn
                 )
 
+        # Step 2.5: Non-Trainable Probes Phase
+        logger.log("\n" + "="*25 + " NON-TRAINABLE PROBES PHASE " + "="*25)
+        
+        # Identify non-trainable probe architectures
+        non_trainable_architectures = []
+        for arch_config in config.get('architectures', []):
+            arch_name = arch_config['name']
+            if arch_name.startswith('act_sim') or arch_name in ['mass_mean', 'mass_mean_iid']:
+                non_trainable_architectures.append(arch_config)
+        
+        if non_trainable_architectures:
+            logger.log(f"Found {len(non_trainable_architectures)} non-trainable probe architectures: {[arch['name'] for arch in non_trainable_architectures]}")
+            
+            for experiment in config['experiments']:
+                experiment_name = experiment['name']
+                train_sets = [experiment['train_on']]
+                all_dataset_names_to_check.update(d for d in train_sets if d in available_datasets)
+                
+                eval_sets = experiment['evaluate_on']
+                all_dataset_names_to_check.update(d for d in eval_sets if d in available_datasets)
+                
+                for train_dataset in train_sets:
+                    for arch_config in non_trainable_architectures:
+                        for layer in config['layers']:
+                            for component in config['components']:
+                                for seed in all_seeds:
+                                    # Validate dataset for this specific seed
+                                    try:
+                                        logger.log(f"Validating dataset '{train_dataset}' for non-trainable probe with seed {seed}")
+                                        data = get_dataset(train_dataset, model, device, seed)
+                                        data.split_data(test_size=0.15, seed=seed)
+                                        if should_skip_dataset(train_dataset, data, logger):
+                                            logger.log(f"  - Skipping non-trainable probe due to dataset validation failure")
+                                            continue
+                                    except Exception as e:
+                                        logger.log(f"  - 💀 ERROR validating dataset '{train_dataset}' for non-trainable probe with seed {seed}: {e}")
+                                        continue
+                                    
+                                    # Create seed-specific directory structure
+                                    seed_dir = results_dir / f"seed_{seed}"
+                                    experiment_dir = seed_dir / experiment_name
+                                    experiment_dir.mkdir(parents=True, exist_ok=True)
+                                    
+                                    metric = experiment.get('metric', 'acc')
+                                    rebuild_configs = []
+                                    if experiment and 'rebuild_config' in experiment:
+                                        # For experiments with rebuild_config, only train the rebuild_config variants
+                                        # Do NOT include None (original training)
+                                        rc = experiment['rebuild_config']
+                                        if isinstance(rc, dict):
+                                            for group in rc.values():
+                                                rebuild_configs.extend(group)
+                                        else:
+                                            rebuild_configs.extend(rc if isinstance(rc, list) else [rc])
+                                    else:
+                                        # For experiments without rebuild_config, train the original probe
+                                        rebuild_configs = [None]
+                                    
+                                    for rebuild_params in rebuild_configs:
+                                        contrast_fn = None
+                                        if experiment and 'contrast_fn' in experiment:
+                                            contrast_fn = Dataset.load_contrast_fn(experiment['contrast_fn'])
+                                        
+                                        # Get effective seed for this rebuild_config
+                                        effective_seed = get_effective_seed_for_rebuild_config(seed, rebuild_params)
+                                        
+                                        # Run non-trainable probe
+                                        run_non_trainable_probe(
+                                            model=model, d_model=d_model, train_dataset_name=train_dataset,
+                                            layer=layer, component=component, architecture_name=arch_config['name'], config_name=arch_config.get('config_name'),
+                                            device=config['device'], use_cache=config['cache_activations'], seed=effective_seed,
+                                            results_dir=experiment_dir, cache_dir=cache_dir, logger=logger, retrain=retrain,
+                                            rebuild_config=rebuild_params, metric=metric, contrast_fn=contrast_fn
+                                        )
+        else:
+            logger.log("No non-trainable probe architectures found.")
+
         # Step 3: Evaluation Phase
         logger.log("\n" + "="*25 + " EVALUATION PHASE " + "="*25)
         for experiment in config['experiments']:
@@ -256,6 +342,8 @@ def main():
             score_options = experiment.get('score', ['all'])
             rebuild_configs = []
             if 'rebuild_config' in experiment:
+                # For experiments with rebuild_config, only evaluate the rebuild_config variants
+                # Do NOT include None (original training)
                 rc = experiment['rebuild_config']
                 if isinstance(rc, dict):
                     for group in rc.values():
@@ -263,7 +351,8 @@ def main():
                 else:
                     rebuild_configs = rc
             else:
-                rebuild_configs = [None] # If rebuild config, don't use original set
+                # For experiments without rebuild_config, evaluate the original probe
+                rebuild_configs = [None]
             for train_dataset in train_sets:
                 eval_sets = experiment['evaluate_on']
                 # if "all" in eval_sets: eval_sets = available_datasets

@@ -28,7 +28,7 @@ class BaseProbe:
         raise NotImplementedError("Subclasses must implement _init_model to set self.model")
 
     def fit(self, X: np.ndarray, y: np.ndarray, mask: Optional[np.ndarray] = None, 
-            epochs: int = 20, lr: float = 1e-3, batch_size: int = 200, weight_decay: float = 0.0, 
+            epochs: int = 20, lr: float = 1e-3, batch_size: int = 1, weight_decay: float = 0.0, 
             verbose: bool = True, early_stopping: bool = True, patience: int = 20, min_delta: float = 0.005,
             use_weighted_loss: bool = True, use_weighted_sampler: bool = False):
         """
@@ -627,3 +627,360 @@ class BaseProbe:
             print(f"PCNGD Training stopped early at epoch {stop_epoch}.")
         print(f"=== PCNGD TRAINING COMPLETE ===\n")
         return self 
+
+class BaseProbeNonTrainable:
+    """
+    Base class for probes that don't require training. Handles evaluation and saving/loading.
+    """
+    def __init__(self, d_model: int, device: str = "cpu", task_type: str = "classification", aggregation: str = "mean"):
+        self.d_model = d_model
+        self.device = device
+        self.task_type = task_type  # 'classification' or 'regression'
+        self.aggregation = aggregation  # 'mean', 'max', 'last', 'softmax', or None for probes that don't need aggregation
+        self.model = None  # No trainable model for these probes
+        self.loss_history = []  # Empty for non-trainable probes
+
+    def _aggregate_activations(self, activations: np.ndarray, mask: Optional[np.ndarray] = None) -> np.ndarray:
+        """
+        Aggregate activations across sequence dimension based on self.aggregation.
+        
+        Args:
+            activations: Shape (N, seq_len, d_model)
+            mask: Optional mask, shape (N, seq_len)
+            
+        Returns:
+            Aggregated activations, shape (N, d_model) or original shape if no aggregation needed
+        """
+        # If aggregation is None or "mass_mean", return original activations
+        if self.aggregation is None or self.aggregation == "mass_mean":
+            return activations
+        
+        if mask is None:
+            mask = np.ones(activations.shape[:2], dtype=bool)
+        
+        if self.aggregation == "mean":
+            # Optimized mean pooling with mask
+            # Use einsum for efficient masked sum
+            mask_expanded = mask[:, :, None]  # Shape: (N, seq_len, 1)
+            masked_sum = np.einsum('nsl,nsd->nd', mask_expanded, activations)
+            mask_counts = mask.sum(axis=1, keepdims=True)  # Shape: (N, 1)
+            return masked_sum / (mask_counts + 1e-8)  # Add small epsilon to avoid division by zero
+        elif self.aggregation == "max":
+            # Optimized max pooling with mask
+            # Create a copy and set masked values to -inf
+            masked_activations = activations.copy()
+            # For each sample, set masked positions to -inf
+            for i in range(len(activations)):
+                masked_activations[i, ~mask[i]] = -np.inf
+            return masked_activations.max(axis=1)
+        elif self.aggregation == "last":
+            # Last token (assuming mask is True for valid tokens)
+            last_indices = mask.sum(axis=1) - 1
+            return activations[np.arange(len(activations)), last_indices]
+        elif self.aggregation == "softmax":
+            # Softmax-weighted average
+            # For simplicity, use uniform weights if no attention mechanism
+            return activations.mean(axis=1)
+        else:
+            raise ValueError(f"Unknown aggregation method: {self.aggregation}")
+
+    def fit(self, X: np.ndarray, y: np.ndarray, mask: Optional[np.ndarray] = None, **kwargs):
+        """
+        For non-trainable probes, this method computes the probe parameters from the training data.
+        Subclasses must implement this to compute their specific parameters.
+        """
+        raise NotImplementedError("Subclasses must implement fit to compute probe parameters")
+
+    def predict(self, X: np.ndarray, mask: Optional[np.ndarray] = None, batch_size: int = 1) -> np.ndarray:
+        """
+        Make predictions using the non-trainable probe.
+        """
+        print(f"\n=== NON-TRAINABLE PREDICTION START ===")
+        print(f"Input X shape: {X.shape}")
+        print(f"Input mask shape: {mask.shape if mask is not None else 'None'}")
+        print(f"Aggregation: {self.aggregation}")
+        
+        # For non-trainable probes, we can process all data at once since there's no model
+        processed_X = self._aggregate_activations(X, mask)
+        predictions = self._compute_predictions(processed_X)
+        
+        print(f"Processed X shape: {processed_X.shape}")
+        print(f"Final predictions shape: {predictions.shape}")
+        print(f"=== NON-TRAINABLE PREDICTION COMPLETE ===\n")
+        return predictions
+
+    def _compute_predictions(self, processed_X: np.ndarray) -> np.ndarray:
+        """
+        Compute predictions from processed activations. Subclasses must implement this.
+        """
+        raise NotImplementedError("Subclasses must implement _compute_predictions")
+
+    def predict_proba(self, X: np.ndarray, mask: Optional[np.ndarray] = None, batch_size: int = 1) -> np.ndarray:
+        """
+        Compute prediction probabilities for non-trainable probes.
+        """
+        print(f"\n=== NON-TRAINABLE PROBABILITY PREDICTION START ===")
+        print(f"Input X shape: {X.shape}")
+        print(f"Input mask shape: {mask.shape if mask is not None else 'None'}")
+        
+        processed_X = self._aggregate_activations(X, mask)
+        probabilities = self._compute_probabilities(processed_X)
+        
+        print(f"Processed X shape: {processed_X.shape}")
+        print(f"Final probabilities shape: {probabilities.shape}")
+        print(f"=== NON-TRAINABLE PROBABILITY PREDICTION COMPLETE ===\n")
+        return probabilities
+
+    def _compute_probabilities(self, processed_X: np.ndarray) -> np.ndarray:
+        """
+        Compute probabilities from processed activations. Subclasses must implement this.
+        """
+        raise NotImplementedError("Subclasses must implement _compute_probabilities")
+
+    def predict_logits(self, X: np.ndarray, mask: Optional[np.ndarray] = None, batch_size: int = 1) -> np.ndarray:
+        """
+        Returns the raw scores (logits) for the input X.
+        """
+        processed_X = self._aggregate_activations(X, mask)
+        return self._compute_logits(processed_X)
+
+    def _compute_logits(self, processed_X: np.ndarray) -> np.ndarray:
+        """
+        Compute logits from processed activations. Subclasses must implement this.
+        """
+        raise NotImplementedError("Subclasses must implement _compute_logits")
+
+    def score(self, X: np.ndarray, y: np.ndarray, mask: Optional[np.ndarray] = None) -> dict[str, float]:
+        """
+        Calculate performance metrics for the non-trainable probe.
+        """
+        print(f"\n=== NON-TRAINABLE SCORING START ===")
+        print(f"Input X shape: {X.shape}")
+        print(f"Input y shape: {y.shape}")
+        print(f"Input mask shape: {mask.shape if mask is not None else 'None'}")
+        print(f"Task type: {self.task_type}")
+        
+        from sklearn.metrics import accuracy_score, roc_auc_score, r2_score, mean_squared_error, precision_score, recall_score, confusion_matrix
+        
+        preds = self.predict(X, mask)
+        print(f"Predictions shape: {preds.shape}")
+        print(f"Predictions unique values: {np.unique(preds)}")
+        
+        if self.task_type == "regression":
+            r2 = float(r2_score(y, preds))
+            mse = float(mean_squared_error(y, preds))
+            print(f"Regression metrics - R²: {r2:.4f}, MSE: {mse:.4f}")
+            result = {
+                "r2_score": r2,
+                "mse": mse,
+            }
+        else:
+            y_true = y
+            y_prob = self.predict_proba(X, mask)
+            print(f"Probabilities shape: {y_prob.shape}")
+            print(f"True labels unique values: {np.unique(y_true)}")
+            
+            if y_prob.ndim == 1 or y_prob.shape[-1] == 1:
+                auc = roc_auc_score(y_true, y_prob) if len(np.unique(y_true)) > 1 else 0.5
+                acc = accuracy_score(y_true, preds)
+                precision = precision_score(y_true, preds, zero_division=0)
+                recall = recall_score(y_true, preds, zero_division=0)
+                tn, fp, fn, tp = confusion_matrix(y_true, preds).ravel()
+                fpr = fp / (fp + tn) if (fp + tn) > 0 else 0.0
+                print(f"Binary classification metrics:")
+                print(f"  Accuracy: {acc:.4f}")
+                print(f"  AUC: {auc:.4f}")
+                print(f"  Precision: {precision:.4f}")
+                print(f"  Recall: {recall:.4f}")
+                print(f"  FPR: {fpr:.4f}")
+                print(f"  Confusion Matrix: TN={tn}, FP={fp}, FN={fn}, TP={tp}")
+            else:
+                auc = roc_auc_score(y_true, y_prob, multi_class='ovr')
+                acc = accuracy_score(y_true, preds)
+                precision = precision_score(y_true, preds, average='macro', zero_division=0)
+                recall = recall_score(y_true, preds, average='macro', zero_division=0)
+                fpr = 1 - recall_score(y_true, preds, average='macro', zero_division=0)
+                print(f"Multiclass classification metrics:")
+                print(f"  Accuracy: {acc:.4f}")
+                print(f"  AUC: {auc:.4f}")
+                print(f"  Precision: {precision:.4f}")
+                print(f"  Recall: {recall:.4f}")
+                print(f"  FPR: {fpr:.4f}")
+            
+            result = {"acc": float(acc), "auc": float(auc), "precision": float(precision), "recall": float(recall), "fpr": float(fpr)}
+        
+        print(f"=== NON-TRAINABLE SCORING COMPLETE ===\n")
+        return result
+
+    def score_filtered(self, X: np.ndarray, y: np.ndarray, dataset_name: str, results_dir: Path, 
+                      seed: int, logit_diff_threshold: float = 2.0, test_size: float = 0.15, mask: Optional[np.ndarray] = None) -> dict[str, float]:
+        """
+        Calculate metrics only on examples where the model's logit_diff is above threshold.
+        """
+        print(f"\n=== NON-TRAINABLE FILTERED SCORING START ===")
+        print(f"Input X shape: {X.shape}")
+        print(f"Input y shape: {y.shape}")
+        print(f"Logit diff threshold: {logit_diff_threshold}")
+        
+        # Read the CSV file to get logit_diff values
+        parent_dir = results_dir.parent
+        runthrough_dir = parent_dir / f"runthrough_{dataset_name}"
+        
+        if not runthrough_dir.exists():
+            print(f"Warning: No runthrough directory found at {runthrough_dir}. Using unfiltered scoring.")
+            return self.score(X, y, mask)
+        
+        csv_files = list(runthrough_dir.glob("*logit_diff*.csv"))
+        if not csv_files:
+            print(f"Warning: No logit_diff*.csv file found in {runthrough_dir}. Using unfiltered scoring.")
+            return self.score(X, y, mask)
+        
+        csv_path = csv_files[0]
+        print(f"Using logit_diff file: {csv_path}")
+        try:
+            df = pd.read_csv(csv_path)
+            if 'logit_diff' not in df.columns:
+                print(f"Warning: 'logit_diff' column not found in {csv_path}. Using unfiltered scoring.")
+                return self.score(X, y, mask)
+            
+            if len(df) != len(y):
+                print(f"Warning: CSV has {len(df)} rows but test set has {len(y)} examples. Dataset mismatch detected!")
+                print("Using unfiltered scoring.")
+                return self.score(X, y, mask)
+            
+            # Get the test set texts to match with CSV
+            from src.data import Dataset
+            temp_ds = Dataset(dataset_name, model=None, device=self.device, seed=seed)
+            temp_ds = Dataset.build_imbalanced_train_balanced_eval(temp_ds, test_size=test_size, seed=seed)
+            test_texts = temp_ds.get_test_set()[0]
+            
+            if len(test_texts) != len(y):
+                print(f"Warning: Recreated test set has {len(test_texts)} examples but current test set has {len(y)} examples.")
+                print("Using unfiltered scoring.")
+                return self.score(X, y, mask)
+            
+            # Filter based on logit_diff threshold
+            mask_filter = np.abs(df['logit_diff'].values) > logit_diff_threshold
+            filtered_indices = np.where(mask_filter)[0]
+            
+            print(f"Original test set size: {len(test_texts)}")
+            print(f"Filtered test set size: {len(filtered_indices)}")
+            print(f"Removed {len(test_texts) - len(filtered_indices)} examples")
+            
+            if len(filtered_indices) == 0:
+                print("Warning: No examples remain after filtering. Using unfiltered scoring.")
+                return self.score(X, y, mask)
+            
+            # Apply the filter to X, y, and mask
+            X_filtered = X[filtered_indices]
+            y_filtered = y[filtered_indices]
+            mask_filtered = mask[filtered_indices] if mask is not None else None
+            
+            print(f"Filtered X shape: {X_filtered.shape}")
+            print(f"Filtered y shape: {y_filtered.shape}")
+            
+            # Calculate metrics on filtered data
+            result = self.score(X_filtered, y_filtered, mask_filtered)
+            
+            # Add filter info to result
+            result["filtered"] = True
+            result["logit_diff_threshold"] = logit_diff_threshold
+            result["original_size"] = len(test_texts)
+            result["filtered_size"] = len(filtered_indices)
+            result["removed_count"] = len(test_texts) - len(filtered_indices)
+            
+            print(f"=== NON-TRAINABLE FILTERED SCORING COMPLETE ===\n")
+            return result
+            
+        except Exception as e:
+            print(f"Error in filtered scoring: {e}. Using unfiltered scoring.")
+            return self.score(X, y, mask)
+
+    def score_with_filtered(self, X: np.ndarray, y: np.ndarray, dataset_name: str, results_dir: Path,
+                           seed: int, logit_diff_threshold: float = 1.0, test_size: float = 0.15, mask: Optional[np.ndarray] = None) -> dict[str, dict]:
+        """
+        Calculate both regular and filtered metrics, returning them in a combined dictionary.
+        """
+        print(f"\n=== NON-TRAINABLE COMBINED SCORING START ===")
+        
+        # Get regular metrics
+        regular_metrics = self.score(X, y, mask)
+        regular_metrics["filtered"] = False
+        
+        # Get filtered metrics
+        filtered_metrics = self.score_filtered(X, y, dataset_name, results_dir, seed, logit_diff_threshold, test_size, mask)
+        
+        # Combine results
+        combined_results = {
+            "all_examples": regular_metrics,
+            "filtered_examples": filtered_metrics
+        }
+        
+        print(f"=== NON-TRAINABLE COMBINED SCORING COMPLETE ===\n")
+        return combined_results
+
+    def save_state(self, path: Path):
+        """
+        Save the probe state (parameters, not model weights).
+        """
+        save_dict = {
+            'd_model': self.d_model,
+            'task_type': self.task_type,
+            'aggregation': self.aggregation,
+        }
+        # Add probe-specific parameters
+        probe_params = self._get_probe_parameters()
+        save_dict.update(probe_params)
+        
+        torch.save(save_dict, path)
+        print(f"Saved non-trainable probe to {path}")
+        
+        # Save training info (empty for non-trainable probes)
+        log_path = path.with_name(path.stem + "_train_log.json")
+        train_info = {
+            "loss_history": self.loss_history,
+            "probe_type": "non_trainable"
+        }
+        with open(log_path, "w") as f:
+            json.dump(train_info, f, indent=2)
+        print(f"Saved probe log to {log_path}")
+
+    def _get_probe_parameters(self) -> dict:
+        """
+        Return probe-specific parameters to save. Subclasses must implement this.
+        """
+        raise NotImplementedError("Subclasses must implement _get_probe_parameters")
+
+    def load_state(self, path: Path):
+        """
+        Load the probe state (parameters, not model weights).
+        """
+        # Use weights_only=False to allow loading numpy arrays and other objects
+        checkpoint = torch.load(path, map_location=self.device, weights_only=False)
+        self.d_model = checkpoint['d_model']
+        self.task_type = checkpoint['task_type']
+        self.aggregation = checkpoint['aggregation']
+        
+        # Load probe-specific parameters
+        self._load_probe_parameters(checkpoint)
+        print(f"Loaded non-trainable probe from {path}")
+
+    def _load_probe_parameters(self, checkpoint: dict):
+        """
+        Load probe-specific parameters. Subclasses must implement this.
+        """
+        raise NotImplementedError("Subclasses must implement _load_probe_parameters")
+
+    def find_best_fit(self, X_train: np.ndarray, y_train: np.ndarray, X_val: np.ndarray, y_val: np.ndarray, 
+                     mask_train: Optional[np.ndarray] = None, mask_val: Optional[np.ndarray] = None, 
+                     n_trials: int = 10, direction: str = None, verbose: bool = True):
+        """
+        For non-trainable probes, this method is not applicable.
+        """
+        raise NotImplementedError("Non-trainable probes do not support hyperparameter tuning")
+
+    def fit_pcngd(self, X: np.ndarray, y: np.ndarray, mask: Optional[np.ndarray] = None, **kwargs):
+        """
+        For non-trainable probes, this method is not applicable.
+        """
+        raise NotImplementedError("Non-trainable probes do not support PCNGD training")

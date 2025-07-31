@@ -54,7 +54,7 @@ def run_model_check(config):
         device = config.get("device")
         batch_size = check.get('batch_size', 2)  # Default batch size
         seed = config.get("seed")  # Use the same seed as the main run
-        num_tokens_to_generate = check.get('num_tokens_to_generate', 5)  # Default to 5 tokens
+        num_tokens_to_generate = check.get('num_tokens_to_generate', 1)  # Default to 5 tokens
         print(f"Loading HuggingFace model:", model_name)
         model, tokenizer = load_hf_model_and_tokenizer(model_name)
 
@@ -140,7 +140,11 @@ def run_model_check(config):
             # print(f"Processing prompt {i+1}/{len(messages_list)}")
             
             # Apply chat template and get logits
-            input_ids = tokenizer.apply_chat_template(messages, return_tensors="pt", return_dict=True)
+            input_ids = tokenizer.apply_chat_template(messages, return_tensors="pt", return_dict=True, add_generation_prompt=True)
+            
+            # Print the tokenized prompt after applying chat template
+            print(f"Tokenized prompt after chat template (full): {tokenizer.decode(input_ids['input_ids'][0])}")
+            
             if torch.cuda.is_available():
                 input_ids = {k: v.cuda() for k, v in input_ids.items()}
             
@@ -172,6 +176,15 @@ def run_model_check(config):
             
             # Stack all logits: (num_tokens, vocab_size)
             all_logits = torch.stack(generated_logits)
+            
+            # Print the 5 initial generated tokens
+            generated_tokens = []
+            for pos in range(min(5, num_tokens_to_generate)):
+                if pos < len(generated_logits):
+                    next_token = torch.argmax(generated_logits[pos], dim=-1)
+                    token_text = tokenizer.decode([next_token])
+                    generated_tokens.append(token_text)
+            print(f"First 5 generated tokens: {generated_tokens}")
             
             # Compute log probabilities for all positions
             all_log_probs = torch.log_softmax(all_logits, dim=-1)  # (num_tokens, vocab_size)
