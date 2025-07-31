@@ -54,6 +54,7 @@ def run_model_check(config):
         device = config.get("device")
         batch_size = check.get('batch_size', 2)  # Default batch size
         seed = config.get("seed")  # Use the same seed as the main run
+        num_tokens_to_generate = check.get('num_tokens_to_generate', 5)  # Default to 5 tokens
         print(f"Loading HuggingFace model:", model_name)
         model, tokenizer = load_hf_model_and_tokenizer(model_name)
 
@@ -126,6 +127,7 @@ def run_model_check(config):
             messages_list.append(messages)
 
         print(f"Running model over all {len(messages_list)} prompts...")
+        print(f"Looking at log probabilities across the next {num_tokens_to_generate} tokens for each class...")
         
         # Save CSV path
         plot_dir = Path(f"results/{run_name}/runthrough_{ds_name}")
@@ -142,56 +144,99 @@ def run_model_check(config):
             if torch.cuda.is_available():
                 input_ids = {k: v.cuda() for k, v in input_ids.items()}
             
+            # Generate next tokens to look at their log probabilities
+            generated_logits = []
+            
             with torch.no_grad():
+                # Get initial logits
                 outputs = model(**input_ids)
                 logits = outputs.logits  # (1, seq, vocab)
+                generated_logits.append(logits[0, -1])  # Last token logits
+                
+                # Generate next tokens one by one (optimized)
+                current_input_ids = input_ids['input_ids'].clone()
+                attention_mask = input_ids.get('attention_mask', None)
+                
+                for _ in range(num_tokens_to_generate - 1):
+                    # Get logits for the next token
+                    outputs = model(input_ids=current_input_ids)
+                    next_token_logits = outputs.logits[0, -1]  # (vocab_size,)
+                    generated_logits.append(next_token_logits)
+                    
+                    # Sample the next token (greedy decoding)
+                    next_token = torch.argmax(next_token_logits, dim=-1, keepdim=True)
+                    # Ensure next_token has the same number of dimensions as current_input_ids
+                    if current_input_ids.dim() == 2 and next_token.dim() == 1:
+                        next_token = next_token.unsqueeze(0)  # Add batch dimension
+                    current_input_ids = torch.cat([current_input_ids, next_token], dim=-1)
             
-            # Get logits for the last token (where the model would predict the next token)
-            response_logits = logits[0, -1]  # Remove batch dim
+            # Stack all logits: (num_tokens, vocab_size)
+            all_logits = torch.stack(generated_logits)
             
-            # Compute log probabilities
-            log_probs = torch.log_softmax(response_logits, dim=-1)
+            # Compute log probabilities for all positions
+            all_log_probs = torch.log_softmax(all_logits, dim=-1)  # (num_tokens, vocab_size)
             
             # Extract logits and log probabilities for each class, choosing the best token from each class array
+            # across all positions
             logit_values = {}
             log_prob_values = {}
             chosen_tokens = {}  # Keep track of which token was chosen for each class
+            chosen_positions = {}  # Keep track of which position had the best log prob
             
             for idx, token_ids_list in class_token_ids.items():
                 best_log_prob = float('-inf')
                 best_token_id = None
                 best_token_name = None
                 best_logit = None
+                best_position = None
                 
-                # Find the token with highest log probability for this class
+                # Find the token with highest log probability for this class across all positions
                 for token_id, name in token_ids_list:
-                    log_prob_val = log_probs[token_id].item()
-                    if log_prob_val > best_log_prob:
-                        best_log_prob = log_prob_val
-                        best_token_id = token_id
-                        best_token_name = name
-                        best_logit = response_logits[token_id].item()
+                    # Check log probability at each position
+                    for pos in range(num_tokens_to_generate):
+                        log_prob_val = all_log_probs[pos, token_id].item()
+                        if log_prob_val > best_log_prob:
+                            best_log_prob = log_prob_val
+                            best_token_id = token_id
+                            best_token_name = name
+                            best_logit = all_logits[pos, token_id].item()
+                            best_position = pos
                 
                 logit_values[idx] = best_logit
                 log_prob_values[idx] = best_log_prob
                 chosen_tokens[idx] = best_token_name
+                chosen_positions[idx] = best_position
             
-            # Debug: Print top 5 tokens in the logit distribution
-            values, indices = torch.topk(response_logits, 5)
-            # print(f"\nTop 5 tokens for prompt {i+1}:")
-            # for j, (value, index) in enumerate(zip(values.tolist(), indices.tolist())):
-            #     token = tokenizer.decode([index])
-            #     log_prob = log_probs[index].item()
-            #     print(f"  {j+1}. Token '{token}' (ID: {index}): logit={value:.3f}, log_prob={log_prob:.3f}")
+            # Debug: Print top 5 tokens in the logit distribution (for the first position)
+            values, indices = torch.topk(all_logits[0], 5)
+            print(f"\n=== Prompt {i+1}/{len(messages_list)} ===")
+            print(f"Prompt: {X_test[i][:100]}...")
+            print(f"True label: {y_test[i]}")
             
-            # # Also show the class token logits specifically
-            # print("Class token logits (chosen from arrays):")
-            # for idx in class_token_ids.keys():
-            #     logit_val = logit_values[idx]
-            #     log_prob_val = log_prob_values[idx]
-            #     chosen_name = chosen_tokens[idx]
-            #     print(f"  Class {idx} (chose '{chosen_name}'): logit={logit_val:.3f}, log_prob={log_prob_val:.3f}")
-            # print("-" * 50)
+            print(f"\nTop 5 tokens for position 0:")
+            for j, (value, index) in enumerate(zip(values.tolist(), indices.tolist())):
+                token = tokenizer.decode([index])
+                log_prob = all_log_probs[0, index].item()
+                print(f"  {j+1}. Token '{token}' (ID: {index}): logit={value:.3f}, log_prob={log_prob:.3f}")
+            
+            # Show the class token logits specifically
+            print(f"\nClass token analysis (best across all {num_tokens_to_generate} positions):")
+            for idx in class_token_ids.keys():
+                logit_val = logit_values[idx]
+                log_prob_val = log_prob_values[idx]
+                chosen_name = chosen_tokens[idx]
+                chosen_pos = chosen_positions[idx]
+                print(f"  Class {idx} (chose '{chosen_name}' at position {chosen_pos}): logit={logit_val:.3f}, log_prob={log_prob_val:.3f}")
+            
+            # Show logit difference for binary classification
+            if len(logit_values) == 2:
+                logit_diff = logit_values[0] - logit_values[1]
+                print(f"  Logit difference (Class 0 - Class 1): {logit_diff:.3f}")
+                predicted_class = 0 if logit_diff > 0 else 1
+                correct = predicted_class == y_test[i]
+                print(f"  Predicted: Class {predicted_class}, Correct: {correct}")
+            
+            print("-" * 80)
             
             # Create CSV row
             row = {
@@ -209,6 +254,11 @@ def run_model_check(config):
                 chosen_name = chosen_tokens[idx]
                 row[f"logprob_{chosen_name}"] = val
             
+            # Add positions where best log probs were found
+            for idx, pos in chosen_positions.items():
+                chosen_name = chosen_tokens[idx]
+                row[f"position_{chosen_name}"] = pos
+            
             # Add logit difference (assuming binary classification with classes 0 and 1)
             if len(logit_values) == 2:
                 row["logit_diff"] = logit_values[0] - logit_values[1]
@@ -217,8 +267,34 @@ def run_model_check(config):
         
         # Save to CSV
         plot_dir.mkdir(parents=True, exist_ok=True)
-        pd.DataFrame(csv_rows).to_csv(csv_path, index=False)
+        df = pd.DataFrame(csv_rows)
+        df.to_csv(csv_path, index=False)
         print(f"Saved CSV of logit diffs to: {csv_path}")
+        
+        # Print summary statistics
+        if len(logit_values) == 2:  # Binary classification
+            correct_predictions = 0
+            total_predictions = len(df)
+            
+            for _, row in df.iterrows():
+                logit_diff = row["logit_diff"]
+                predicted_class = 0 if logit_diff > 0 else 1
+                if predicted_class == row["label"]:
+                    correct_predictions += 1
+            
+            accuracy = correct_predictions / total_predictions
+            print(f"\n=== SUMMARY STATISTICS ===")
+            print(f"Total predictions: {total_predictions}")
+            print(f"Correct predictions: {correct_predictions}")
+            print(f"Accuracy: {accuracy:.3f} ({accuracy*100:.1f}%)")
+            
+            # Show average logit differences by class
+            print(f"\nAverage logit differences by true class:")
+            for class_idx in [0, 1]:
+                class_data = df[df["label"] == class_idx]
+                if len(class_data) > 0:
+                    avg_logit_diff = class_data["logit_diff"].mean()
+                    print(f"  Class {class_idx}: {avg_logit_diff:.3f}")
         
         # Free model and clear CUDA memory after each check
         del model

@@ -1,10 +1,10 @@
 run_name: "spam_experiment_gemma"
 model_name: "gemma-2-9b" # 1.2 B multilignual model, 512 seq length
 d_model: 3584 # 3584 for gemma-2-9b
-device: "cuda:0"
+device: "cuda:1"
 cache_activations: True
 # seed: 42  # Old single seed format (still supported for backward compatibility)
-seeds: [42, 43, 44, 45, 46]  # New multi-seed format
+seeds: [42]  # New multi-seed format, 43, 44, 45, 46
 
 layers: [20] # Where SAE probes found layers peform the best
 components:
@@ -16,6 +16,10 @@ architectures:
   - name: "attention"
     config_name: "default_attention"
 
+
+# ToDo: filtered scoring is currently broken, since I probably should use
+# probes and not logit diffs for it! Gotta figure this out.
+
 # List of experiments to run
 experiments:
   - name: 1-spam-pred-auc
@@ -26,15 +30,15 @@ experiments:
       - 94_better_spam
     score:
       - all
-      - filtered
   - name: 2-spam-pred-auc-increasing-spam-fixed-total
     metric: auc
     class_names: {0: "Ham", 1: "Spam"}
     train_on: 94_better_spam
     evaluate_on:
       - 94_better_spam
+      - 87_is_spam
     score:
-      - filtered
+      - all
     rebuild_config:
       increasing_spam_fixed_total:
         - {class_counts: {0: 3999, 1: 1}}
