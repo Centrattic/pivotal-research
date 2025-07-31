@@ -161,16 +161,37 @@ class MassMeanProbe(BaseProbeNonTrainable):
             self.sigma_inv = np.eye(X.shape[2])
 
     def _compute_logits(self, processed_X: np.ndarray) -> np.ndarray:
-        """Compute logits for mass-mean probe."""
+        """Compute logits for mass-mean probe using PyTorch for GPU acceleration."""
         if self.theta_mm is None:
             raise ValueError("Mass-mean direction not computed. Call fit() first.")
         
+        # Check for NaN in inputs
+        if np.isnan(processed_X).any():
+            print(f"Warning: NaN detected in processed_X")
+        if np.isnan(self.theta_mm).any():
+            print(f"Warning: NaN detected in theta_mm")
+        
+        # Convert to PyTorch tensors
+        X_tensor = torch.tensor(processed_X, dtype=torch.float32, device=self.device)
+        theta_tensor = torch.tensor(self.theta_mm, dtype=torch.float32, device=self.device)
+        
         if self.sigma_inv is not None:
             # IID version: θ_mm^T Σ^(-1) x
-            return processed_X @ self.sigma_inv @ self.theta_mm
+            if np.isnan(self.sigma_inv).any():
+                print(f"Warning: NaN detected in sigma_inv")
+            sigma_inv_tensor = torch.tensor(self.sigma_inv, dtype=torch.float32, device=self.device)
+            logits = torch.matmul(X_tensor, torch.matmul(sigma_inv_tensor, theta_tensor))
         else:
             # Basic version: θ_mm^T x
-            return processed_X @ self.theta_mm
+            logits = torch.matmul(X_tensor, theta_tensor)
+        
+        logits_np = logits.cpu().numpy()
+        
+        # Check for NaN in output
+        if np.isnan(logits_np).any():
+            print(f"Warning: NaN detected in mass-mean logits output")
+        
+        return logits_np
 
     def _compute_predictions(self, processed_X: np.ndarray) -> np.ndarray:
         """Compute predictions for mass-mean probe."""
@@ -180,8 +201,21 @@ class MassMeanProbe(BaseProbeNonTrainable):
     def _compute_probabilities(self, processed_X: np.ndarray) -> np.ndarray:
         """Compute probabilities for mass-mean probe."""
         logits = self._compute_logits(processed_X)
-        # Apply sigmoid to get probabilities
-        probs = 1 / (1 + np.exp(-logits))
+        
+        # Check for NaN in input logits
+        if np.isnan(logits).any():
+            print(f"Warning: NaN detected in mass-mean logits before sigmoid")
+            # Replace NaN with 0 for sigmoid computation
+            logits = np.nan_to_num(logits, nan=0.0)
+        
+        # Use PyTorch sigmoid for GPU acceleration
+        logits_tensor = torch.tensor(logits, dtype=torch.float32, device=self.device)
+        probs = torch.sigmoid(logits_tensor).cpu().numpy()
+        
+        # Check for NaN in output probabilities
+        if np.isnan(probs).any():
+            print(f"Warning: NaN detected in mass-mean probabilities after sigmoid")
+        
         return np.column_stack([1 - probs, probs])  # [P(class 0), P(class 1)]
 
     def _get_probe_parameters(self) -> dict:

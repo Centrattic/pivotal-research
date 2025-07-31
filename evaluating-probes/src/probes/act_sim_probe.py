@@ -210,9 +210,36 @@ class ActivationSimilarityProbe(BaseProbeNonTrainable):
                 return logits
             else:
                 # Binary: positive similarity - negative similarity
+                # Check prototypes for NaN
+                if np.isnan(self.positive_prototype).any():
+                    print(f"Warning: NaN detected in positive_prototype")
+                    # Replace NaN with zeros
+                    self.positive_prototype = np.nan_to_num(self.positive_prototype, nan=0.0)
+                if np.isnan(self.negative_prototype).any():
+                    print(f"Warning: NaN detected in negative_prototype")
+                    # Replace NaN with zeros
+                    self.negative_prototype = np.nan_to_num(self.negative_prototype, nan=0.0)
+                
+                # Check if prototypes are all zeros
+                if np.all(self.positive_prototype == 0):
+                    print(f"Warning: positive_prototype is all zeros")
+                if np.all(self.negative_prototype == 0):
+                    print(f"Warning: negative_prototype is all zeros")
+                
                 pos_sim = self._cosine_similarity(processed_X, self.positive_prototype)
                 neg_sim = self._cosine_similarity(processed_X, self.negative_prototype)
-                return pos_sim - neg_sim
+                logits = pos_sim - neg_sim
+                
+                # Check for NaN in logits
+                if np.isnan(logits).any():
+                    print(f"Warning: NaN detected in logits computation")
+                    print(f"pos_sim range: [{pos_sim.min():.4f}, {pos_sim.max():.4f}]")
+                    print(f"neg_sim range: [{neg_sim.min():.4f}, {neg_sim.max():.4f}]")
+                    print(f"logits range: [{logits.min():.4f}, {logits.max():.4f}]")
+                    # Replace NaN with zeros as fallback
+                    logits = np.nan_to_num(logits, nan=0.0)
+                
+                return logits
         else:
             raise ValueError("ActivationSimilarityProbe is designed for classification tasks only")
     
@@ -244,14 +271,27 @@ class ActivationSimilarityProbe(BaseProbeNonTrainable):
                 exp_logits = np.exp(logits - np.max(logits, axis=1, keepdims=True))
                 return exp_logits / np.sum(exp_logits, axis=1, keepdims=True)
             else:
-                # Binary: sigmoid of logits
-                return 1 / (1 + np.exp(-logits))
+                # Binary: use PyTorch sigmoid for GPU acceleration
+                # Check for NaN in input logits
+                if np.isnan(logits).any():
+                    print(f"Warning: NaN detected in logits before sigmoid")
+                    # Replace NaN with 0 for sigmoid computation
+                    logits = np.nan_to_num(logits, nan=0.0)
+                
+                logits_tensor = torch.tensor(logits, dtype=torch.float32, device=self.device)
+                probs = torch.sigmoid(logits_tensor).cpu().numpy()
+                
+                # Check for NaN in output probabilities
+                if np.isnan(probs).any():
+                    print(f"Warning: NaN detected in probabilities after sigmoid")
+                
+                return probs
         else:
             raise ValueError("ActivationSimilarityProbe is designed for classification tasks only")
     
     def _cosine_similarity(self, X: np.ndarray, prototype: np.ndarray) -> np.ndarray:
         """
-        Compute cosine similarity between activations and prototype.
+        Compute cosine similarity between activations and prototype using PyTorch for GPU acceleration.
         
         Args:
             X: Shape (N, d_model)
@@ -260,13 +300,39 @@ class ActivationSimilarityProbe(BaseProbeNonTrainable):
         Returns:
             Similarities: Shape (N,)
         """
-        # Normalize both vectors
-        X_norm = X / (np.linalg.norm(X, axis=1, keepdims=True) + 1e-8)
-        prototype_norm = prototype / (np.linalg.norm(prototype) + 1e-8)
+        # Convert to PyTorch tensors
+        X_tensor = torch.tensor(X, dtype=torch.float32, device=self.device)
+        prototype_tensor = torch.tensor(prototype, dtype=torch.float32, device=self.device)
+        
+        # Check for NaN in inputs
+        if torch.isnan(X_tensor).any():
+            print(f"Warning: NaN detected in X_tensor")
+        if torch.isnan(prototype_tensor).any():
+            print(f"Warning: NaN detected in prototype_tensor")
+        
+        # Normalize both vectors with more robust handling
+        X_norms = torch.norm(X_tensor, dim=1, keepdim=True)
+        prototype_norm_val = torch.norm(prototype_tensor)
+        
+        # Check for zero norms
+        if (X_norms == 0).any():
+            print(f"Warning: Zero norm detected in X_tensor")
+        if prototype_norm_val == 0:
+            print(f"Warning: Zero norm detected in prototype_tensor")
+        
+        # Use a larger epsilon and handle zero norms more carefully
+        epsilon = 1e-6
+        X_norm = X_tensor / torch.clamp(X_norms, min=epsilon)
+        prototype_norm = prototype_tensor / torch.clamp(prototype_norm_val, min=epsilon)
         
         # Compute cosine similarity
-        similarities = np.dot(X_norm, prototype_norm)
-        return similarities
+        similarities = torch.matmul(X_norm, prototype_norm)
+        
+        # Check for NaN in output
+        if torch.isnan(similarities).any():
+            print(f"Warning: NaN detected in similarities output")
+        
+        return similarities.cpu().numpy()
     
     def _get_probe_parameters(self) -> dict:
         """

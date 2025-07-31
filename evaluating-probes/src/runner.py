@@ -236,8 +236,12 @@ def evaluate_probe(
         return
 
     # Load probe
-    probe = get_probe_architecture(architecture_name, d_model=d_model, device=device, config=asdict(PROBE_CONFIGS[config_name]))
+    probe_config = asdict(PROBE_CONFIGS[config_name])
+    probe = get_probe_architecture(architecture_name, d_model=d_model, device=device, config=probe_config)
     probe.load_state(probe_state_path)
+    
+    # Get batch_size from probe config for non-trainable probes
+    batch_size = probe_config.get('batch_size', 200)  # Default fallback
 
     if rebuild_config is not None:
         orig_ds = Dataset(eval_dataset_name, model=model, device=device, seed=seed)
@@ -274,7 +278,7 @@ def evaluate_probe(
     
     if 'all' in score_options:
         logger.log(f"  - 🥰 Calculating metrics for all examples...")
-        all_metrics = probe.score(test_acts, y_test)
+        all_metrics = probe.score(test_acts, y_test, batch_size=batch_size)
         all_metrics["filtered"] = False
         combined_metrics["all_examples"] = all_metrics
     
@@ -287,7 +291,7 @@ def evaluate_probe(
     
     # Save metrics and per-datapoint scores/labels
     # Compute per-datapoint probe scores (logits) and labels
-    test_scores = probe.predict_logits(test_acts)
+    test_scores = probe.predict_logits(test_acts, batch_size=batch_size)
     # Flatten if shape is (N, 1)
     if hasattr(test_scores, 'shape') and len(test_scores.shape) == 2 and test_scores.shape[1] == 1:
         test_scores = test_scores[:, 0]

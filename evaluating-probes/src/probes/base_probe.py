@@ -693,18 +693,37 @@ class BaseProbeNonTrainable:
 
     def predict(self, X: np.ndarray, mask: Optional[np.ndarray] = None, batch_size: int = 1) -> np.ndarray:
         """
-        Make predictions using the non-trainable probe.
+        Make predictions using the non-trainable probe with batched processing.
         """
         print(f"\n=== NON-TRAINABLE PREDICTION START ===")
         print(f"Input X shape: {X.shape}")
         print(f"Input mask shape: {mask.shape if mask is not None else 'None'}")
         print(f"Aggregation: {self.aggregation}")
+        print(f"Batch size: {batch_size}")
         
-        # For non-trainable probes, we can process all data at once since there's no model
-        processed_X = self._aggregate_activations(X, mask)
-        predictions = self._compute_predictions(processed_X)
+        # Process data in batches to avoid memory issues
+        n_samples = X.shape[0]
+        n_batches = (n_samples + batch_size - 1) // batch_size
+        all_predictions = []
         
-        print(f"Processed X shape: {processed_X.shape}")
+        for i in range(n_batches):
+            start_idx = i * batch_size
+            end_idx = min((i + 1) * batch_size, n_samples)
+            
+            batch_X = X[start_idx:end_idx]
+            batch_mask = mask[start_idx:end_idx] if mask is not None else None
+            
+            # Process this batch
+            batch_processed_X = self._aggregate_activations(batch_X, batch_mask)
+            batch_predictions = self._compute_predictions(batch_processed_X)
+            all_predictions.append(batch_predictions)
+            
+            if i % 10 == 0 or i == n_batches - 1:
+                print(f"Processed prediction batch {i+1}/{n_batches} ({start_idx}-{end_idx})")
+        
+        # Concatenate all predictions
+        predictions = np.concatenate(all_predictions, axis=0)
+        
         print(f"Final predictions shape: {predictions.shape}")
         print(f"=== NON-TRAINABLE PREDICTION COMPLETE ===\n")
         return predictions
@@ -717,16 +736,36 @@ class BaseProbeNonTrainable:
 
     def predict_proba(self, X: np.ndarray, mask: Optional[np.ndarray] = None, batch_size: int = 1) -> np.ndarray:
         """
-        Compute prediction probabilities for non-trainable probes.
+        Compute prediction probabilities for non-trainable probes with batched processing.
         """
         print(f"\n=== NON-TRAINABLE PROBABILITY PREDICTION START ===")
         print(f"Input X shape: {X.shape}")
         print(f"Input mask shape: {mask.shape if mask is not None else 'None'}")
+        print(f"Batch size: {batch_size}")
         
-        processed_X = self._aggregate_activations(X, mask)
-        probabilities = self._compute_probabilities(processed_X)
+        # Process data in batches to avoid memory issues
+        n_samples = X.shape[0]
+        n_batches = (n_samples + batch_size - 1) // batch_size
+        all_probabilities = []
         
-        print(f"Processed X shape: {processed_X.shape}")
+        for i in range(n_batches):
+            start_idx = i * batch_size
+            end_idx = min((i + 1) * batch_size, n_samples)
+            
+            batch_X = X[start_idx:end_idx]
+            batch_mask = mask[start_idx:end_idx] if mask is not None else None
+            
+            # Process this batch
+            batch_processed_X = self._aggregate_activations(batch_X, batch_mask)
+            batch_probabilities = self._compute_probabilities(batch_processed_X)
+            all_probabilities.append(batch_probabilities)
+            
+            if i % 10 == 0 or i == n_batches - 1:
+                print(f"Processed probability batch {i+1}/{n_batches} ({start_idx}-{end_idx})")
+        
+        # Concatenate all probabilities
+        probabilities = np.concatenate(all_probabilities, axis=0)
+        
         print(f"Final probabilities shape: {probabilities.shape}")
         print(f"=== NON-TRAINABLE PROBABILITY PREDICTION COMPLETE ===\n")
         return probabilities
@@ -739,10 +778,27 @@ class BaseProbeNonTrainable:
 
     def predict_logits(self, X: np.ndarray, mask: Optional[np.ndarray] = None, batch_size: int = 1) -> np.ndarray:
         """
-        Returns the raw scores (logits) for the input X.
+        Returns the raw scores (logits) for the input X with batched processing.
         """
-        processed_X = self._aggregate_activations(X, mask)
-        return self._compute_logits(processed_X)
+        # Process data in batches to avoid memory issues
+        n_samples = X.shape[0]
+        n_batches = (n_samples + batch_size - 1) // batch_size
+        all_logits = []
+        
+        for i in range(n_batches):
+            start_idx = i * batch_size
+            end_idx = min((i + 1) * batch_size, n_samples)
+            
+            batch_X = X[start_idx:end_idx]
+            batch_mask = mask[start_idx:end_idx] if mask is not None else None
+            
+            # Process this batch
+            batch_processed_X = self._aggregate_activations(batch_X, batch_mask)
+            batch_logits = self._compute_logits(batch_processed_X)
+            all_logits.append(batch_logits)
+        
+        # Concatenate all logits
+        return np.concatenate(all_logits, axis=0)
 
     def _compute_logits(self, processed_X: np.ndarray) -> np.ndarray:
         """
@@ -750,7 +806,7 @@ class BaseProbeNonTrainable:
         """
         raise NotImplementedError("Subclasses must implement _compute_logits")
 
-    def score(self, X: np.ndarray, y: np.ndarray, mask: Optional[np.ndarray] = None) -> dict[str, float]:
+    def score(self, X: np.ndarray, y: np.ndarray, mask: Optional[np.ndarray] = None, batch_size: int = 200) -> dict[str, float]:
         """
         Calculate performance metrics for the non-trainable probe.
         """
@@ -759,10 +815,11 @@ class BaseProbeNonTrainable:
         print(f"Input y shape: {y.shape}")
         print(f"Input mask shape: {mask.shape if mask is not None else 'None'}")
         print(f"Task type: {self.task_type}")
+        print(f"Batch size: {batch_size}")
         
         from sklearn.metrics import accuracy_score, roc_auc_score, r2_score, mean_squared_error, precision_score, recall_score, confusion_matrix
         
-        preds = self.predict(X, mask)
+        preds = self.predict(X, mask, batch_size=batch_size)
         print(f"Predictions shape: {preds.shape}")
         print(f"Predictions unique values: {np.unique(preds)}")
         
@@ -776,7 +833,7 @@ class BaseProbeNonTrainable:
             }
         else:
             y_true = y
-            y_prob = self.predict_proba(X, mask)
+            y_prob = self.predict_proba(X, mask, batch_size=batch_size)
             print(f"Probabilities shape: {y_prob.shape}")
             print(f"True labels unique values: {np.unique(y_true)}")
             
