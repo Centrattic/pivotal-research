@@ -85,6 +85,14 @@ def rebuild_suffix(rebuild_config):
     if not rebuild_config:
         return "original"
     
+    # Handle new LLM upsampling format
+    if 'llm_upsampling' in rebuild_config and rebuild_config['llm_upsampling']:
+        n_real_neg = rebuild_config.get('n_real_neg')
+        n_real_pos = rebuild_config.get('n_real_pos')
+        upsampling_factor = rebuild_config.get('upsampling_factor')
+        return f"llm_neg{n_real_neg}_pos{n_real_pos}_{upsampling_factor}x"
+    
+    # Handle original rebuild_config formats
     if 'class_counts' in rebuild_config:
         cc = rebuild_config['class_counts']
         cc_str = '_'.join([f"class{cls}_{cc[cls]}" for cls in sorted(cc)])
@@ -101,6 +109,14 @@ def resample_params_to_str(params):
     if params is None:
         return "original"
     
+    # Handle new LLM upsampling format
+    if 'llm_upsampling' in params and params['llm_upsampling']:
+        n_real_neg = params.get('n_real_neg')
+        n_real_pos = params.get('n_real_pos')
+        upsampling_factor = params.get('upsampling_factor')
+        return f"llm_neg{n_real_neg}_pos{n_real_pos}_{upsampling_factor}x"
+    
+    # Handle original rebuild_config formats
     if 'class_counts' in params:
         cc = params['class_counts']
         cc_str = '_'.join([f"class{cls}_{cc[cls]}" for cls in sorted(cc)])

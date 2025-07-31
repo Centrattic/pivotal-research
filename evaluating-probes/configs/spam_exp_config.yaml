@@ -17,8 +17,7 @@ architectures:
     config_name: "default_attention"
 
 
-# ToDo: filtered scoring is currently broken, since I probably should use
-# probes and not logit diffs for it! Gotta figure this out.
+# ToDo: filtered scoring is currently broken, and I need to make sure it works for new ds's too
 
 # List of experiments to run
 experiments:
@@ -65,22 +64,39 @@ experiments:
   #   score:
   #     - filtered
   #   rebuild_config:
-  #     increasing_spam_fixed_total:
-  #       - {class_counts: {0: 3999, 1: 1}, llm_upsample: False, seed: 42}
-  #       - {class_counts: {0: 3998, 1: 2}, llm_upsample: True, seed: 42}
-  #       - {class_counts: {0: 3995, 1: 5}, llm_upsample: True, seed: 42}
-  #       - {class_counts: {0: 3990, 1: 10}, llm_upsample: True, seed: 42}
-  #       - {class_counts: {0: 3985, 1: 15}, llm_upsample: True, seed: 42}
-  #       - {class_counts: {0: 3980, 1: 20}, llm_upsample: True, seed: 42}
-  #       - {class_counts: {0: 3975, 1: 25}, llm_upsample: True, seed: 42}
-  #       - {class_counts: {0: 3965, 1: 35}, llm_upsample: True, seed: 42}
-  #       - {class_counts: {0: 3955, 1: 45}, llm_upsample: True, seed: 42}
-  #       - {class_counts: {0: 3950, 1: 50}, llm_upsample: True, seed: 42}
-  #       - {class_counts: {0: 3900, 1: 100}, llm_upsample: True, seed: 42}
-  #       - {class_counts: {0: 3850, 1: 150}, llm_upsample: True, seed: 42}
-  #       - {class_counts: {0: 3750, 1: 250}, llm_upsample: True, seed: 42}
-  #       - {class_counts: {0: 3500, 1: 500}, llm_upsample: True, seed: 42}
-  #       # - {class_counts: {0: 3250, 1: 750}, llm_upsample: True, seed: 42}
+  #     llm_upsampling_experiments:
+  #       # Fixed 3000 real negative samples, variable real positive samples (1, 2, 5, 10, 15, 25)
+  #       # For each positive count, train 5 probes: 1x, 2x, 3x, 4x, 5x upsampling
+  #       - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 1, upsampling_factor: 1, seed: 42}
+  #       - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 1, upsampling_factor: 2, seed: 42}
+  #       - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 1, upsampling_factor: 3, seed: 42}
+  #       - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 1, upsampling_factor: 4, seed: 42}
+  #       - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 1, upsampling_factor: 5, seed: 42}
+  #       - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 2, upsampling_factor: 1, seed: 42}
+  #       - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 2, upsampling_factor: 2, seed: 42}
+  #       - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 2, upsampling_factor: 3, seed: 42}
+  #       - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 2, upsampling_factor: 4, seed: 42}
+  #       - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 2, upsampling_factor: 5, seed: 42}
+  #       - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 5, upsampling_factor: 1, seed: 42}
+  #       - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 5, upsampling_factor: 2, seed: 42}
+  #       - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 5, upsampling_factor: 3, seed: 42}
+  #       - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 5, upsampling_factor: 4, seed: 42}
+  #       - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 5, upsampling_factor: 5, seed: 42}
+  #       - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 10, upsampling_factor: 1, seed: 42}
+  #       - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 10, upsampling_factor: 2, seed: 42}
+  #       - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 10, upsampling_factor: 3, seed: 42}
+  #       - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 10, upsampling_factor: 4, seed: 42}
+  #       - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 10, upsampling_factor: 5, seed: 42}
+  #       - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 15, upsampling_factor: 1, seed: 42}
+  #       - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 15, upsampling_factor: 2, seed: 42}
+  #       - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 15, upsampling_factor: 3, seed: 42}
+  #       - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 15, upsampling_factor: 4, seed: 42}
+  #       - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 15, upsampling_factor: 5, seed: 42}
+  #       - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 25, upsampling_factor: 1, seed: 42}
+  #       - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 25, upsampling_factor: 2, seed: 42}
+  #       - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 25, upsampling_factor: 3, seed: 42}
+  #       - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 25, upsampling_factor: 4, seed: 42}
+  #       - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 25, upsampling_factor: 5, seed: 42}
   # - name: 4-spam-pred-contrast-auc
   #   metric: auc
   #   class_names: {0: "Ham", 1: "Spam"}

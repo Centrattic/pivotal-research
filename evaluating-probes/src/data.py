@@ -259,6 +259,138 @@ class Dataset:
         return obj
 
     @staticmethod
+    def build_llm_upsampled_dataset(
+        original_dataset,
+        seed: int,
+        n_real_neg: int,
+        n_real_pos: int,
+        upsampling_factor: int,
+        val_size: float = 0.10,
+        test_size: float = 0.15,
+        llm_csv_base_path: str = "results/llm_samples",
+    ):
+        """
+        Build a dataset with LLM upsampling for a specific number of real samples and upsampling factor.
+        
+        Args:
+            original_dataset: The original dataset to upsample
+            seed: Random seed for reproducibility
+            n_real_neg: Number of real negative samples to use (constant)
+            n_real_pos: Number of real positive samples to use (variable: 1, 2, 3, 4, 5, etc.)
+            upsampling_factor: How many times to upsample positives (1x, 2x, 3x, 4x, 5x)
+            val_size: Validation set size
+            test_size: Test set size
+            llm_csv_base_path: Base path for LLM sample CSV files
+        
+        Returns:
+            Dataset object with the specified upsampling
+        """
+        import copy
+        import pandas as pd
+        np.random.seed(seed)
+        
+        df = original_dataset.df.copy()
+        y = df['target'].to_numpy()
+        classes = np.sort(np.unique(y))
+        
+        # Calculate total samples needed for balanced test/val splits
+        n_total = len(df)
+        n_test = int(round(test_size * n_total))
+        n_val = int(round(val_size * n_total))
+        n_per_class_test = n_test // len(classes)
+        n_per_class_val = n_val // len(classes)
+        
+        # Build test/val indices (balanced 50/50 from real data only)
+        test_indices, val_indices, used_indices = [], [], set()
+        for cls in classes:
+            cls_indices = np.where(y == cls)[0]
+            rng = np.random.RandomState(seed)
+            cls_indices_shuffled = cls_indices.copy()
+            rng.shuffle(cls_indices_shuffled)
+            if len(cls_indices_shuffled) < n_per_class_test + n_per_class_val:
+                raise ValueError(f"Not enough samples for class {cls} to fill test+val splits.")
+            test_indices.extend(cls_indices_shuffled[:n_per_class_test])
+            val_indices.extend(cls_indices_shuffled[n_per_class_test:n_per_class_test+n_per_class_val])
+            used_indices.update(cls_indices_shuffled[:n_per_class_test+n_per_class_val])
+        
+        # Remove test/val indices from available pool for train
+        available_indices = np.array([i for i in range(n_total) if i not in used_indices])
+        y_avail = y[available_indices]
+        
+        # Get real samples for training
+        real_neg_indices = available_indices[y_avail == 0]
+        real_pos_indices = available_indices[y_avail == 1]
+        
+        # Check if we have enough real samples
+        if len(real_neg_indices) < n_real_neg:
+            raise ValueError(f"Not enough real negative samples: requested {n_real_neg}, available {len(real_neg_indices)}")
+        if len(real_pos_indices) < n_real_pos:
+            raise ValueError(f"Not enough real positive samples: requested {n_real_pos}, available {len(real_pos_indices)}")
+        
+        # Sample real negatives and positives deterministically
+        rng = np.random.RandomState(seed)
+        real_neg_selected = rng.choice(real_neg_indices, size=n_real_neg, replace=False)
+        real_pos_selected = rng.choice(real_pos_indices, size=n_real_pos, replace=False)
+        
+        # Calculate how many total samples we need
+        n_llm_pos = n_real_pos * upsampling_factor - n_real_pos  # Total needed - real samples
+
+        # Load LLM samples for this base count (use n_real_pos as the base count)
+        llm_csv_path = Path(llm_csv_base_path) / f"llm_samples_{n_real_pos}.csv"
+        if not llm_csv_path.exists():
+            raise FileNotFoundError(f"LLM samples file not found: {llm_csv_path}")
+        
+        llm_df = pd.read_csv(llm_csv_path)
+        llm_pos = llm_df[llm_df['target'] == 1] # make sure this check works
+        
+        if len(llm_pos) < n_llm_pos:
+            raise ValueError(f"Not enough LLM positive samples: requested {n_llm_pos}, available {len(llm_pos)}")
+        
+        # Take LLM samples in order (no shuffling)
+        llm_pos_selected = llm_pos.head(n_llm_pos)
+        
+        # Combine real and LLM samples
+        real_neg_df = df.iloc[real_neg_selected]
+        real_pos_df = df.iloc[real_pos_selected]
+        
+        # Create train set: real negatives + real positives + LLM positives
+        train_df = pd.concat([real_neg_df, real_pos_df, llm_pos_selected])
+        # Shuffle train set deterministically
+        train_df = train_df.sample(frac=1, random_state=seed).reset_index(drop=True)
+        
+        # Build val/test DataFrames from real data only
+        val_df = df.iloc[val_indices]
+        test_df = df.iloc[test_indices]
+        
+        # Build new Dataset object
+        all_df = pd.concat([train_df, val_df, test_df]).reset_index(drop=True)
+        train_indices_new = np.arange(len(train_df))
+        val_indices_new = np.arange(len(train_df), len(train_df) + len(val_df))
+        test_indices_new = np.arange(len(train_df) + len(val_df), len(all_df))
+        
+        # Calculate max_len from all possible data
+        all_lengths = max(
+            df["prompt_len"].max() if "prompt_len" in df.columns else df["prompt"].str.len().max(),
+            llm_df["prompt_len"].max() if "prompt_len" in llm_df.columns else llm_df["prompt"].str.len().max()
+        )
+        max_len = all_lengths // 2
+        
+        return Dataset.from_dataframe(
+            all_df,
+            dataset_name=f"{original_dataset.dataset_name}_llm_neg{n_real_neg}_pos{n_real_pos}_{upsampling_factor}x",
+            model=original_dataset.model,
+            device=original_dataset.device,
+            cache_root=original_dataset.cache_root,
+            seed=seed,
+            task_type=original_dataset.task_type,
+            n_classes=original_dataset.n_classes,
+            max_len=max_len,
+            train_indices=train_indices_new,
+            val_indices=val_indices_new,
+            test_indices=test_indices_new,
+        )
+
+    @staticmethod
     def build_imbalanced_train_balanced_eval(
         original_dataset,
         seed: int,
@@ -267,16 +399,12 @@ class Dataset:
         train_total_samples=None,
         val_size: float = 0.10,
         test_size: float = 0.15,
-        llm_upsample: bool = False,
-        llm_csv_path=None,
-        num_real_pos: int = 2,
     ):
         """
         Returns a single Dataset object with precomputed splits:
         - test and val are both balanced 50/50 (as large as possible given split sizes and data)
         - train is constructed from the remaining data using the requested class balance
         - If all train parameters are None, only test/val sets are created (no train set)
-        - If llm_upsample is True, upsample positives in train split using LLM samples from llm_csv_path
         - Default split: 75% train, 10% val, 15% test
         - No overlap between splits
         - Calculates max_len from all possible data upfront to avoid activation manager recreation
@@ -296,11 +424,6 @@ class Dataset:
         
         # Calculate max_len from all possible data upfront
         all_lengths = df["prompt_len"].max() if "prompt_len" in df.columns else df["prompt"].str.len().max()
-        if llm_upsample and llm_csv_path is not None:
-            llm_df = pd.read_csv(llm_csv_path)
-            llm_lengths = llm_df["prompt_len"].max() if "prompt_len" in llm_df.columns else llm_df["prompt"].str.len().max()
-            all_lengths = max(all_lengths, llm_lengths)
-        
         max_len = all_lengths // 2  # match original logic (character length / 2)
         
         # Build test/val indices (real data only, 50/50)
@@ -318,7 +441,7 @@ class Dataset:
             used_indices.update(cls_indices_shuffled[:n_per_class_test+n_per_class_val])
         
         # Check if we should create a train set
-        create_train = (train_class_counts is not None or train_class_percents is not None or train_total_samples is not None or llm_upsample)
+        create_train = (train_class_counts is not None or train_class_percents is not None or train_total_samples is not None)
         
         if create_train:
             # Remove test/val indices from available pool for train
@@ -333,39 +456,23 @@ class Dataset:
                     return {k: int(round(v * total_samples)) for k, v in class_percents.items()}
                 else:
                     raise ValueError("Must specify either class_counts or (class_percents and total_samples)")
-            if llm_upsample:
-                n_real_neg = train_class_counts.get(0, 0) if train_class_counts else 0
-                n_pos = train_class_counts.get(1, 0) if train_class_counts else 0
-                # Use as many real positives as available (should always be num_real_pos of them max), rest from LLM
-                n_real_pos = min(np.sum(y_avail == 1), num_real_pos)
-                n_llm_pos = n_pos - n_real_pos
-                real_neg = df.iloc[available_indices][df.iloc[available_indices]['target'] == 0].sample(n=n_real_neg, random_state=seed)
-                real_pos = df.iloc[available_indices][df.iloc[available_indices]['target'] == 1].sample(n=n_real_pos, random_state=seed) if n_real_pos > 0 else pd.DataFrame(columns=df.columns)
-                if llm_csv_path is None:
-                    raise ValueError("llm_csv_path must be provided when llm_upsample is True")
-                llm_df = pd.read_csv(llm_csv_path)
-                llm_pos = llm_df[llm_df['target'] == 1]
-                if len(llm_pos) < n_llm_pos:
-                    raise ValueError(f"Not enough LLM positive samples: requested {n_llm_pos}, available {len(llm_pos)}")
-                llm_pos = llm_pos.sample(n=n_llm_pos, random_state=seed)
-                train_df = pd.concat([real_neg, real_pos, llm_pos]).sample(frac=1, random_state=seed).reset_index(drop=True)
-            else:
-                train_counts = get_counts(train_class_counts, train_class_percents, train_total_samples)
-                for cls in train_counts:
-                    cls_avail_indices = available_indices[y_avail == cls]
-                    n_train = train_counts[cls]
-                    if len(cls_avail_indices) < n_train:
-                        raise ValueError(f"Not enough samples for class {cls} in train split: requested {n_train}, available {len(cls_avail_indices)}")
-                    # Use consistent shuffling with the same seed for each class
-                    rng = np.random.RandomState(seed)
-                    cls_avail_indices_shuffled = cls_avail_indices.copy()
-                    rng.shuffle(cls_avail_indices_shuffled)
-                    train_indices.extend(cls_avail_indices_shuffled[:n_train])
-                # Shuffle train indices with consistent seed
+            
+            train_counts = get_counts(train_class_counts, train_class_percents, train_total_samples)
+            for cls in train_counts:
+                cls_avail_indices = available_indices[y_avail == cls]
+                n_train = train_counts[cls]
+                if len(cls_avail_indices) < n_train:
+                    raise ValueError(f"Not enough samples for class {cls} in train split: requested {n_train}, available {len(cls_avail_indices)}")
+                # Use consistent shuffling with the same seed for each class
                 rng = np.random.RandomState(seed)
-                train_indices_shuffled = train_indices.copy()
-                rng.shuffle(train_indices_shuffled)
-                train_df = df.iloc[train_indices_shuffled]
+                cls_avail_indices_shuffled = cls_avail_indices.copy()
+                rng.shuffle(cls_avail_indices_shuffled)
+                train_indices.extend(cls_avail_indices_shuffled[:n_train])
+            # Shuffle train indices with consistent seed
+            rng = np.random.RandomState(seed)
+            train_indices_shuffled = train_indices.copy()
+            rng.shuffle(train_indices_shuffled)
+            train_df = df.iloc[train_indices_shuffled]
             
             # Build val/test DataFrames
             val_df = df.iloc[val_indices]
@@ -399,7 +506,7 @@ class Dataset:
         
         return Dataset.from_dataframe(
             all_df,
-            dataset_name=original_dataset.dataset_name + ('_llm_upsampled' if llm_upsample else ''), # new dataset name creates new activation cache
+            dataset_name=original_dataset.dataset_name,
             model=original_dataset.model,
             device=original_dataset.device,
             cache_root=original_dataset.cache_root,

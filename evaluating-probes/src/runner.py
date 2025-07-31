@@ -55,25 +55,41 @@ def train_probe(
 
     if rebuild_config is not None:
         orig_ds = Dataset(train_dataset_name, model=model, device=device, seed=seed)
-        train_class_counts = rebuild_config.get('class_counts')
-        train_class_percents = rebuild_config.get('class_percents')
-        train_total_samples = rebuild_config.get('total_samples')
-        llm_upsample = rebuild_config.get('llm_upsample', False)
-        llm_csv_path = None
-        if llm_upsample:
-            run_name = str(results_dir).split('/')[-2] if 'results' in str(results_dir) else 'default_run'
-            llm_csv_path = Path('results') / run_name / 'llm_samples.csv'
-        train_ds = Dataset.build_imbalanced_train_balanced_eval(
-            orig_ds,
-            train_class_counts=train_class_counts,
-            train_class_percents=train_class_percents,
-            train_total_samples=train_total_samples,
-            val_size=val_size,
-            test_size=test_size,
-            seed=seed,  # Use the global seed passed to this function
-            llm_upsample=llm_upsample,
-            llm_csv_path=llm_csv_path
-        )
+        
+        # Check if this is LLM upsampling with new method
+        if 'llm_upsampling' in rebuild_config and rebuild_config['llm_upsampling']:
+            n_real_neg = rebuild_config.get('n_real_neg')
+            n_real_pos = rebuild_config.get('n_real_pos')
+            upsampling_factor = rebuild_config.get('upsampling_factor')
+            llm_csv_base_path = rebuild_config.get('llm_csv_base_path', 'results/llm_samples')
+            
+            if n_real_neg is None or n_real_pos is None or upsampling_factor is None:
+                raise ValueError("For LLM upsampling, 'n_real_neg', 'n_real_pos', and 'upsampling_factor' must be specified")
+            
+            train_ds = Dataset.build_llm_upsampled_dataset(
+                orig_ds,
+                seed=seed,
+                n_real_neg=n_real_neg,
+                n_real_pos=n_real_pos,
+                upsampling_factor=upsampling_factor,
+                val_size=val_size,
+                test_size=test_size,
+                llm_csv_base_path=llm_csv_base_path
+            )
+        else:
+            # Original rebuild_config logic
+            train_class_counts = rebuild_config.get('class_counts')
+            train_class_percents = rebuild_config.get('class_percents')
+            train_total_samples = rebuild_config.get('total_samples')
+            train_ds = Dataset.build_imbalanced_train_balanced_eval(
+                orig_ds,
+                train_class_counts=train_class_counts,
+                train_class_percents=train_class_percents,
+                train_total_samples=train_total_samples,
+                val_size=val_size,
+                test_size=test_size,
+                seed=seed,  # Use the global seed passed to this function
+            )
     else:
         train_ds = Dataset(train_dataset_name, model=model, device=device, seed=seed)
         train_ds.split_data(train_size=train_size, val_size=val_size, test_size=test_size, seed=seed)

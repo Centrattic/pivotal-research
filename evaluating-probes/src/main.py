@@ -68,6 +68,41 @@ def get_effective_seeds(config):
         # Default seed if none specified
         return [42]
 
+def get_effective_seed_for_rebuild_config(global_seed, rebuild_config):
+    """
+    For LLM upsampling experiments, rebuild_config seed overrides global seed.
+    For other experiments, use global seed.
+    """
+    if rebuild_config and 'llm_upsampling' in rebuild_config and rebuild_config['llm_upsampling']:
+        # LLM upsampling: rebuild_config seed takes precedence
+        return rebuild_config.get('seed', global_seed)
+    else:
+        # Regular experiments: global seed takes precedence
+        return global_seed
+
+def generate_llm_upsampling_configs(n_real_neg, n_real_pos_list, upsampling_factors, seed):
+    """
+    Generate rebuild_configs for LLM upsampling experiments.
+    Creates a config for each combination of n_real_pos and upsampling_factor.
+    
+    Args:
+        n_real_neg: Fixed number of real negative samples to use
+        n_real_pos_list: List of real positive sample counts to try (e.g., [1, 2, 3, 4, 5])
+        upsampling_factors: List of upsampling factors to try (e.g., [1, 2, 3, 4, 5])
+        seed: Random seed for the experiments
+    """
+    configs = []
+    for n_real_pos in n_real_pos_list:
+        for factor in upsampling_factors:
+            configs.append({
+                'llm_upsampling': True,
+                'n_real_neg': n_real_neg,
+                'n_real_pos': n_real_pos,
+                'upsampling_factor': factor,
+                'seed': seed  # Override global seed for LLM experiments
+            })
+    return configs
+
 def main():
     # Clear GPU memory and set device
     torch.cuda.empty_cache()
@@ -197,10 +232,14 @@ def main():
                 contrast_fn = None
                 if experiment and 'contrast_fn' in experiment:
                     contrast_fn = Dataset.load_contrast_fn(experiment['contrast_fn'])
+                
+                # Get effective seed for this rebuild_config
+                effective_seed = get_effective_seed_for_rebuild_config(seed, rebuild_params)
+                
                 train_probe(
                     model=model, d_model=d_model, train_dataset_name=train_ds,
                     layer=layer, component=comp, architecture_name=arch_name, config_name=conf_name,
-                    device=config['device'], use_cache=config['cache_activations'], seed=seed,
+                    device=config['device'], use_cache=config['cache_activations'], seed=effective_seed,
                     results_dir=experiment_dir, cache_dir=cache_dir, logger=logger, retrain=retrain,
                     hyperparameter_tuning=hyperparameter_tuning, rebuild_config=rebuild_params, metric=metric,
                     retrain_with_best_hparams=retrain_with_best_hparams,
@@ -284,10 +323,13 @@ def main():
                                         if 'contrast_fn' in experiment:
                                             contrast_fn = Dataset.load_contrast_fn(experiment['contrast_fn'])
                                         
+                                        # Get effective seed for this rebuild_config
+                                        effective_seed = get_effective_seed_for_rebuild_config(seed, rebuild_params)
+                                        
                                         metrics = evaluate_probe(
                                             train_dataset_name=train_dataset, eval_dataset_name=eval_dataset,
                                             layer=layer, component=component, architecture_config=arch_config,
-                                            results_dir=experiment_dir, logger=logger, seed=seed,
+                                            results_dir=experiment_dir, logger=logger, seed=effective_seed,
                                             model=model, d_model=d_model, device=config['device'],
                                             use_cache=config['cache_activations'], cache_dir=cache_dir, reevaluate=reevaluate,
                                             score_options=score_options, rebuild_config=rebuild_params, return_metrics=True,
