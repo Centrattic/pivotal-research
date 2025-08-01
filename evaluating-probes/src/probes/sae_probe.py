@@ -112,21 +112,14 @@ class SAEProbe(BaseProbe):
         
         print(f"Loading SAE: {self.sae_id}")
         
-        # Try to load from cache first
-        cache_path = self.sae_cache_dir / f"{self.model_name}_{self.layer}_{self.sae_id.replace('/', '_')}.pt"
-        if cache_path.exists():
-            print(f"Loading SAE from cache: {cache_path}")
-            self.sae = torch.load(cache_path, map_location=self.device)
-        else:
-            # Load from sae_lens using the specific SAE ID
-            self.sae, _, _ = SAE.from_pretrained(
-                release=self._get_sae_release(),
-                sae_id=self.sae_id,
-                device=self.device,
-            )
-            # Cache the SAE
-            torch.save(self.sae, cache_path)
-            print(f"Cached SAE to: {cache_path}")
+        # Load from sae_lens using the specific SAE ID
+        # Note: We don't cache SAE objects because they contain lambda functions that can't be pickled
+        self.sae, _, _ = SAE.from_pretrained(
+            release=self._get_sae_release(),
+            sae_id=self.sae_id,
+            device=self.device,
+        )
+        print(f"Loaded SAE: {self.sae_id}")
         
         return self.sae
 
