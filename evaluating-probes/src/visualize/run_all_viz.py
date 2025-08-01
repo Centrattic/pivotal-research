@@ -9,6 +9,8 @@ from src.visualize.utils_viz import (
     plot_multi_folder_recall_at_fpr,
     plot_multi_folder_auc_vs_n_class1,
     plot_all_probe_loss_curves_in_folder,
+    plot_experiment_2_all_probes_with_eval,
+    plot_experiment_3_upsampling_heatmap,
 )
 
 def main():
@@ -18,7 +20,9 @@ def main():
     parser.add_argument('--filtered', dest='filtered', action='store_true', help='Use filtered scores (default)')
     parser.add_argument('--all', dest='filtered', action='store_false', help='Use all scores (not filtered)')
     parser.set_defaults(filtered=True)
+    parser.add_argument('--seeds', nargs='+', default=['42'], help='List of seeds to use (default: 42)')
     args = parser.parse_args()
+    
     config_path = Path('configs') / f'{args.config}_config.yaml'
     with open(config_path, 'r') as f:
         config = yaml.safe_load(f)
@@ -40,57 +44,88 @@ def main():
                     plot_logit_diffs_from_csv(csv_path, class_names, save_path=save_path)
 
     # 2. Find experiment folders 2-, 3-, 4- for multi-folder plots
+    # Now we need to look inside seed folders
     exp_folders = {k: None for k in ['2', '3', '4']}
-    for sub in os.listdir(results_dir):
-        for k in exp_folders:
-            if sub.startswith(f'{k}-'):
-                exp_folders[k] = results_dir / sub
+    
+    # Check the first seed to find experiment folders
+    first_seed = args.seeds[0]
+    seed_dir = results_dir / f"seed_{first_seed}"
+    if seed_dir.exists():
+        for sub in os.listdir(seed_dir):
+            for k in exp_folders:
+                if sub.startswith(f'{k}-'):
+                    exp_folders[k] = sub  # Store just the folder name
+                    break
+    
     # Only keep those that exist
     exp_folders = {k: v for k, v in exp_folders.items() if v is not None}
+    
     # For each architecture, run multi-folder recall@fpr and auc_vs_n_class1
     if exp_folders:
         dataclass_folders = []
         folder_labels = []
-        for k, folder in exp_folders.items():
-            # Try dataclass_exps_* first, fallback to train_*
-            subfolders = [d for d in os.listdir(folder) if os.path.isdir(folder / d)]
+        for k, folder_name in exp_folders.items():
+            # Check if dataclass_exps_* exists in the first seed
+            folder_path = seed_dir / folder_name
+            subfolders = [d for d in os.listdir(folder_path) if os.path.isdir(folder_path / d)]
             dc = [d for d in subfolders if d.startswith('dataclass_exps_')]
             tr = [d for d in subfolders if d.startswith('train_')]
             if dc:
-                dataclass_folders.append(str(folder / dc[0]))
-                folder_labels.append(f"{k}-{os.path.basename(folder)}")
+                dataclass_folders.append(str(folder_path / dc[0]))
+                folder_labels.append(f"{k}-{folder_name}")
             elif tr:
-                dataclass_folders.append(str(folder / tr[0]))
-                folder_labels.append(f"{k}-{os.path.basename(folder)}")
+                dataclass_folders.append(str(folder_path / tr[0]))
+                folder_labels.append(f"{k}-{folder_name}")
+        
         colors = [f"C{i}" for i in range(len(dataclass_folders))]
         for arch in architectures:
             # Recall@FPR
             save_path = viz_root / f"recall_at_fpr_{arch}.png"
             plot_multi_folder_recall_at_fpr(
-                dataclass_folders, folder_labels, arch, class_names=class_names, save_path=save_path, colors=colors, filtered=args.filtered
+                dataclass_folders, folder_labels, arch, class_names=class_names, 
+                save_path=save_path, colors=colors, filtered=args.filtered, seeds=args.seeds
             )
             # AUC vs n_class1
             save_path = viz_root / f"auc_vs_n_class1_{arch}.png"
             plot_multi_folder_auc_vs_n_class1(
-                dataclass_folders, folder_labels, arch, class_names=class_names, save_path=save_path, colors=colors, filtered=args.filtered
+                dataclass_folders, folder_labels, arch, class_names=class_names, 
+                save_path=save_path, colors=colors, filtered=args.filtered, seeds=args.seeds
             )
 
     # 3. For each of the experiment folders 1-, 2-, 3-, 4-, plot all probe loss curves
     for k in ['1', '2', '3', '4']:
-        for sub in os.listdir(results_dir):
-            if sub.startswith(f'{k}-'):
-                exp_dir = results_dir / sub
-                # Try dataclass_exps_* first, fallback to train_*
-                subfolders = [d for d in os.listdir(exp_dir) if os.path.isdir(exp_dir / d)]
-                dc = [d for d in subfolders if d.startswith('dataclass_exps_')]
-                tr = [d for d in subfolders if d.startswith('train_')]
-                if dc:
-                    loss_folder = exp_dir / dc[0]
-                elif tr:
-                    loss_folder = exp_dir / tr[0]
-                else:
-                    continue
-                save_path = viz_root / f'loss_curves_{sub}.png'
-                plot_all_probe_loss_curves_in_folder(str(loss_folder), save_path=save_path)
+        # Check in the first seed directory
+        if seed_dir.exists():
+            for sub in os.listdir(seed_dir):
+                if sub.startswith(f'{k}-'):
+                    exp_dir = seed_dir / sub
+                    # Try dataclass_exps_* first, fallback to train_*
+                    subfolders = [d for d in os.listdir(exp_dir) if os.path.isdir(exp_dir / d)]
+                    dc = [d for d in subfolders if d.startswith('dataclass_exps_')]
+                    tr = [d for d in subfolders if d.startswith('train_')]
+                    if dc:
+                        loss_folder = exp_dir / dc[0]
+                    elif tr:
+                        loss_folder = exp_dir / tr[0]
+                    else:
+                        continue
+                    save_path = viz_root / f'loss_curves_{sub}.png'
+                    plot_all_probe_loss_curves_in_folder(str(loss_folder), save_path=save_path, seeds=args.seeds)
+
+    # 4. New experiment-specific visualizations
+    for arch in architectures:
+        # Experiment 2: All probes with evaluation dataset comparison
+        if '2-spam-pred-auc-increasing-spam-fixed-total' in [f.name for f in results_dir.iterdir() if f.is_dir()]:
+            save_path = viz_root / f'experiment_2_all_probes_{arch}.png'
+            plot_experiment_2_all_probes_with_eval(
+                results_dir, arch, save_path=save_path, filtered=args.filtered, seeds=args.seeds
+            )
+        
+        # Experiment 3: Upsampling heatmap
+        if '3-spam-pred-auc-llm-upsampling' in [f.name for f in results_dir.iterdir() if f.is_dir()]:
+            save_path = viz_root / f'experiment_3_upsampling_heatmap_{arch}.png'
+            plot_experiment_3_upsampling_heatmap(
+                results_dir, arch, save_path=save_path, filtered=args.filtered, seeds=args.seeds
+            )
 
 main() 

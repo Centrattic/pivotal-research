@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 from pathlib import Path
 from typing import List, Tuple, Iterable, Dict
+import time
 
 import numpy as np
 import torch
@@ -235,25 +236,95 @@ class ActivationManager:
         if max_length is None:
             max_length = min(self.max_len, 4096)  # Use truncated length by default
         shape = (new_rows, max_length, self.d_model)
+        
         if not act_path.exists():
             return np.memmap(act_path, dtype=np.float16, mode="w+", shape=shape)
+        
+        # For small additions (< 10% of file size), use append-only growth
+        growth_ratio = (new_rows - old_rows) / old_rows
+        start_time = time.time()
+        
+        if growth_ratio < 0.1:  # Less than 10% growth
+            print(f"[DEBUG] Using append-only growth for activation file (adding {new_rows - old_rows} rows)")
+            result = self._append_grow_act(act_path, old_rows, new_rows, max_length)
+        else:
+            print(f"[DEBUG] Using full copy growth for activation file (adding {new_rows - old_rows} rows)")
+            result = self._copy_grow_act(act_path, old_rows, new_rows, max_length)
+        
+        elapsed = time.time() - start_time
+        print(f"[DEBUG] Activation file growth took {elapsed:.2f} seconds")
+        return result
+
+    def _append_grow_act(self, act_path: Path, old_rows: int, new_rows: int, max_length: int):
+        """Append-only growth: extend the file without copying existing data."""
+        # Open existing file in append mode
+        existing_mm = np.memmap(act_path, dtype=np.float16, mode="r+", shape=(old_rows, max_length, self.d_model))
+        
+        # Calculate the new file size needed
+        row_size = max_length * self.d_model * 2  # float16 = 2 bytes
+        new_file_size = new_rows * row_size
+        
+        # Extend the file by writing zeros to the end
+        with open(act_path, 'ab') as f:
+            bytes_to_add = (new_rows - old_rows) * row_size
+            f.write(b'\x00' * bytes_to_add)
+        
+        # Reopen with new shape
+        return np.memmap(act_path, dtype=np.float16, mode="r+", shape=(new_rows, max_length, self.d_model))
+
+    def _copy_grow_act(self, act_path: Path, old_rows: int, new_rows: int, max_length: int):
+        """Full copy growth: copy entire file (used for large additions)."""
         old_mm = np.memmap(act_path, dtype=np.float16, mode="r", shape=(old_rows, max_length, self.d_model))
-        tmp = np.memmap(act_path.with_suffix(".tmp"), dtype=np.float16, mode="w+", shape=shape)
+        tmp = np.memmap(act_path.with_suffix(".tmp"), dtype=np.float16, mode="w+", shape=(new_rows, max_length, self.d_model))
         tmp[:old_rows] = old_mm[:]
         act_path.unlink(); tmp.flush(); tmp._mmap.close()
         act_path.with_suffix(".tmp").rename(act_path)
-        return np.memmap(act_path, dtype=np.float16, mode="r+", shape=shape)
+        return np.memmap(act_path, dtype=np.float16, mode="r+", shape=(new_rows, max_length, self.d_model))
 
     def _grow_hash(self, hash_path: Path, old_rows: int, new_rows: int):
         shape = (new_rows,)
         if not hash_path.exists():
             return np.memmap(hash_path, dtype=self.hash_dtype, mode="w+", shape=shape)
+        
+        # For small additions, use append-only growth
+        growth_ratio = (new_rows - old_rows) / old_rows
+        start_time = time.time()
+        
+        if growth_ratio < 0.3:  # Less than 30% growth
+            print(f"[DEBUG] Using append-only growth for hash file (adding {new_rows - old_rows} rows)")
+            result = self._append_grow_hash(hash_path, old_rows, new_rows)
+        else:
+            print(f"[DEBUG] Using full copy growth for hash file (adding {new_rows - old_rows} rows)")
+            result = self._copy_grow_hash(hash_path, old_rows, new_rows)
+        
+        elapsed = time.time() - start_time
+        print(f"[DEBUG] Hash file growth took {elapsed:.2f} seconds")
+        return result
+
+    def _append_grow_hash(self, hash_path: Path, old_rows: int, new_rows: int):
+        """Append-only growth for hash file."""
+        # Open existing file in append mode
+        existing_mm = np.memmap(hash_path, dtype=self.hash_dtype, mode="r+", shape=(old_rows,))
+        
+        # Calculate the new file size needed
+        hash_size = 40  # S40 dtype = 40 bytes
+        bytes_to_add = (new_rows - old_rows) * hash_size
+        
+        # Extend the file by writing zeros to the end
+        with open(hash_path, 'ab') as f:
+            f.write(b'\x00' * bytes_to_add)
+        
+        # Reopen with new shape
+        return np.memmap(hash_path, dtype=self.hash_dtype, mode="r+", shape=(new_rows,))
+
+    def _copy_grow_hash(self, hash_path: Path, old_rows: int, new_rows: int):
+        """Full copy growth for hash file."""
         old_h = np.memmap(hash_path, dtype=self.hash_dtype, mode="r", shape=(old_rows,))
-        tmp = np.memmap(hash_path.with_suffix(".tmp"), dtype=self.hash_dtype, mode="w+", shape=shape)
+        tmp = np.memmap(hash_path.with_suffix(".tmp"), dtype=self.hash_dtype, mode="w+", shape=(new_rows,))
         tmp[:old_rows] = old_h[:]
         hash_path.unlink(); tmp.flush(); tmp._mmap.close()
         hash_path.with_suffix(".tmp").rename(hash_path)
-        return np.memmap(hash_path, dtype=self.hash_dtype, mode="r+", shape=shape)
+        return np.memmap(hash_path, dtype=self.hash_dtype, mode="r+", shape=(new_rows,))
 
 class LazyActivationLoader:
     """Lazy loader for large activation files that only loads requested rows."""

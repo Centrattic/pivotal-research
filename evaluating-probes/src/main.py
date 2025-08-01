@@ -169,8 +169,6 @@ def main():
 
         for experiment in config['experiments']:
             experiment_name = experiment['name']
-            experiment_dir = results_dir / experiment_name
-            experiment_dir.mkdir(parents=True, exist_ok=True)
             train_sets = [experiment['train_on']]
             # if experiment['train_on'] == "all":
             #     train_sets = available_datasets
