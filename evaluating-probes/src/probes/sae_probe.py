@@ -8,10 +8,23 @@ import json
 import warnings
 from tqdm import tqdm
 import optuna
+import psutil
+import gc
 
 from sae_lens import SAE
 from src.probes.base_probe import BaseProbe
 from src.logger import Logger
+
+def get_memory_usage():
+    """Get current memory usage for debugging."""
+    process = psutil.Process()
+    ram_usage = process.memory_info().rss / 1024**3  # GB
+    if torch.cuda.is_available():
+        gpu_allocated = torch.cuda.memory_allocated() / 1024**3  # GB
+        gpu_reserved = torch.cuda.memory_reserved() / 1024**3  # GB
+        return f"RAM: {ram_usage:.2f}GB, GPU_allocated: {gpu_allocated:.2f}GB, GPU_reserved: {gpu_reserved:.2f}GB"
+    else:
+        return f"RAM: {ram_usage:.2f}GB"
 
 class SAEProbeNet(nn.Module):
     """
@@ -55,7 +68,8 @@ class SAEProbe(BaseProbe):
     def __init__(self, d_model: int, device: str = "cpu", task_type: str = "classification", 
                  aggregation: str = "mean", model_name: str = "gemma-2-9b", layer: int = 20,
                  sae_id: Optional[str] = None, top_k_features: int = 128, 
-                 sae_cache_dir: Optional[Path] = None, batch_size: int = 1024, **kwargs):
+                 sae_cache_dir: Optional[Path] = None, encoding_batch_size: int = 256, 
+                 training_batch_size: int = 64, **kwargs):
         """
         Initialize SAE probe.
         
@@ -82,7 +96,8 @@ class SAEProbe(BaseProbe):
         self.aggregation = aggregation
         self.sae_cache_dir = sae_cache_dir or Path("sae_cache")
         self.sae_cache_dir.mkdir(exist_ok=True)
-        self.batch_size = batch_size
+        self.encoding_batch_size = encoding_batch_size
+        self.training_batch_size = training_batch_size
         
         # Store any additional config parameters
         for key, value in kwargs.items():
@@ -134,27 +149,38 @@ class SAEProbe(BaseProbe):
 
     def _encode_activations(self, activations: np.ndarray) -> np.ndarray:
         """Encode raw activations through the SAE using configurable batch size."""
+        print(f"[DEBUG] Input activations shape: {activations.shape}")
+        
+        # For now, only process the last sequence position to reduce memory usage
+        print(f"[INFO] Processing only the last sequence position for now to reduce memory usage")
+        activations = activations[:, -1:, :]  # Take only the last position: (batch, 1, d_model)
+        print(f"[DEBUG] After taking last position: {activations.shape}")
+        
         sae = self._load_sae()
         
-        # Convert to tensor and move to device
-        activations_tensor = torch.tensor(activations, dtype=torch.float32, device=self.device)
-        
-        # Flatten batch and sequence dimensions for encoding
-        original_shape = activations_tensor.shape
-        flattened = activations_tensor.flatten(end_dim=1)  # (batch*seq, d_model)
+        # Get original shape and flatten batch and sequence dimensions
+        original_shape = activations.shape
+        flattened = activations.reshape(-1, activations.shape[-1])  # (batch*seq, d_model)
+        print(f"[DEBUG] Flattened shape: {flattened.shape}")
+        print(f"[DEBUG] This means {original_shape[0]} samples × {original_shape[1]} sequence positions = {flattened.shape[0]} total activations")
         
         # Encode in batches using configurable batch size
         encoded_list = []
+        total_batches = (len(flattened) + self.encoding_batch_size - 1) // self.encoding_batch_size
+        print(f"[DEBUG] Processing {total_batches} batches of size {self.encoding_batch_size}")
         
-        for i in tqdm(range(0, len(flattened), self.batch_size), desc="Encoding activations"):
-            batch = flattened[i:i+self.batch_size]
-            encoded_batch = sae.encode(batch).cpu().numpy()
+        for i in tqdm(range(0, len(flattened), self.encoding_batch_size), desc="Encoding activations"):
+            batch = flattened[i:i+self.encoding_batch_size]
+            # Convert batch to tensor and move to device only for this batch
+            batch_tensor = torch.tensor(batch, dtype=torch.float32, device=self.device)
+            encoded_batch = sae.encode(batch_tensor).cpu().detach().numpy()
             encoded_list.append(encoded_batch)
         
         encoded = np.concatenate(encoded_list, axis=0)
         
         # Reshape back to original batch and sequence dimensions
         encoded = encoded.reshape(original_shape[0], original_shape[1], -1)
+        print(f"[DEBUG] Final encoded shape: {encoded.shape}")
         
         return encoded
 
@@ -169,6 +195,9 @@ class SAEProbe(BaseProbe):
         Returns:
             Indices of top-k features
         """
+        print(f"[DEBUG] Feature selection input shapes: X_train={X_train.shape}, y_train={y_train.shape}")
+        print(f"[DEBUG] Memory at start of feature selection: {get_memory_usage()}")
+        
         # Aggregate across sequence dimension first
         if self.aggregation == "mean":
             # Use mean aggregation for feature selection
@@ -178,6 +207,9 @@ class SAEProbe(BaseProbe):
         else:
             # For other aggregations, use mean for feature selection
             X_agg = X_train.mean(axis=1)
+        
+        print(f"[DEBUG] Aggregated X shape: {X_agg.shape}")
+        print(f"[DEBUG] Memory after aggregation: {get_memory_usage()}")
         
         # Calculate difference of means
         pos_mask = y_train == 1
@@ -190,11 +222,15 @@ class SAEProbe(BaseProbe):
         neg_mean = X_agg[neg_mask].mean(axis=0)
         diff = pos_mean - neg_mean
         
+        print(f"[DEBUG] Difference vector shape: {diff.shape}")
+        print(f"[DEBUG] Memory after difference calculation: {get_memory_usage()}")
+        
         # Select top-k features by absolute difference
         sorted_indices = np.argsort(np.abs(diff))[::-1]
         top_k_indices = sorted_indices[:self.top_k_features]
         
         print(f"Selected top {self.top_k_features} features from {len(diff)} total features")
+        print(f"[DEBUG] Memory at end of feature selection: {get_memory_usage()}")
         
         return top_k_indices
 
@@ -217,29 +253,34 @@ class SAEProbe(BaseProbe):
         print(f"SAE ID: {self.sae_id}")
         print(f"Aggregation: {self.aggregation}")
         print(f"Top-k features: {self.top_k_features}")
-        print(f"SAE encoding batch size: {self.batch_size}")
-        print(f"Training batch size: {batch_size if batch_size is not None else self.batch_size}")
+        print(f"SAE encoding batch size: {self.encoding_batch_size}")
+        print(f"Training batch size: {batch_size if batch_size is not None else self.training_batch_size}")
         print(f"Input X shape: {X.shape}")
         print(f"Input y shape: {y.shape}")
         
         # Step 1: Encode activations through SAE
         print("Encoding activations through SAE...")
+        print(f"[DEBUG] Before encoding. Memory: {get_memory_usage()}")
         X_encoded = self._encode_activations(X)
         print(f"Encoded X shape: {X_encoded.shape}")
+        print(f"[DEBUG] After encoding. Memory: {get_memory_usage()}")
         
         # Step 2: Select top features
         print("Selecting top features...")
+        print(f"[DEBUG] Before feature selection. Memory: {get_memory_usage()}")
         self.feature_indices = self._select_top_features(X_encoded, y)
         X_selected = X_encoded[:, :, self.feature_indices]
         print(f"Selected X shape: {X_selected.shape}")
+        print(f"[DEBUG] After feature selection. Memory: {get_memory_usage()}")
         
         # Step 3: Initialize model with correct feature dimension
         self.sae_feature_dim = self.top_k_features
         self._init_model()
         
         # Step 4: Call parent fit method with selected features
-        # Use provided batch_size or fall back to self.batch_size
-        training_batch_size = batch_size if batch_size is not None else self.batch_size
+        # Use provided batch_size or fall back to self.training_batch_size
+        training_batch_size = batch_size if batch_size is not None else self.training_batch_size
+        print(f"Training batch size: {training_batch_size}")
         super().fit(X_selected, y, mask, epochs, lr, training_batch_size, weight_decay, 
                    verbose, early_stopping, patience, min_delta, 
                    use_weighted_loss, use_weighted_sampler, **kwargs)
@@ -253,8 +294,8 @@ class SAEProbe(BaseProbe):
         X_encoded = self._encode_activations(X)
         X_selected = X_encoded[:, :, self.feature_indices]
         
-        # Use provided batch_size or fall back to self.batch_size
-        predict_batch_size = batch_size if batch_size is not None else self.batch_size
+        # Use provided batch_size or fall back to self.training_batch_size
+        predict_batch_size = batch_size if batch_size is not None else self.training_batch_size
         return super().predict(X_selected, mask, predict_batch_size)
 
     def predict_proba(self, X: np.ndarray, mask: Optional[np.ndarray] = None, batch_size: int = None) -> np.ndarray:
@@ -266,8 +307,8 @@ class SAEProbe(BaseProbe):
         X_encoded = self._encode_activations(X)
         X_selected = X_encoded[:, :, self.feature_indices]
         
-        # Use provided batch_size or fall back to self.batch_size
-        predict_batch_size = batch_size if batch_size is not None else self.batch_size
+        # Use provided batch_size or fall back to self.training_batch_size
+        predict_batch_size = batch_size if batch_size is not None else self.training_batch_size
         return super().predict_proba(X_selected, mask, predict_batch_size)
 
     def predict_logits(self, X: np.ndarray, mask: Optional[np.ndarray] = None, batch_size: int = None) -> np.ndarray:
@@ -279,8 +320,8 @@ class SAEProbe(BaseProbe):
         X_encoded = self._encode_activations(X)
         X_selected = X_encoded[:, :, self.feature_indices]
         
-        # Use provided batch_size or fall back to self.batch_size
-        predict_batch_size = batch_size if batch_size is not None else self.batch_size
+        # Use provided batch_size or fall back to self.training_batch_size
+        predict_batch_size = batch_size if batch_size is not None else self.training_batch_size
         return super().predict_logits(X_selected, mask, predict_batch_size)
 
     def save_state(self, path: Path):
@@ -293,7 +334,8 @@ class SAEProbe(BaseProbe):
             'sae_id': self.sae_id,
             'top_k_features': self.top_k_features,
             'aggregation': self.aggregation,
-            'batch_size': self.batch_size,
+            'encoding_batch_size': self.encoding_batch_size,
+            'training_batch_size': self.training_batch_size,
             'feature_indices': self.feature_indices,
             'sae_feature_dim': self.sae_feature_dim,
             'task_type': self.task_type,
@@ -310,7 +352,13 @@ class SAEProbe(BaseProbe):
         self.sae_id = state['sae_id']
         self.top_k_features = state['top_k_features']
         self.aggregation = state['aggregation']
-        self.batch_size = state.get('batch_size', 1024)  # Default for backward compatibility
+        # Handle backward compatibility for old batch_size parameter
+        if 'batch_size' in state:
+            self.encoding_batch_size = state['batch_size']
+            self.training_batch_size = state['batch_size']
+        else:
+            self.encoding_batch_size = state.get('encoding_batch_size', 256)
+            self.training_batch_size = state.get('training_batch_size', 64)
         self.feature_indices = state['feature_indices']
         self.sae_feature_dim = state['sae_feature_dim']
         self.task_type = state['task_type']

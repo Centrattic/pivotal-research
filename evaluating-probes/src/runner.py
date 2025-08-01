@@ -118,7 +118,7 @@ def train_probe(
         if key in fit_param_names:
             fit_params[key] = value
     
-    # Handle mass-mean probe configuration specially
+    # Handle mass-mean probe configuration specially, add activation sims here
     if architecture_name in ["mass_mean", "mass_mean_iid"]:
         # Mass-mean probes don't have weighting_method, they're computed analytically
         weighting_method = "mass_mean"
@@ -150,8 +150,6 @@ def train_probe(
             fit_params["use_weighted_loss"] = False
             fit_params["use_weighted_sampler"] = True
             probe.fit(train_acts, y_train, **fit_params)
-        elif weighting_method == "pcngd":
-            probe.fit_pcngd(train_acts, y_train, mask=None, **fit_params)
         else:
             raise ValueError(f"Unknown weighting_method: {weighting_method}")
     elif hyperparameter_tuning:
@@ -174,8 +172,6 @@ def train_probe(
             fit_params["use_weighted_loss"] = False
             fit_params["use_weighted_sampler"] = True
             probe.fit(train_acts, y_train, **fit_params)
-        elif weighting_method == "pcngd":
-            probe.fit_pcngd(train_acts, y_train, mask=None, **fit_params)
         else:
             raise ValueError(f"Unknown weighting_method: {weighting_method}")
 
@@ -242,8 +238,12 @@ def evaluate_probe(
     probe = get_probe_architecture(architecture_name, d_model=d_model, device=device, config=probe_config)
     probe.load_state(probe_state_path)
     
-    # Get batch_size from probe config for non-trainable probes
-    batch_size = probe_config.get('batch_size', 200)  # Default fallback
+    # Get batch_size from probe config for evaluation
+    # For SAE probes, use training_batch_size; for others, use batch_size
+    if architecture_name.startswith("sae"):
+        batch_size = probe_config.get('training_batch_size', probe_config.get('batch_size', 200))
+    else:
+        batch_size = probe_config.get('batch_size', 200)
 
     if rebuild_config is not None:
         orig_ds = Dataset(eval_dataset_name, model=model, device=device, seed=seed)
@@ -457,10 +457,8 @@ def run_non_trainable_probe(
     probe_config = asdict(PROBE_CONFIGS[config_name])
     probe = get_probe_architecture(architecture_name, d_model=d_model, device=device, config=probe_config)
     
-    # For non-trainable probes, we just call fit() to compute parameters
-    # Use batch_size from probe config
-    probe_batch_size = probe_config.get('batch_size', 200)  # Default fallback
-    probe.fit(train_acts, y_train, batch_size=probe_batch_size)
+    # Batch size is already set during probe initialization
+    probe.fit(train_acts, y_train)
 
     # Save the probe
     probe_save_dir.mkdir(parents=True, exist_ok=True)

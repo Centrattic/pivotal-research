@@ -37,7 +37,8 @@ class SAEProbeConfig(ProbeConfig):
     top_k_features: int = 128
     lr: float = 5e-4
     epochs: int = 150
-    batch_size: int = 1024  # Batch size for SAE encoding and probe training
+    encoding_batch_size: int = 1024  # Batch size for SAE encoding (memory intensive)
+    training_batch_size: int = 2   # Batch size for probe training
     weight_decay: float = 0.0
     weighting_method: str = 'weighted_sampler'  # 'weighted_loss', 'weighted_sampler', or 'pcngd'
 
@@ -86,13 +87,13 @@ PROBE_CONFIGS = {
     "sae_16k_l0_408_mean": SAEProbeConfig(
         aggregation="mean", 
         sae_id="layer_20/width_16k/average_l0_408", # for some reason lo_189 doesn't exist! 
-        batch_size=1024,
         weighting_method='weighted_sampler'
     ),
     "sae_16k_l0_91_mean": SAEProbeConfig(
         aggregation="mean", 
         sae_id="layer_20/width_16k/average_l0_91",
-        batch_size=512,  # Smaller batch size for larger SAE
+        encoding_batch_size=512,  # Larger batch size for smaller SAE
+        training_batch_size=128,  # Larger batch size for training
         weighting_method='weighted_sampler'
     ),
     # Mass-mean probe configs (IID functionality disabled due to numerical instability)
