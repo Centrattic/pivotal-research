@@ -61,7 +61,9 @@ def train_probe(
             n_real_neg = rebuild_config.get('n_real_neg')
             n_real_pos = rebuild_config.get('n_real_pos')
             upsampling_factor = rebuild_config.get('upsampling_factor')
-            llm_csv_base_path = rebuild_config.get('llm_csv_base_path', f'results/{train_dataset_name}/llm_samples')
+            
+            run_name = str(results_dir).split('/')[-3]
+            llm_csv_base_path = rebuild_config.get('llm_csv_base_path', f'results/{run_name}/llm_samples')
             
             if n_real_neg is None or n_real_pos is None or upsampling_factor is None:
                 raise ValueError("For LLM upsampling, 'n_real_neg', 'n_real_pos', and 'upsampling_factor' must be specified")
@@ -251,8 +253,10 @@ def evaluate_probe(
         llm_upsample = rebuild_config.get('llm_upsample', False)
         llm_csv_path = None
         if llm_upsample:
-            run_name = str(results_dir).split('/')[-2] if 'results' in str(results_dir) else 'default_run'
+            run_name = str(results_dir).split('/')[-3]
             llm_csv_path = Path('results') / run_name / 'llm_samples.csv'
+            print("LLM CSV Path", llm_csv_path)
+
         eval_ds = Dataset.build_imbalanced_train_balanced_eval(
             orig_ds,
             train_class_counts=train_class_counts,

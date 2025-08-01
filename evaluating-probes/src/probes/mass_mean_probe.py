@@ -1,4 +1,5 @@
 import numpy as np
+import torch
 from pathlib import Path
 from typing import Optional
 import json
@@ -69,6 +70,18 @@ class MassMeanProbe(BaseProbeNonTrainable):
             # Aggregate this batch (mean over sequence dimension)
             batch_aggregated = self._aggregate_activations(batch_X, batch_mask)
             
+            # Check for NaN in aggregated batch
+            if np.isnan(batch_aggregated).any():
+                print(f"ERROR: NaN detected in batch_aggregated at batch {i}!")
+                print(f"  batch_X shape: {batch_X.shape}")
+                print(f"  batch_X has NaN: {np.isnan(batch_X).any()}")
+                print(f"  batch_mask shape: {batch_mask.shape if batch_mask is not None else 'None'}")
+                if batch_mask is not None:
+                    print(f"  batch_mask has NaN: {np.isnan(batch_mask).any()}")
+                print(f"  batch_aggregated shape: {batch_aggregated.shape}")
+                print(f"  batch_aggregated has NaN: {np.isnan(batch_aggregated).any()}")
+                raise ValueError(f"NaN detected in batch_aggregated at batch {i} - investigate input data")
+            
             # Separate positive and negative samples
             pos_mask = batch_y == 1
             neg_mask = batch_y == 0
@@ -108,6 +121,29 @@ class MassMeanProbe(BaseProbeNonTrainable):
         # Compute mass-mean direction
         self.theta_mm = self.mu_plus - self.mu_minus
         
+        # Check for NaN in computed parameters and investigate root cause
+        if np.isnan(self.mu_plus).any():
+            print(f"ERROR: NaN detected in mu_plus!")
+            print(f"  pos_count: {pos_count}")
+            print(f"  pos_sum shape: {pos_sum.shape if pos_sum is not None else 'None'}")
+            if pos_sum is not None:
+                print(f"  pos_sum has NaN: {np.isnan(pos_sum).any()}")
+            raise ValueError("NaN detected in mu_plus - investigate data or computation")
+        
+        if np.isnan(self.mu_minus).any():
+            print(f"ERROR: NaN detected in mu_minus!")
+            print(f"  neg_count: {neg_count}")
+            print(f"  neg_sum shape: {neg_sum.shape if neg_sum is not None else 'None'}")
+            if neg_sum is not None:
+                print(f"  neg_sum has NaN: {np.isnan(neg_sum).any()}")
+            raise ValueError("NaN detected in mu_minus - investigate data or computation")
+        
+        if np.isnan(self.theta_mm).any():
+            print(f"ERROR: NaN detected in theta_mm!")
+            print(f"  mu_plus has NaN: {np.isnan(self.mu_plus).any()}")
+            print(f"  mu_minus has NaN: {np.isnan(self.mu_minus).any()}")
+            raise ValueError("NaN detected in theta_mm - investigate data or computation")
+        
         # Compute IID version if requested
         if self.use_iid:
             print("Computing IID version (Fisher's LDA)...")
@@ -129,7 +165,61 @@ class MassMeanProbe(BaseProbeNonTrainable):
         n_samples = X.shape[0]
         n_batches = (n_samples + batch_size - 1) // batch_size
         
-        # Initialize covariance accumulator
+        # First compute overall mean
+        overall_sum = None
+        total_count = 0
+        
+        # Process batches to compute overall mean
+        for i in range(n_batches):
+            start_idx = i * batch_size
+            end_idx = min((i + 1) * batch_size, n_samples)
+            
+            batch_X = X[start_idx:end_idx]
+            batch_mask = mask[start_idx:end_idx] if mask is not None else None
+            
+            # Aggregate this batch
+            batch_aggregated = self._aggregate_activations(batch_X, batch_mask)
+            
+            batch_sum = batch_aggregated.sum(axis=0)
+            
+            # Check for NaN in batch_sum
+            if np.isnan(batch_sum).any():
+                print(f"ERROR: NaN detected in batch_sum at batch {i}!")
+                print(f"  batch_aggregated shape: {batch_aggregated.shape}")
+                print(f"  batch_aggregated has NaN: {np.isnan(batch_aggregated).any()}")
+                raise ValueError(f"NaN detected in batch_sum at batch {i}")
+            
+            if overall_sum is None:
+                overall_sum = batch_sum
+            else:
+                overall_sum += batch_sum
+                
+                # Check for NaN in overall_sum after addition
+                if np.isnan(overall_sum).any():
+                    print(f"ERROR: NaN detected in overall_sum after batch {i}!")
+                    print(f"  overall_sum shape: {overall_sum.shape}")
+                    print(f"  overall_sum has NaN: {np.isnan(overall_sum).any()}")
+                    print(f"  batch_sum shape: {batch_sum.shape}")
+                    print(f"  batch_sum has NaN: {np.isnan(batch_sum).any()}")
+                    raise ValueError(f"NaN detected in overall_sum after batch {i}")
+            
+            total_count += len(batch_aggregated)
+        
+        # Compute overall mean
+        if total_count > 0:
+            overall_mean = overall_sum / total_count
+            
+            # Check for NaN in overall mean
+            if np.isnan(overall_mean).any():
+                print(f"ERROR: NaN detected in overall_mean!")
+                print(f"  overall_sum shape: {overall_sum.shape}")
+                print(f"  overall_sum has NaN: {np.isnan(overall_sum).any()}")
+                print(f"  total_count: {total_count}")
+                raise ValueError("NaN detected in overall_mean computation")
+        else:
+            overall_mean = np.zeros(X.shape[2])
+        
+        # Now compute covariance around overall mean
         cov_sum = np.zeros((X.shape[2], X.shape[2]))
         total_count = 0
         
@@ -144,11 +234,29 @@ class MassMeanProbe(BaseProbeNonTrainable):
             # Aggregate this batch
             batch_aggregated = self._aggregate_activations(batch_X, batch_mask)
             
-            # Center the data
-            batch_centered = batch_aggregated - self.mu_plus
+            # Center the data around overall mean
+            batch_centered = batch_aggregated - overall_mean
+            
+            # Check for NaN in centered data
+            if np.isnan(batch_centered).any():
+                print(f"ERROR: NaN detected in batch_centered at batch {i}!")
+                print(f"  batch_aggregated shape: {batch_aggregated.shape}")
+                print(f"  batch_aggregated has NaN: {np.isnan(batch_aggregated).any()}")
+                print(f"  overall_mean shape: {overall_mean.shape}")
+                print(f"  overall_mean has NaN: {np.isnan(overall_mean).any()}")
+                raise ValueError(f"NaN detected in batch_centered at batch {i}")
             
             # Accumulate covariance
-            cov_sum += batch_centered.T @ batch_centered
+            batch_cov = batch_centered.T @ batch_centered
+            
+            # Check for NaN in batch covariance
+            if np.isnan(batch_cov).any():
+                print(f"ERROR: NaN detected in batch_cov at batch {i}!")
+                print(f"  batch_cov shape: {batch_cov.shape}")
+                print(f"  batch_cov has NaN: {np.isnan(batch_cov).any()}")
+                raise ValueError(f"NaN detected in batch_cov at batch {i}")
+            
+            cov_sum += batch_cov
             total_count += len(batch_aggregated)
         
         # Compute final covariance and its inverse
@@ -157,6 +265,18 @@ class MassMeanProbe(BaseProbeNonTrainable):
             # Add small regularization to ensure invertibility
             sigma += np.eye(sigma.shape[0]) * 1e-6
             self.sigma_inv = np.linalg.inv(sigma)
+            
+            # Check for NaN in sigma_inv
+            if np.isnan(self.sigma_inv).any():
+                print(f"ERROR: NaN detected in sigma_inv!")
+                print(f"  sigma_inv shape: {self.sigma_inv.shape}")
+                print(f"  sigma_inv has NaN: {np.isnan(self.sigma_inv).any()}")
+                print(f"  sigma shape: {sigma.shape}")
+                print(f"  sigma has NaN: {np.isnan(sigma).any()}")
+                print(f"  cov_sum shape: {cov_sum.shape}")
+                print(f"  cov_sum has NaN: {np.isnan(cov_sum).any()}")
+                print(f"  total_count: {total_count}")
+                raise ValueError("NaN detected in sigma_inv - investigate covariance computation")
         else:
             self.sigma_inv = np.eye(X.shape[2])
 
@@ -165,11 +285,19 @@ class MassMeanProbe(BaseProbeNonTrainable):
         if self.theta_mm is None:
             raise ValueError("Mass-mean direction not computed. Call fit() first.")
         
-        # Check for NaN in inputs
+        # Check for NaN in inputs and investigate root cause
         if np.isnan(processed_X).any():
-            print(f"Warning: NaN detected in processed_X")
+            print(f"ERROR: NaN detected in processed_X!")
+            print(f"  processed_X shape: {processed_X.shape}")
+            print(f"  processed_X has NaN: {np.isnan(processed_X).any()}")
+            print(f"  theta_mm shape: {self.theta_mm.shape}")
+            print(f"  theta_mm has NaN: {np.isnan(self.theta_mm).any()}")
+            raise ValueError("NaN detected in processed_X - investigate input data or theta_mm")
         if np.isnan(self.theta_mm).any():
-            print(f"Warning: NaN detected in theta_mm")
+            print(f"ERROR: NaN detected in theta_mm!")
+            print(f"  theta_mm shape: {self.theta_mm.shape}")
+            print(f"  theta_mm has NaN: {np.isnan(self.theta_mm).any()}")
+            raise ValueError("NaN detected in theta_mm - investigate fit method")
         
         # Convert to PyTorch tensors
         X_tensor = torch.tensor(processed_X, dtype=torch.float32, device=self.device)
@@ -178,7 +306,10 @@ class MassMeanProbe(BaseProbeNonTrainable):
         if self.sigma_inv is not None:
             # IID version: θ_mm^T Σ^(-1) x
             if np.isnan(self.sigma_inv).any():
-                print(f"Warning: NaN detected in sigma_inv")
+                print(f"ERROR: NaN detected in sigma_inv!")
+                print(f"  sigma_inv shape: {self.sigma_inv.shape}")
+                print(f"  sigma_inv has NaN: {np.isnan(self.sigma_inv).any()}")
+                raise ValueError("NaN detected in sigma_inv - investigate IID computation")
             sigma_inv_tensor = torch.tensor(self.sigma_inv, dtype=torch.float32, device=self.device)
             logits = torch.matmul(X_tensor, torch.matmul(sigma_inv_tensor, theta_tensor))
         else:
@@ -189,7 +320,14 @@ class MassMeanProbe(BaseProbeNonTrainable):
         
         # Check for NaN in output
         if np.isnan(logits_np).any():
-            print(f"Warning: NaN detected in mass-mean logits output")
+            print(f"ERROR: NaN detected in mass-mean logits output!")
+            print(f"  logits_np shape: {logits_np.shape}")
+            print(f"  logits_np has NaN: {np.isnan(logits_np).any()}")
+            print(f"  X_tensor has NaN: {torch.isnan(X_tensor).any()}")
+            print(f"  theta_tensor has NaN: {torch.isnan(theta_tensor).any()}")
+            if self.sigma_inv is not None:
+                print(f"  sigma_inv_tensor has NaN: {torch.isnan(sigma_inv_tensor).any()}")
+            raise ValueError("NaN detected in logits output - investigate tensor operations")
         
         return logits_np
 
@@ -204,9 +342,10 @@ class MassMeanProbe(BaseProbeNonTrainable):
         
         # Check for NaN in input logits
         if np.isnan(logits).any():
-            print(f"Warning: NaN detected in mass-mean logits before sigmoid")
-            # Replace NaN with 0 for sigmoid computation
-            logits = np.nan_to_num(logits, nan=0.0)
+            print(f"ERROR: NaN detected in mass-mean logits before sigmoid!")
+            print(f"  logits shape: {logits.shape}")
+            print(f"  logits has NaN: {np.isnan(logits).any()}")
+            raise ValueError("NaN detected in logits before sigmoid - investigate _compute_logits method")
         
         # Use PyTorch sigmoid for GPU acceleration
         logits_tensor = torch.tensor(logits, dtype=torch.float32, device=self.device)
@@ -214,9 +353,15 @@ class MassMeanProbe(BaseProbeNonTrainable):
         
         # Check for NaN in output probabilities
         if np.isnan(probs).any():
-            print(f"Warning: NaN detected in mass-mean probabilities after sigmoid")
+            print(f"ERROR: NaN detected in mass-mean probabilities after sigmoid!")
+            print(f"  probs shape: {probs.shape}")
+            print(f"  probs has NaN: {np.isnan(probs).any()}")
+            print(f"  logits_tensor has NaN: {torch.isnan(logits_tensor).any()}")
+            raise ValueError("NaN detected in probabilities after sigmoid - investigate sigmoid computation")
         
-        return np.column_stack([1 - probs, probs])  # [P(class 0), P(class 1)]
+        # For binary classification, return just the positive class probability
+        # This matches the expected format for sklearn's roc_auc_score
+        return probs  # Shape: (N,) - probability of positive class
 
     def _get_probe_parameters(self) -> dict:
         """Get probe parameters for saving."""
@@ -234,4 +379,5 @@ class MassMeanProbe(BaseProbeNonTrainable):
         self.sigma_inv = checkpoint['sigma_inv']
         self.mu_plus = checkpoint['mu_plus']
         self.mu_minus = checkpoint['mu_minus']
-        self.use_iid = checkpoint['use_iid'] 
+        # Handle backward compatibility - use_iid maybe was added later
+        self.use_iid = checkpoint.get('use_iid', False) 

@@ -651,9 +651,47 @@ class BaseProbeNonTrainable:
         Returns:
             Aggregated activations, shape (N, d_model) or original shape if no aggregation needed
         """
-        # If aggregation is None or "mass_mean", return original activations
-        if self.aggregation is None or self.aggregation == "mass_mean":
+        # If aggregation is None, return original activations
+        if self.aggregation is None:
             return activations
+        
+        # For mass_mean, we still need to aggregate (mean over sequence)
+        if self.aggregation == "mass_mean":
+            if mask is None:
+                mask = np.ones(activations.shape[:2], dtype=bool)
+            
+            # Check for NaN in inputs
+            if np.isnan(activations).any():
+                print(f"ERROR: NaN detected in activations before mass_mean aggregation!")
+                print(f"  activations shape: {activations.shape}")
+                print(f"  activations has NaN: {np.isnan(activations).any()}")
+                raise ValueError("NaN detected in activations before mass_mean aggregation")
+            
+            if np.isnan(mask).any():
+                print(f"ERROR: NaN detected in mask before mass_mean aggregation!")
+                print(f"  mask shape: {mask.shape}")
+                print(f"  mask has NaN: {np.isnan(mask).any()}")
+                raise ValueError("NaN detected in mask before mass_mean aggregation")
+            
+            # Use mean aggregation for mass_mean
+            mask_expanded = mask[:, :, None]  # Shape: (N, seq_len, 1)
+            masked_sum = np.einsum('nsl,nsd->nd', mask_expanded, activations)
+            mask_counts = mask.sum(axis=1, keepdims=True)  # Shape: (N, 1)
+            result = masked_sum / (mask_counts + 1e-8)  # Add small epsilon to avoid division by zero
+            
+            # Check for NaN in result
+            if np.isnan(result).any():
+                print(f"ERROR: NaN detected in mass_mean aggregation result!")
+                print(f"  result shape: {result.shape}")
+                print(f"  result has NaN: {np.isnan(result).any()}")
+                print(f"  masked_sum shape: {masked_sum.shape}")
+                print(f"  masked_sum has NaN: {np.isnan(masked_sum).any()}")
+                print(f"  mask_counts shape: {mask_counts.shape}")
+                print(f"  mask_counts has NaN: {np.isnan(mask_counts).any()}")
+                print(f"  mask_counts min: {mask_counts.min()}, max: {mask_counts.max()}")
+                raise ValueError("NaN detected in mass_mean aggregation result")
+            
+            return result
         
         if mask is None:
             mask = np.ones(activations.shape[:2], dtype=bool)
