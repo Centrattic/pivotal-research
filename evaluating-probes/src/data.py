@@ -375,9 +375,11 @@ class Dataset:
         )
         max_len = all_lengths // 2
         
+        # Use shared activation cache to avoid duplicating activations across LLM upsampling configurations
+        # All LLM upsampling variants of the same base dataset will share the same activation cache
         return Dataset.from_dataframe(
             all_df,
-            dataset_name=f"{original_dataset.dataset_name}_llm_neg{n_real_neg}_pos{n_real_pos}_{upsampling_factor}x",
+            dataset_name=f"{original_dataset.dataset_name}_llm_upsampling",  # Constant name for shared cache
             model=original_dataset.model,
             device=original_dataset.device,
             cache_root=original_dataset.cache_root,
