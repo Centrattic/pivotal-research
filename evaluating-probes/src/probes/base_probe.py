@@ -318,7 +318,7 @@ class BaseProbe:
         result = np.concatenate(all_logits, axis=0)
         return result
 
-    def score(self, X: np.ndarray, y: np.ndarray, mask: Optional[np.ndarray] = None) -> dict[str, float]:
+    def score(self, X: np.ndarray, y: np.ndarray, mask: Optional[np.ndarray] = None, batch_size: int = 200) -> dict[str, float]:
         print(f"\n=== SCORING START ===")
         print(f"Input X shape: {X.shape}")
         print(f"Input y shape: {y.shape}")
@@ -326,7 +326,7 @@ class BaseProbe:
         print(f"Task type: {self.task_type}")
         
         from sklearn.metrics import accuracy_score, roc_auc_score, r2_score, mean_squared_error, precision_score, recall_score, confusion_matrix
-        preds = self.predict(X, mask)
+        preds = self.predict(X, mask, batch_size=batch_size)
         print(f"Predictions shape: {preds.shape}")
         print(f"Predictions unique values: {np.unique(preds)}")
         
@@ -340,7 +340,7 @@ class BaseProbe:
             }
         else:
             y_true = y
-            y_prob = self.predict_proba(X, mask)
+            y_prob = self.predict_proba(X, mask, batch_size=batch_size)
             print(f"Probabilities shape: {y_prob.shape}")
             print(f"True labels unique values: {np.unique(y_true)}")
             

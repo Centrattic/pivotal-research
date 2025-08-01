@@ -50,6 +50,10 @@ class ActivationManager:
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         self._update_row_bytes()
         self.hash_dtype = hash_dtype
+        
+        # Cache for hash indices to avoid rebuilding them every time
+        self._index_cache = {}
+        self._hash_file_mtimes = {}
 
     def _update_row_bytes(self):
         """Recalculate _row_bytes when max_len changes."""
@@ -76,13 +80,15 @@ class ActivationManager:
         act_path, hash_path, shape_path = self._paths(layer, component)
 
         # load existing index into memory – {hash:str → row:int}
-        index = self._build_index(hash_path)
+        index = self._get_cached_index(hash_path)
 
         hashes = [self._hash(p) for p in texts]
         missing = [(h, p) for h, p in zip(hashes, texts) if h not in index]
 
         if missing:
             self._append_new(layer, component, missing, index, act_path, hash_path, shape_path)
+            # Clear cache since we modified the hash file
+            self._index_cache.pop(hash_path, None)
 
         # read activations in requested order
         act_mm = self._open_act(act_path, shape_path, writable=False)
@@ -101,11 +107,45 @@ class ActivationManager:
     def _hash(prompt: str) -> str:
         return hashlib.sha1(prompt.encode()).hexdigest()
 
-    def _build_index(self, hash_path: Path) -> Dict[str, int]:
+    def _get_cached_index(self, hash_path: Path) -> Dict[str, int]:
+        """Get cached index, rebuilding only if hash file has changed."""
         if not hash_path.exists():
             return {}
+        
+        # Check if file has been modified since last cache
+        current_mtime = hash_path.stat().st_mtime
+        cached_mtime = self._hash_file_mtimes.get(hash_path)
+        
+        if hash_path in self._index_cache and cached_mtime == current_mtime:
+            print(f"[DEBUG] Using cached index for {hash_path.name} ({len(self._index_cache[hash_path])} entries)")
+            return self._index_cache[hash_path]
+        
+        # Rebuild index
+        print(f"[DEBUG] Rebuilding index for {hash_path.name}")
         hashes = np.memmap(hash_path, dtype=self.hash_dtype, mode="r")
-        return {h.decode(): i for i, h in enumerate(hashes)}
+        index = {h.decode(): i for i, h in enumerate(hashes)}
+        
+        # Cache the result
+        self._index_cache[hash_path] = index
+        self._hash_file_mtimes[hash_path] = current_mtime
+        print(f"[DEBUG] Cached index for {hash_path.name} ({len(index)} entries)")
+        
+        return index
+
+    def _build_index(self, hash_path: Path) -> Dict[str, int]:
+        """Deprecated: use _get_cached_index instead."""
+        return self._get_cached_index(hash_path)
+
+    def clear_index_cache(self):
+        """Clear the cached hash indices. Useful if memory usage becomes an issue."""
+        self._index_cache.clear()
+        self._hash_file_mtimes.clear()
+
+    def clear_all_caches(self):
+        """Clear all caches (index and lazy loader caches)."""
+        self.clear_index_cache()
+        # Note: LazyActivationLoader instances are not stored in ActivationManager
+        # They are created per-request and should be garbage collected automatically
 
     # ~~~ mmap open helpers ~~~
     def _rows_from_shape(self, shape_path: Path, act_path: Path, max_length: int = None) -> int:
@@ -125,6 +165,12 @@ class ActivationManager:
         rows = self._rows_from_shape(shape_path, act_path, max_length)
         if rows == 0 and not writable:
             return np.empty((0, max_length, self.d_model), dtype=np.float16)
+        
+        # For read-only access, use lazy loading for large files
+        if not writable and rows > 10000:  # Threshold for "large" files
+            print(f"[DEBUG] Using lazy loading for large activation file ({rows} rows)")
+            return LazyActivationLoader(act_path, rows, max_length, self.d_model)
+        
         mode = "r+" if writable else "r"
         return np.memmap(act_path, dtype=np.float16, mode=mode, shape=(rows, max_length, self.d_model))
 
@@ -208,3 +254,56 @@ class ActivationManager:
         hash_path.unlink(); tmp.flush(); tmp._mmap.close()
         hash_path.with_suffix(".tmp").rename(hash_path)
         return np.memmap(hash_path, dtype=self.hash_dtype, mode="r+", shape=shape)
+
+class LazyActivationLoader:
+    """Lazy loader for large activation files that only loads requested rows."""
+    
+    def __init__(self, act_path: Path, total_rows: int, max_length: int, d_model: int):
+        self.act_path = act_path
+        self.total_rows = total_rows
+        self.max_length = max_length
+        self.d_model = d_model
+        self.row_size = max_length * d_model * 2  # float16 = 2 bytes
+        self._cache = {}
+    
+    def __getitem__(self, key):
+        if isinstance(key, int):
+            # Single row
+            return self._load_row(key)
+        elif isinstance(key, list):
+            # List of row indices
+            return np.stack([self._load_row(i) for i in key])
+        elif isinstance(key, slice):
+            # Slice of rows
+            start, stop, step = key.indices(self.total_rows)
+            indices = list(range(start, stop, step))
+            return np.stack([self._load_row(i) for i in indices])
+        else:
+            raise TypeError(f"Unsupported key type: {type(key)}")
+    
+    def _load_row(self, row_idx: int):
+        """Load a single row from the file."""
+        if row_idx in self._cache:
+            return self._cache[row_idx]
+        
+        if row_idx >= self.total_rows:
+            raise IndexError(f"Row index {row_idx} out of bounds (max: {self.total_rows-1})")
+        
+        # Calculate file offset for this row
+        offset = row_idx * self.row_size
+        
+        # Read the row directly from file
+        with open(self.act_path, 'rb') as f:
+            f.seek(offset)
+            data = f.read(self.row_size)
+        
+        # Convert to numpy array
+        row_data = np.frombuffer(data, dtype=np.float16).reshape(self.max_length, self.d_model)
+        
+        # Cache the result
+        self._cache[row_idx] = row_data
+        return row_data
+    
+    def clear_cache(self):
+        """Clear the row cache to free memory."""
+        self._cache.clear()

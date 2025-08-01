@@ -340,11 +340,18 @@ class SAEProbe(BaseProbe):
             'sae_feature_dim': self.sae_feature_dim,
             'task_type': self.task_type,
         }
-        torch.save(state, path)
+        # Use weights_only=False to ensure compatibility with numpy arrays and other objects
+        torch.save(state, path, _use_new_zipfile_serialization=False)
 
     def load_state(self, path: Path):
         """Load the probe state."""
-        state = torch.load(path, map_location=self.device)
+        try:
+            # Try with weights_only=False for backward compatibility with saved states
+            state = torch.load(path, map_location=self.device, weights_only=False)
+        except Exception as e:
+            # If that fails, try with weights_only=True (new PyTorch 2.6+ default)
+            print(f"Warning: Failed to load with weights_only=False, trying with weights_only=True: {e}")
+            state = torch.load(path, map_location=self.device, weights_only=True)
         
         # Restore attributes
         self.model_name = state['model_name']
