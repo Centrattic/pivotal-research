@@ -5,7 +5,7 @@ from typing import List, Any
 from src.logger import Logger
 from pathlib import Path
 from dataclasses import asdict
-from src.probes import LinearProbe, AttentionProbe, MassMeanProbe, ActivationSimilarityProbe, BaseProbeNonTrainable
+from src.probes import LinearProbe, AttentionProbe, MassMeanProbe, ActivationSimilarityProbe, SAEProbe, BaseProbeNonTrainable
 from configs.probes import PROBE_CONFIGS
 
 def should_skip_dataset(dataset_name, data, logger=None):
@@ -63,6 +63,8 @@ def get_probe_architecture(architecture_name: str, d_model: int, device, config:
         return LinearProbe(d_model=d_model, device=device, **config)
     if architecture_name == "attention":
         return AttentionProbe(d_model=d_model, device=device, **config)
+    if architecture_name.startswith("sae"):
+        return SAEProbe(d_model=d_model, device=device, **config)
     if architecture_name in ["mass_mean", "mass_mean_iid"]:
         # Mass-mean probes need use_iid parameter from config
         return MassMeanProbe(d_model=d_model, device=device, **config)

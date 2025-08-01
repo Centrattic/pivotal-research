@@ -265,9 +265,9 @@ class Dataset:
         n_real_neg: int,
         n_real_pos: int,
         upsampling_factor: int,
+        llm_csv_base_path: str,
         val_size: float = 0.10,
         test_size: float = 0.15,
-        llm_csv_base_path: str = "results/llm_samples",
     ):
         """
         Build a dataset with LLM upsampling for a specific number of real samples and upsampling factor.

@@ -28,6 +28,20 @@ class PytorchAttentionProbeConfig(ProbeConfig):
     # Add more as needed
 
 @dataclass
+class SAEProbeConfig(ProbeConfig):
+    """Hyperparameters for the SAE Probe."""
+    aggregation: str = "mean"  # mean, max, last, softmax
+    model_name: str = "gemma-2-9b"
+    layer: int = 20
+    sae_id: str = None  # Specific SAE ID to use
+    top_k_features: int = 128
+    lr: float = 5e-4
+    epochs: int = 150
+    batch_size: int = 1024  # Batch size for SAE encoding and probe training
+    weight_decay: float = 0.0
+    weighting_method: str = 'weighted_sampler'  # 'weighted_loss', 'weighted_sampler', or 'pcngd'
+
+@dataclass
 class MassMeanProbeConfig(ProbeConfig):
     """Configuration for the Mass Mean probe (no training needed)."""
     use_iid: bool = False  # Whether to use IID version (Fisher's LDA)
@@ -68,6 +82,19 @@ PROBE_CONFIGS = {
     "default_attention": PytorchAttentionProbeConfig(weighting_method='weighted_sampler'),
     "high_reg_attention": PytorchAttentionProbeConfig(weight_decay=1e-2, weighting_method='weighted_sampler'),
     "no_reg_attention": PytorchAttentionProbeConfig(weight_decay=0.0, weighting_method='weighted_sampler'),
+    # SAE probe configs - specific SAE IDs with different batch sizes
+    "sae_16k_l0_189_mean": SAEProbeConfig(
+        aggregation="mean", 
+        sae_id="layer_20/width_16k/average_l0_189",
+        batch_size=1024,
+        weighting_method='weighted_sampler'
+    ),
+    "sae_16k_l0_91_mean": SAEProbeConfig(
+        aggregation="mean", 
+        sae_id="layer_20/width_16k/average_l0_91",
+        batch_size=512,  # Smaller batch size for larger SAE
+        weighting_method='weighted_sampler'
+    ),
     # Mass-mean probe configs
     "mass_mean": MassMeanProbeConfig(use_iid=False),
     "mass_mean_iid": MassMeanProbeConfig(use_iid=True),

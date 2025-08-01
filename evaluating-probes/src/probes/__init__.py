@@ -3,6 +3,7 @@ from src.probes.linear_probe import LinearProbe, LinearProbeNet
 from src.probes.attention_probe import AttentionProbe, AttentionProbeNet
 from src.probes.mass_mean_probe import MassMeanProbe
 from src.probes.act_sim_probe import ActivationSimilarityProbe
+from src.probes.sae_probe import SAEProbe, SAEProbeNet
 
 # allows you to import all probes from src.probes
 __all__ = [
@@ -13,5 +14,7 @@ __all__ = [
     'AttentionProbe',
     'AttentionProbeNet',
     'MassMeanProbe',
-    'ActivationSimilarityProbe'
+    'ActivationSimilarityProbe',
+    'SAEProbe',
+    'SAEProbeNet'
 ] 

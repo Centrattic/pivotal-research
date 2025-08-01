@@ -61,7 +61,7 @@ def train_probe(
             n_real_neg = rebuild_config.get('n_real_neg')
             n_real_pos = rebuild_config.get('n_real_pos')
             upsampling_factor = rebuild_config.get('upsampling_factor')
-            llm_csv_base_path = rebuild_config.get('llm_csv_base_path', 'results/llm_samples')
+            llm_csv_base_path = rebuild_config.get('llm_csv_base_path', f'results/{train_dataset_name}/llm_samples')
             
             if n_real_neg is None or n_real_pos is None or upsampling_factor is None:
                 raise ValueError("For LLM upsampling, 'n_real_neg', 'n_real_pos', and 'upsampling_factor' must be specified")
@@ -400,10 +400,20 @@ def run_non_trainable_probe(
             n_real_neg = rebuild_config.get('n_real_neg')
             n_real_pos = rebuild_config.get('n_real_pos')
             upsampling_factor = rebuild_config.get('upsampling_factor')
-            llm_csv_base_path = rebuild_config.get('llm_csv_base_path', 'results/llm_samples')
+            llm_seed = rebuild_config.get('seed')
+            
+            # Check if LLM upsampling seed matches the global seed to prevent duplicates
+            if llm_seed is not None and llm_seed != seed:
+                logger.log(f"  - [SKIP] LLM upsampling experiment seed ({llm_seed}) doesn't match global seed ({seed}). Skipping to prevent duplicates.")
+                return
             
             if n_real_neg is None or n_real_pos is None or upsampling_factor is None:
                 raise ValueError("For LLM upsampling, 'n_real_neg', 'n_real_pos', and 'upsampling_factor' must be specified")
+            
+            # Use run_name from config for LLM samples path
+            # We need to get the run_name from the results_dir path: results/run_name/seed_X/experiment_name
+            run_name = results_dir.parent.parent.name  # Go up two levels to get run_name
+            llm_csv_base_path = rebuild_config.get('llm_csv_base_path', f'results/{run_name}/llm_samples')
             
             train_ds = Dataset.build_llm_upsampled_dataset(
                 orig_ds,

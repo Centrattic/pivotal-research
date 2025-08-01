@@ -426,7 +426,7 @@ def main():
                                         )
                                         key = resample_params_to_str(rebuild_params)
                                         all_eval_results[key] = metrics
-                                    probe_filename_base = get_probe_filename_prefix(train_dataset, arch_config['name'], layer, component, contrast_fn)
+                                    probe_filename_base = get_probe_filename_prefix(train_dataset, arch_config['name'], layer, component, arch_config.get('config_name'), contrast_fn)
                                     eval_results_path = experiment_dir / f"train_{train_dataset}" / f"eval_on_{eval_dataset}__{probe_filename_base}_allres.json"
                                     with open(eval_results_path, "w") as f:
                                         json.dump(all_eval_results, f, indent=2)
