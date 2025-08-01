@@ -567,12 +567,43 @@ class BaseProbeNonTrainable:
             mask = np.ones(activations.shape[:2], dtype=bool)
         
         if self.aggregation == "mean":
-            # Optimized mean pooling with mask
+            # Optimized mean pooling with mask - only consider non-zero tokens
             # Use einsum for efficient masked sum
             mask_expanded = mask[:, :, None]  # Shape: (N, seq_len, 1)
             masked_sum = np.einsum('nsl,nsd->nd', mask_expanded, activations)
             mask_counts = mask.sum(axis=1, keepdims=True)  # Shape: (N, 1)
-            return masked_sum / (mask_counts + 1e-8)  # Add small epsilon to avoid division by zero
+            
+            # Ensure we don't divide by zero and handle edge cases
+            # If all tokens are padding (mask_counts == 0), use zeros
+            valid_mask = mask_counts > 0
+            result = np.zeros_like(masked_sum)
+            
+            # Fix the broadcasting issue by properly indexing
+            valid_indices = np.where(valid_mask.flatten())[0]
+            if len(valid_indices) > 0:
+                # masked_sum[valid_indices] has shape (n_valid, d_model)
+                # mask_counts[valid_indices] needs to be (n_valid, 1) for broadcasting
+                result[valid_indices] = masked_sum[valid_indices] / mask_counts[valid_indices]
+            
+            # Check for NaN in mean aggregation
+            if np.isnan(result).any():
+                print(f"ERROR: NaN detected in mean aggregation!")
+                print(f"  activations shape: {activations.shape}")
+                print(f"  activations has NaN: {np.isnan(activations).any()}")
+                print(f"  activations min: {activations.min()}, max: {activations.max()}")
+                print(f"  mask shape: {mask.shape}")
+                print(f"  mask has NaN: {np.isnan(mask).any()}")
+                print(f"  mask_counts shape: {mask_counts.shape}")
+                print(f"  mask_counts has NaN: {np.isnan(mask_counts).any()}")
+                print(f"  mask_counts min: {mask_counts.min()}, max: {mask_counts.max()}")
+                print(f"  masked_sum shape: {masked_sum.shape}")
+                print(f"  masked_sum has NaN: {np.isnan(masked_sum).any()}")
+                print(f"  masked_sum min: {masked_sum.min()}, max: {masked_sum.max()}")
+                print(f"  result has NaN: {np.isnan(result).any()}")
+                print(f"  result min: {result.min()}, max: {result.max()}")
+                raise ValueError("NaN detected in mean aggregation - investigate einsum or division")
+            
+            return result
         elif self.aggregation == "max":
             # Optimized max pooling with mask
             # Create a copy and set masked values to -inf

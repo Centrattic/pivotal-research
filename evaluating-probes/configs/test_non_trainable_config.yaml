@@ -16,8 +16,8 @@ architectures:
     config_name: "act_sim_max"
   - name: "act_sim_last"
     config_name: "act_sim_last"
-  - name: "mass_mean"
-    config_name: "mass_mean"
+  # - name: "mass_mean"
+  #   config_name: "mass_mean"
 
 # List of experiments to run
 experiments:

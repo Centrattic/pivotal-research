@@ -291,7 +291,7 @@ class ActivationSimilarityProbe(BaseProbeNonTrainable):
     
     def _cosine_similarity(self, X: np.ndarray, prototype: np.ndarray) -> np.ndarray:
         """
-        Compute cosine similarity between activations and prototype using PyTorch for GPU acceleration.
+        Compute cosine similarity between activations and prototype using PyTorch's built-in function.
         
         Args:
             X: Shape (N, d_model)
@@ -300,37 +300,26 @@ class ActivationSimilarityProbe(BaseProbeNonTrainable):
         Returns:
             Similarities: Shape (N,)
         """
+        import torch.nn.functional as F
+        
         # Convert to PyTorch tensors
         X_tensor = torch.tensor(X, dtype=torch.float32, device=self.device)
         prototype_tensor = torch.tensor(prototype, dtype=torch.float32, device=self.device)
         
-        # Check for NaN in inputs
-        if torch.isnan(X_tensor).any():
-            print(f"Warning: NaN detected in X_tensor")
-        if torch.isnan(prototype_tensor).any():
-            print(f"Warning: NaN detected in prototype_tensor")
+        # Replace any infinity values with zeros
+        X_tensor = torch.nan_to_num(X_tensor, nan=0.0, posinf=0.0, neginf=0.0)
+        prototype_tensor = torch.nan_to_num(prototype_tensor, nan=0.0, posinf=0.0, neginf=0.0)
         
-        # Normalize both vectors with more robust handling
-        X_norms = torch.norm(X_tensor, dim=1, keepdim=True)
-        prototype_norm_val = torch.norm(prototype_tensor)
+        # Expand prototype to match X shape for broadcasting
+        # prototype_tensor: (d_model,) -> (1, d_model)
+        prototype_expanded = prototype_tensor.unsqueeze(0)
         
-        # Check for zero norms
-        if (X_norms == 0).any():
-            print(f"Warning: Zero norm detected in X_tensor")
-        if prototype_norm_val == 0:
-            print(f"Warning: Zero norm detected in prototype_tensor")
+        # Compute cosine similarity using PyTorch's built-in function
+        # This handles zero vectors and numerical stability automatically
+        similarities = F.cosine_similarity(X_tensor, prototype_expanded, dim=1)
         
-        # Use a larger epsilon and handle zero norms more carefully
-        epsilon = 1e-6
-        X_norm = X_tensor / torch.clamp(X_norms, min=epsilon)
-        prototype_norm = prototype_tensor / torch.clamp(prototype_norm_val, min=epsilon)
-        
-        # Compute cosine similarity
-        similarities = torch.matmul(X_norm, prototype_norm)
-        
-        # Check for NaN in output
-        if torch.isnan(similarities).any():
-            print(f"Warning: NaN detected in similarities output")
+        # Clamp to valid range [-1, 1] to handle any numerical errors
+        similarities = torch.clamp(similarities, min=-1.0, max=1.0)
         
         return similarities.cpu().numpy()
     

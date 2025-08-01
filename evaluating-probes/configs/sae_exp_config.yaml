@@ -15,15 +15,14 @@ experiments:
   - name: sae_spam_test
     metric: auc
     class_names: {0: "Not Spam", 1: "Spam"}
-    train_on: 87_is_spam
+    train_on: 94_better_spam
     evaluate_on:
-      - 87_is_spam
+      - 94_better_spam
     score:
       - all
-      - filtered
 
-use_cache: true
-retrain: false
-reevaluate: false
-hyperparameter_tuning: false
-retrain_with_best_hparams: false 
+# use_cache: true
+# retrain: false
+# reevaluate: false
+# hyperparameter_tuning: false
+# retrain_with_best_hparams: false 
