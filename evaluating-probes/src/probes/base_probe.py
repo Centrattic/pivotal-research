@@ -524,109 +524,6 @@ class BaseProbe:
         self.model.load_state_dict(checkpoint['model_state_dict'])
         print(f"Loaded probe from {path}")
 
-    def fit_pcngd(self, X: np.ndarray, y: np.ndarray, mask: Optional[np.ndarray] = None,
-                  epochs: int = 20, lr: float = 1e-3, weight_decay: float = 0.0, verbose: bool = True, early_stopping: bool = True, patience: int = 5, min_delta: float = 0.0001, eps: float = 1e-6):
-        """
-        Train the probe model using Per-Class Normalized Gradient Descent (PCNGD).
-        Only supports classification tasks for now.
-        Args:
-            X: Input features, shape (N, seq, d_model)
-            y: Labels, shape (N,) or (N, num_classes)
-            mask: Optional mask, shape (N, seq)
-            epochs: Number of epochs
-            lr: Learning rate
-            weight_decay: Weight decay (not used in PCNGD, but included for API compatibility)
-            verbose: Print progress
-            early_stopping: Use early stopping
-            patience: Early stopping patience
-            min_delta: Early stopping min delta
-            eps: Small constant for numerical stability
-        """
-        print(f"\n=== PCNGD TRAINING START ===")
-        print(f"Input X shape: {X.shape}")
-        print(f"Input y shape: {y.shape}")
-        print(f"Mask shape: {mask.shape if mask is not None else 'None'}")
-        print(f"Task type: {self.task_type}")
-        print(f"Device: {self.device}")
-        print(f"Epochs: {epochs}, LR: {lr}")
-        if self.task_type != "classification":
-            raise NotImplementedError("PCNGD is only implemented for classification tasks.")
-        X = torch.tensor(X, dtype=torch.float32, device=self.device)
-        y = torch.tensor(y, dtype=torch.long, device=self.device)
-        if mask is not None:
-            mask = torch.tensor(mask, dtype=torch.bool, device=self.device)
-        else:
-            mask = torch.ones(X.shape[:2], dtype=torch.bool, device=self.device)
-        # Get unique classes
-        y_np = y.cpu().numpy() if hasattr(y, 'cpu') else y.numpy()
-        if y_np.ndim > 1 and y_np.shape[1] == 1:
-            y_np = y_np.squeeze(-1)
-        classes = np.unique(y_np)
-        n_classes = len(classes)
-        # Build per-class indices
-        class_indices = {int(cls): np.where(y_np == cls)[0] for cls in classes}
-        best_loss = float('inf')
-        epochs_no_improve = 0
-        stop_epoch = None
-        self.model.train()
-        criterion = nn.CrossEntropyLoss()
-        for epoch in range(epochs):
-            grads = []
-            norms = []
-            epoch_loss = 0.0
-            # (a) Compute per-class gradients
-            for l in classes:
-                idxs = class_indices[int(l)]
-                xb = X[idxs]
-                yb = y[idxs]
-                mb = mask[idxs]
-                # Forward
-                logits = self.model(xb, mb)
-                # If binary, logits shape (N,) or (N,1), yb shape (N,)
-                if logits.ndim == 1 or logits.shape[-1] == 1:
-                    logits = logits.view(-1, 1)
-                # CrossEntropyLoss expects (N, C) and y as (N,)
-                if logits.shape[-1] == 1 and n_classes == 2:
-                    # Convert logits to (N, 2) for binary
-                    logits = torch.cat([-logits, logits], dim=1)
-                loss_l = criterion(logits, yb)
-                grad_l = torch.autograd.grad(loss_l, self.model.parameters(), retain_graph=True, create_graph=False)
-                flat_grad = torch.cat([g.flatten() for g in grad_l])
-                norm_l = flat_grad.norm() + eps
-                grads.append(grad_l)
-                norms.append(norm_l)
-                epoch_loss += loss_l.item() * len(idxs)
-            # (b) Combine normalized gradients
-            for p in self.model.parameters():
-                if p.grad is not None:
-                    p.grad.zero_()
-            for grad_l, norm_l in zip(grads, norms):
-                for p, g in zip(self.model.parameters(), grad_l):
-                    if p.grad is None:
-                        p.grad = torch.zeros_like(p.data)
-                    p.grad.add_(g / norm_l)
-            # (c) Manual SGD step
-            for p in self.model.parameters():
-                p.data = p.data - lr * p.grad
-            avg_loss = epoch_loss / X.shape[0]
-            self.loss_history.append(avg_loss)
-            if verbose:
-                print(f"PCNGD Epoch {epoch+1}/{epochs} - Loss: {avg_loss:.4f}")
-            # Early stopping logic
-            if early_stopping:
-                if avg_loss < best_loss - min_delta:
-                    best_loss = avg_loss
-                    epochs_no_improve = 0
-                else:
-                    epochs_no_improve += 1
-                if epochs_no_improve >= patience:
-                    print(f"PCNGD Early stopping triggered at epoch {epoch+1}. Best loss: {best_loss:.4f}")
-                    stop_epoch = epoch + 1
-                    break
-        if stop_epoch is not None:
-            print(f"PCNGD Training stopped early at epoch {stop_epoch}.")
-        print(f"=== PCNGD TRAINING COMPLETE ===\n")
-        return self 
 
 class BaseProbeNonTrainable:
     """
@@ -660,38 +557,11 @@ class BaseProbeNonTrainable:
             if mask is None:
                 mask = np.ones(activations.shape[:2], dtype=bool)
             
-            # Check for NaN in inputs
-            if np.isnan(activations).any():
-                print(f"ERROR: NaN detected in activations before mass_mean aggregation!")
-                print(f"  activations shape: {activations.shape}")
-                print(f"  activations has NaN: {np.isnan(activations).any()}")
-                raise ValueError("NaN detected in activations before mass_mean aggregation")
-            
-            if np.isnan(mask).any():
-                print(f"ERROR: NaN detected in mask before mass_mean aggregation!")
-                print(f"  mask shape: {mask.shape}")
-                print(f"  mask has NaN: {np.isnan(mask).any()}")
-                raise ValueError("NaN detected in mask before mass_mean aggregation")
-            
             # Use mean aggregation for mass_mean
             mask_expanded = mask[:, :, None]  # Shape: (N, seq_len, 1)
             masked_sum = np.einsum('nsl,nsd->nd', mask_expanded, activations)
             mask_counts = mask.sum(axis=1, keepdims=True)  # Shape: (N, 1)
-            result = masked_sum / (mask_counts + 1e-8)  # Add small epsilon to avoid division by zero
-            
-            # Check for NaN in result
-            if np.isnan(result).any():
-                print(f"ERROR: NaN detected in mass_mean aggregation result!")
-                print(f"  result shape: {result.shape}")
-                print(f"  result has NaN: {np.isnan(result).any()}")
-                print(f"  masked_sum shape: {masked_sum.shape}")
-                print(f"  masked_sum has NaN: {np.isnan(masked_sum).any()}")
-                print(f"  mask_counts shape: {mask_counts.shape}")
-                print(f"  mask_counts has NaN: {np.isnan(mask_counts).any()}")
-                print(f"  mask_counts min: {mask_counts.min()}, max: {mask_counts.max()}")
-                raise ValueError("NaN detected in mass_mean aggregation result")
-            
-            return result
+            return masked_sum / (mask_counts + 1e-8)  # Add small epsilon to avoid division by zero
         
         if mask is None:
             mask = np.ones(activations.shape[:2], dtype=bool)
@@ -733,12 +603,6 @@ class BaseProbeNonTrainable:
         """
         Make predictions using the non-trainable probe with batched processing.
         """
-        print(f"\n=== NON-TRAINABLE PREDICTION START ===")
-        print(f"Input X shape: {X.shape}")
-        print(f"Input mask shape: {mask.shape if mask is not None else 'None'}")
-        print(f"Aggregation: {self.aggregation}")
-        print(f"Batch size: {batch_size}")
-        
         # Process data in batches to avoid memory issues
         n_samples = X.shape[0]
         n_batches = (n_samples + batch_size - 1) // batch_size
@@ -755,16 +619,9 @@ class BaseProbeNonTrainable:
             batch_processed_X = self._aggregate_activations(batch_X, batch_mask)
             batch_predictions = self._compute_predictions(batch_processed_X)
             all_predictions.append(batch_predictions)
-            
-            if i % 10 == 0 or i == n_batches - 1:
-                print(f"Processed prediction batch {i+1}/{n_batches} ({start_idx}-{end_idx})")
         
         # Concatenate all predictions
-        predictions = np.concatenate(all_predictions, axis=0)
-        
-        print(f"Final predictions shape: {predictions.shape}")
-        print(f"=== NON-TRAINABLE PREDICTION COMPLETE ===\n")
-        return predictions
+        return np.concatenate(all_predictions, axis=0)
 
     def _compute_predictions(self, processed_X: np.ndarray) -> np.ndarray:
         """
@@ -776,11 +633,6 @@ class BaseProbeNonTrainable:
         """
         Compute prediction probabilities for non-trainable probes with batched processing.
         """
-        print(f"\n=== NON-TRAINABLE PROBABILITY PREDICTION START ===")
-        print(f"Input X shape: {X.shape}")
-        print(f"Input mask shape: {mask.shape if mask is not None else 'None'}")
-        print(f"Batch size: {batch_size}")
-        
         # Process data in batches to avoid memory issues
         n_samples = X.shape[0]
         n_batches = (n_samples + batch_size - 1) // batch_size
@@ -797,16 +649,9 @@ class BaseProbeNonTrainable:
             batch_processed_X = self._aggregate_activations(batch_X, batch_mask)
             batch_probabilities = self._compute_probabilities(batch_processed_X)
             all_probabilities.append(batch_probabilities)
-            
-            if i % 10 == 0 or i == n_batches - 1:
-                print(f"Processed probability batch {i+1}/{n_batches} ({start_idx}-{end_idx})")
         
         # Concatenate all probabilities
-        probabilities = np.concatenate(all_probabilities, axis=0)
-        
-        print(f"Final probabilities shape: {probabilities.shape}")
-        print(f"=== NON-TRAINABLE PROBABILITY PREDICTION COMPLETE ===\n")
-        return probabilities
+        return np.concatenate(all_probabilities, axis=0)
 
     def _compute_probabilities(self, processed_X: np.ndarray) -> np.ndarray:
         """
@@ -848,23 +693,13 @@ class BaseProbeNonTrainable:
         """
         Calculate performance metrics for the non-trainable probe.
         """
-        print(f"\n=== NON-TRAINABLE SCORING START ===")
-        print(f"Input X shape: {X.shape}")
-        print(f"Input y shape: {y.shape}")
-        print(f"Input mask shape: {mask.shape if mask is not None else 'None'}")
-        print(f"Task type: {self.task_type}")
-        print(f"Batch size: {batch_size}")
-        
         from sklearn.metrics import accuracy_score, roc_auc_score, r2_score, mean_squared_error, precision_score, recall_score, confusion_matrix
         
         preds = self.predict(X, mask, batch_size=batch_size)
-        print(f"Predictions shape: {preds.shape}")
-        print(f"Predictions unique values: {np.unique(preds)}")
         
         if self.task_type == "regression":
             r2 = float(r2_score(y, preds))
             mse = float(mean_squared_error(y, preds))
-            print(f"Regression metrics - R²: {r2:.4f}, MSE: {mse:.4f}")
             result = {
                 "r2_score": r2,
                 "mse": mse,
@@ -872,8 +707,6 @@ class BaseProbeNonTrainable:
         else:
             y_true = y
             y_prob = self.predict_proba(X, mask, batch_size=batch_size)
-            print(f"Probabilities shape: {y_prob.shape}")
-            print(f"True labels unique values: {np.unique(y_true)}")
             
             if y_prob.ndim == 1 or y_prob.shape[-1] == 1:
                 auc = roc_auc_score(y_true, y_prob) if len(np.unique(y_true)) > 1 else 0.5
@@ -882,29 +715,15 @@ class BaseProbeNonTrainable:
                 recall = recall_score(y_true, preds, zero_division=0)
                 tn, fp, fn, tp = confusion_matrix(y_true, preds).ravel()
                 fpr = fp / (fp + tn) if (fp + tn) > 0 else 0.0
-                print(f"Binary classification metrics:")
-                print(f"  Accuracy: {acc:.4f}")
-                print(f"  AUC: {auc:.4f}")
-                print(f"  Precision: {precision:.4f}")
-                print(f"  Recall: {recall:.4f}")
-                print(f"  FPR: {fpr:.4f}")
-                print(f"  Confusion Matrix: TN={tn}, FP={fp}, FN={fn}, TP={tp}")
             else:
                 auc = roc_auc_score(y_true, y_prob, multi_class='ovr')
                 acc = accuracy_score(y_true, preds)
                 precision = precision_score(y_true, preds, average='macro', zero_division=0)
                 recall = recall_score(y_true, preds, average='macro', zero_division=0)
                 fpr = 1 - recall_score(y_true, preds, average='macro', zero_division=0)
-                print(f"Multiclass classification metrics:")
-                print(f"  Accuracy: {acc:.4f}")
-                print(f"  AUC: {auc:.4f}")
-                print(f"  Precision: {precision:.4f}")
-                print(f"  Recall: {recall:.4f}")
-                print(f"  FPR: {fpr:.4f}")
             
             result = {"acc": float(acc), "auc": float(auc), "precision": float(precision), "recall": float(recall), "fpr": float(fpr)}
         
-        print(f"=== NON-TRAINABLE SCORING COMPLETE ===\n")
         return result
 
     def score_filtered(self, X: np.ndarray, y: np.ndarray, dataset_name: str, results_dir: Path, 
@@ -912,35 +731,24 @@ class BaseProbeNonTrainable:
         """
         Calculate metrics only on examples where the model's logit_diff is above threshold.
         """
-        print(f"\n=== NON-TRAINABLE FILTERED SCORING START ===")
-        print(f"Input X shape: {X.shape}")
-        print(f"Input y shape: {y.shape}")
-        print(f"Logit diff threshold: {logit_diff_threshold}")
-        
         # Read the CSV file to get logit_diff values
         parent_dir = results_dir.parent
         runthrough_dir = parent_dir / f"runthrough_{dataset_name}"
         
         if not runthrough_dir.exists():
-            print(f"Warning: No runthrough directory found at {runthrough_dir}. Using unfiltered scoring.")
             return self.score(X, y, mask)
         
         csv_files = list(runthrough_dir.glob("*logit_diff*.csv"))
         if not csv_files:
-            print(f"Warning: No logit_diff*.csv file found in {runthrough_dir}. Using unfiltered scoring.")
             return self.score(X, y, mask)
         
         csv_path = csv_files[0]
-        print(f"Using logit_diff file: {csv_path}")
         try:
             df = pd.read_csv(csv_path)
             if 'logit_diff' not in df.columns:
-                print(f"Warning: 'logit_diff' column not found in {csv_path}. Using unfiltered scoring.")
                 return self.score(X, y, mask)
             
             if len(df) != len(y):
-                print(f"Warning: CSV has {len(df)} rows but test set has {len(y)} examples. Dataset mismatch detected!")
-                print("Using unfiltered scoring.")
                 return self.score(X, y, mask)
             
             # Get the test set texts to match with CSV
@@ -950,29 +758,19 @@ class BaseProbeNonTrainable:
             test_texts = temp_ds.get_test_set()[0]
             
             if len(test_texts) != len(y):
-                print(f"Warning: Recreated test set has {len(test_texts)} examples but current test set has {len(y)} examples.")
-                print("Using unfiltered scoring.")
                 return self.score(X, y, mask)
             
             # Filter based on logit_diff threshold
             mask_filter = np.abs(df['logit_diff'].values) > logit_diff_threshold
             filtered_indices = np.where(mask_filter)[0]
             
-            print(f"Original test set size: {len(test_texts)}")
-            print(f"Filtered test set size: {len(filtered_indices)}")
-            print(f"Removed {len(test_texts) - len(filtered_indices)} examples")
-            
             if len(filtered_indices) == 0:
-                print("Warning: No examples remain after filtering. Using unfiltered scoring.")
                 return self.score(X, y, mask)
             
             # Apply the filter to X, y, and mask
             X_filtered = X[filtered_indices]
             y_filtered = y[filtered_indices]
             mask_filtered = mask[filtered_indices] if mask is not None else None
-            
-            print(f"Filtered X shape: {X_filtered.shape}")
-            print(f"Filtered y shape: {y_filtered.shape}")
             
             # Calculate metrics on filtered data
             result = self.score(X_filtered, y_filtered, mask_filtered)
@@ -984,11 +782,9 @@ class BaseProbeNonTrainable:
             result["filtered_size"] = len(filtered_indices)
             result["removed_count"] = len(test_texts) - len(filtered_indices)
             
-            print(f"=== NON-TRAINABLE FILTERED SCORING COMPLETE ===\n")
             return result
             
         except Exception as e:
-            print(f"Error in filtered scoring: {e}. Using unfiltered scoring.")
             return self.score(X, y, mask)
 
     def score_with_filtered(self, X: np.ndarray, y: np.ndarray, dataset_name: str, results_dir: Path,
@@ -996,8 +792,6 @@ class BaseProbeNonTrainable:
         """
         Calculate both regular and filtered metrics, returning them in a combined dictionary.
         """
-        print(f"\n=== NON-TRAINABLE COMBINED SCORING START ===")
-        
         # Get regular metrics
         regular_metrics = self.score(X, y, mask)
         regular_metrics["filtered"] = False
@@ -1011,7 +805,6 @@ class BaseProbeNonTrainable:
             "filtered_examples": filtered_metrics
         }
         
-        print(f"=== NON-TRAINABLE COMBINED SCORING COMPLETE ===\n")
         return combined_results
 
     def save_state(self, path: Path):
@@ -1028,7 +821,6 @@ class BaseProbeNonTrainable:
         save_dict.update(probe_params)
         
         torch.save(save_dict, path)
-        print(f"Saved non-trainable probe to {path}")
         
         # Save training info (empty for non-trainable probes)
         log_path = path.with_name(path.stem + "_train_log.json")
@@ -1038,7 +830,6 @@ class BaseProbeNonTrainable:
         }
         with open(log_path, "w") as f:
             json.dump(train_info, f, indent=2)
-        print(f"Saved probe log to {log_path}")
 
     def _get_probe_parameters(self) -> dict:
         """
@@ -1058,7 +849,6 @@ class BaseProbeNonTrainable:
         
         # Load probe-specific parameters
         self._load_probe_parameters(checkpoint)
-        print(f"Loaded non-trainable probe from {path}")
 
     def _load_probe_parameters(self, checkpoint: dict):
         """
@@ -1066,16 +856,3 @@ class BaseProbeNonTrainable:
         """
         raise NotImplementedError("Subclasses must implement _load_probe_parameters")
 
-    def find_best_fit(self, X_train: np.ndarray, y_train: np.ndarray, X_val: np.ndarray, y_val: np.ndarray, 
-                     mask_train: Optional[np.ndarray] = None, mask_val: Optional[np.ndarray] = None, 
-                     n_trials: int = 10, direction: str = None, verbose: bool = True):
-        """
-        For non-trainable probes, this method is not applicable.
-        """
-        raise NotImplementedError("Non-trainable probes do not support hyperparameter tuning")
-
-    def fit_pcngd(self, X: np.ndarray, y: np.ndarray, mask: Optional[np.ndarray] = None, **kwargs):
-        """
-        For non-trainable probes, this method is not applicable.
-        """
-        raise NotImplementedError("Non-trainable probes do not support PCNGD training")

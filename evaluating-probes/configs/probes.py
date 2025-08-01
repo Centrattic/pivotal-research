@@ -95,9 +95,9 @@ PROBE_CONFIGS = {
         batch_size=512,  # Smaller batch size for larger SAE
         weighting_method='weighted_sampler'
     ),
-    # Mass-mean probe configs
+    # Mass-mean probe configs (IID functionality disabled due to numerical instability)
     "mass_mean": MassMeanProbeConfig(use_iid=False),
-    "mass_mean_iid": MassMeanProbeConfig(use_iid=True),
+    # "mass_mean_iid": MassMeanProbeConfig(use_iid=True),  # IID functionality disabled
     "default_mass_mean": MassMeanProbeConfig(use_iid=False),
     # Activation similarity probe configs
     "act_sim_mean": ActivationSimilarityProbeConfig(aggregation="mean"),

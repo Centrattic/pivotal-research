@@ -51,7 +51,7 @@ def extract_aggregation_from_config(config_name: str, architecture_name: str) ->
         return config.aggregation
     elif architecture_name == "attention":
         return "attention"
-    elif architecture_name in ["mass_mean", "mass_mean_iid"]:
+    elif architecture_name in ["mass_mean"]:  # mass_mean_iid removed due to numerical instability
         return "mass_mean"  # Mass-mean probes don't use aggregation
     else:
         return "mean"  # Default fallback
@@ -65,7 +65,7 @@ def get_probe_architecture(architecture_name: str, d_model: int, device, config:
         return AttentionProbe(d_model=d_model, device=device, **config)
     if architecture_name.startswith("sae"):
         return SAEProbe(d_model=d_model, device=device, **config)
-    if architecture_name in ["mass_mean", "mass_mean_iid"]:
+    if architecture_name in ["mass_mean"]:  # mass_mean_iid removed due to numerical instability
         # Mass-mean probes need use_iid parameter from config
         return MassMeanProbe(d_model=d_model, device=device, **config)
     if architecture_name.startswith("act_sim"):
