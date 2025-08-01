@@ -83,9 +83,9 @@ PROBE_CONFIGS = {
     "high_reg_attention": PytorchAttentionProbeConfig(weight_decay=1e-2, weighting_method='weighted_sampler'),
     "no_reg_attention": PytorchAttentionProbeConfig(weight_decay=0.0, weighting_method='weighted_sampler'),
     # SAE probe configs - specific SAE IDs with different batch sizes
-    "sae_16k_l0_189_mean": SAEProbeConfig(
+    "sae_16k_l0_408_mean": SAEProbeConfig(
         aggregation="mean", 
-        sae_id="layer_20/width_16k/average_l0_189",
+        sae_id="layer_20/width_16k/average_l0_408", # for some reason lo_189 doesn't exist! 
         batch_size=1024,
         weighting_method='weighted_sampler'
     ),
