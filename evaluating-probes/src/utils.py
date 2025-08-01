@@ -7,6 +7,7 @@ from pathlib import Path
 from dataclasses import asdict
 from src.probes import LinearProbe, AttentionProbe, MassMeanProbe, ActivationSimilarityProbe, SAEProbe, BaseProbeNonTrainable
 from configs.probes import PROBE_CONFIGS
+from src.data import Dataset
 
 def should_skip_dataset(dataset_name, data, logger=None):
     """ This defines conditions for datasets we should always skip. We have separate conditions for skipping a dataset for evaluation if you trained on it. """
@@ -133,3 +134,61 @@ def resample_params_to_str(params):
         return f"{cp_str}_total{params['total_samples']}"
     else:
         return "custom"
+
+
+def get_dataset(name, model, device, seed):
+    return Dataset(name, model=model, device=device, seed=seed)
+
+def get_effective_seeds(config):
+    """Extract seeds from config, supporting both single seed and multiple seeds.
+    Returns a list of seeds for uniform processing.
+    """
+    if 'seeds' in config:
+        # Multiple seeds specified
+        seeds = config['seeds']
+        if isinstance(seeds, list):
+            return seeds
+        else:
+            # Handle case where seeds might be a single value
+            return [seeds]
+    elif 'seed' in config:
+        # Single seed specified (backward compatibility)
+        return [config['seed']]
+    else:
+        # Default seed if none specified
+        return [42]
+
+def get_effective_seed_for_rebuild_config(global_seed, rebuild_config):
+    """
+    For LLM upsampling experiments, rebuild_config seed overrides global seed.
+    For other experiments, use global seed.
+    """
+    if rebuild_config and 'llm_upsampling' in rebuild_config and rebuild_config['llm_upsampling']:
+        # LLM upsampling: rebuild_config seed takes precedence
+        return rebuild_config.get('seed', global_seed)
+    else:
+        # Regular experiments: global seed takes precedence
+        return global_seed
+
+def generate_llm_upsampling_configs(n_real_neg, n_real_pos_list, upsampling_factors, seed):
+    """
+    Generate rebuild_configs for LLM upsampling experiments.
+    Creates a config for each combination of n_real_pos and upsampling_factor.
+    
+    Args:
+        n_real_neg: Fixed number of real negative samples to use
+        n_real_pos_list: List of real positive sample counts to try (e.g., [1, 2, 3, 4, 5])
+        upsampling_factors: List of upsampling factors to try (e.g., [1, 2, 3, 4, 5])
+        seed: Random seed for the experiments
+    """
+    configs = []
+    for n_real_pos in n_real_pos_list:
+        for factor in upsampling_factors:
+            configs.append({
+                'llm_upsampling': True,
+                'n_real_neg': n_real_neg,
+                'n_real_pos': n_real_pos,
+                'upsampling_factor': factor,
+                'seed': seed  # Override global seed for LLM experiments
+            })
+    return configs

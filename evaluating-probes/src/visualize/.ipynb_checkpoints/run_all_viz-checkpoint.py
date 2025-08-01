@@ -10,11 +10,7 @@ from src.visualize.utils_viz import (
     plot_multi_folder_auc_vs_n_class1,
     plot_all_probe_loss_curves_in_folder,
     plot_experiment_2_all_probes_with_eval,
-    plot_experiment_2_recall_at_fpr,
-    plot_experiment_3_upsampling_lineplot,
-    plot_experiment_3_upsampling_lineplot_recall,
-    plot_experiment_3_upsampling_lineplot_per_architecture,
-    plot_experiment_3_upsampling_lineplot_grid,
+    plot_experiment_3_upsampling_heatmap,
 )
 
 def main():
@@ -117,64 +113,33 @@ def main():
                     plot_all_probe_loss_curves_in_folder(str(loss_folder), save_path=save_path, seeds=args.seeds)
 
     # 4. New experiment-specific visualizations
-    # Experiment 2: All probes with evaluation dataset comparison
-    exp2_exists = False
-    if seed_dir.exists():
-        for sub in os.listdir(seed_dir):
-            if sub.startswith('2-'):
-                exp2_exists = True
-                break
+    for arch in architectures:
+        # Experiment 2: All probes with evaluation dataset comparison
+        exp2_exists = False
+        if seed_dir.exists() and '2' in [f.name for f in seed_dir.iterdir() if f.is_dir()]:
+            exp2_exists = True
+            
+        if exp2_exists:
+            print(f"Creating experiment 2 visualization for architecture {arch}")
+            save_path = viz_root / f'experiment_2_all_probes_{arch}.png'
+            plot_experiment_2_all_probes_with_eval(
+                results_dir, arch, save_path=save_path, filtered=args.filtered, seeds=args.seeds
+            )
+        else:
+            print(f"Experiment 2 not found for architecture {arch}")
         
-    if exp2_exists:
-        print(f"Creating experiment 2 visualization for all architectures")
-        save_path = viz_root / f'experiment_2_all_probes.png'
-        plot_experiment_2_all_probes_with_eval(
-            results_dir, architectures, save_path=save_path, filtered=args.filtered, seeds=args.seeds
-        )
-        
-        # Also create Recall at 1% FPR plot
-        save_path = viz_root / f'experiment_2_recall_at_1pct_fpr.png'
-        plot_experiment_2_recall_at_fpr(
-            results_dir, architectures, save_path=save_path, fpr_target=0.01, filtered=args.filtered, seeds=args.seeds
-        )
-    else:
-        print(f"Experiment 2 not found")
-    
-    # Experiment 3: Upsampling line plot
-    exp3_exists = False
-    if seed_dir.exists():
-        for sub in os.listdir(seed_dir):
-            if sub.startswith('3-'):
-                exp3_exists = True
-                break
-        
-    if exp3_exists:
-        print(f"Creating experiment 3 visualization for all architectures")
-        
-        # Create AUC plots (one per architecture)
-        save_path = viz_root / f'experiment_3_upsampling_lineplot_auc.png'
-        plot_experiment_3_upsampling_lineplot_per_architecture(
-            results_dir, architectures, save_path=save_path, metric='auc', filtered=args.filtered, seeds=args.seeds
-        )
-        
-        # Create Recall at 1% FPR plots (one per architecture)
-        save_path = viz_root / f'experiment_3_upsampling_lineplot_recall.png'
-        plot_experiment_3_upsampling_lineplot_per_architecture(
-            results_dir, architectures, save_path=save_path, metric='recall', fpr_target=0.01, filtered=args.filtered, seeds=args.seeds
-        )
-        
-        # Create AUC grid plot (all architectures in one image)
-        save_path = viz_root / f'experiment_3_upsampling_lineplot_auc_grid.png'
-        plot_experiment_3_upsampling_lineplot_grid(
-            results_dir, architectures, save_path=save_path, metric='auc', filtered=args.filtered, seeds=args.seeds
-        )
-        
-        # Create Recall grid plot (all architectures in one image)
-        save_path = viz_root / f'experiment_3_upsampling_lineplot_recall_grid.png'
-        plot_experiment_3_upsampling_lineplot_grid(
-            results_dir, architectures, save_path=save_path, metric='recall', fpr_target=0.01, filtered=args.filtered, seeds=args.seeds
-        )
-    else:
-        print(f"Experiment 3 not found")
+        # Experiment 3: Upsampling heatmap
+        exp3_exists = False
+        if seed_dir.exists() and '3' in [f.name for f in seed_dir.iterdir() if f.is_dir()]:
+            exp3_exists = True
+            
+        if exp3_exists:
+            print(f"Creating experiment 3 visualization for architecture {arch}")
+            save_path = viz_root / f'experiment_3_upsampling_heatmap_{arch}.png'
+            plot_experiment_3_upsampling_heatmap(
+                results_dir, arch, save_path=save_path, filtered=args.filtered, seeds=args.seeds
+            )
+        else:
+            print(f"Experiment 3 not found for architecture {arch}")
 
 main() 

@@ -220,11 +220,11 @@ def evaluate_probe(
         probe_save_dir = results_dir / f"dataclass_exps_{train_dataset_name}"
         suffix = rebuild_suffix(rebuild_config)
         probe_state_path = probe_save_dir / f"{probe_filename_base}_{suffix}_state.npz"
-        eval_results_path = probe_save_dir / f"eval_on_{eval_dataset_name}__{probe_filename_base}_{suffix}_seed{seed}_{agg_name}_results.json"
+        eval_results_path = probe_save_dir / f"eval_on_{eval_dataset_name}__{probe_filename_base}_{agg_name}_results.json"
     else:
         probe_save_dir = results_dir / f"train_{train_dataset_name}"
         probe_state_path = probe_save_dir / f"{probe_filename_base}_state.npz"
-        eval_results_path = probe_save_dir / f"eval_on_{eval_dataset_name}__{probe_filename_base}_seed{seed}_{agg_name}_results.json"
+        eval_results_path = probe_save_dir / f"eval_on_{eval_dataset_name}__{probe_filename_base}_{agg_name}_results.json"
 
     if use_cache and eval_results_path.exists() and not reevaluate:
         logger.log("  - 😋 Using cached evaluation result ")

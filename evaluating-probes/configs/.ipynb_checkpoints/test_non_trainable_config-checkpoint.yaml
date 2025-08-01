@@ -1,0 +1,30 @@
+run_name: "test_non_trainable_probes"
+model_name: "gemma-2-9b"  # Use a smaller model for testing
+d_model: 3584  # 768 for gpt2-small
+device: "cpu"
+cache_activations: True
+seeds: [42]
+
+layers: [20]  # Use a middle layer
+components:
+  - "resid_post"
+
+architectures:
+  - name: "act_sim_mean"
+    config_name: "act_sim_mean"
+  - name: "act_sim_max"
+    config_name: "act_sim_max"
+  - name: "act_sim_last"
+    config_name: "act_sim_last"
+  # - name: "mass_mean"
+  #   config_name: "mass_mean"
+
+# List of experiments to run
+experiments:
+  - name: test_non_trainable_probes
+    metric: acc
+    train_on: 94_better_spam
+    evaluate_on:
+      - 94_better_spam
+    score:
+      - all 

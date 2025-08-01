@@ -1,0 +1,29 @@
+run_name: "sae_probe_experiment"
+device: "cuda:0"
+cache_activations: True
+model_name: "google/gemma-2-9b"
+layers: [20]  # Layer where SAE probes are typically most effective
+components: ["resid_post"]
+
+architectures:
+  - name: "sae_16k_l0_408_mean"
+    config_name: "sae_16k_l0_408_mean"
+
+seeds: [42]
+
+# Test SAE probes on spam dataset
+experiments:
+  - name: sae_spam_test
+    metric: auc
+    class_names: {0: "Not Spam", 1: "Spam"}
+    train_on: 94_better_spam
+    evaluate_on:
+      - 94_better_spam
+    score:
+      - all
+
+# use_cache: true
+# retrain: false
+# reevaluate: false
+# hyperparameter_tuning: false
+# retrain_with_best_hparams: false 
