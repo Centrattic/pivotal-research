@@ -63,7 +63,7 @@ PROBE_CONFIGS = {
     "linear_mean": PytorchLinearProbeConfig(aggregation="mean", weighting_method='weighted_sampler'),
     "linear_max": PytorchLinearProbeConfig(aggregation="max", weighting_method='weighted_sampler'),
     "linear_last": PytorchLinearProbeConfig(aggregation="last", weighting_method='weighted_sampler'),
-    "linear_softmax": PytorchLinearProbeConfig(aggregation="softmax"),
+    "linear_softmax": PytorchLinearProbeConfig(aggregation="softmax", weighting_method='weighted_sampler'),
     # High reg variants
     "linear_mean_high_reg": PytorchLinearProbeConfig(aggregation="mean", weight_decay=1e-2),
     "linear_max_high_reg": PytorchLinearProbeConfig(aggregation="max", weight_decay=1e-2),
@@ -84,16 +84,17 @@ PROBE_CONFIGS = {
     "high_reg_attention": PytorchAttentionProbeConfig(weight_decay=1e-2, weighting_method='weighted_sampler'),
     "no_reg_attention": PytorchAttentionProbeConfig(weight_decay=0.0, weighting_method='weighted_sampler'),
     # SAE probe configs - specific SAE IDs with different batch sizes
-    "sae_16k_l0_408_mean": SAEProbeConfig(
-        aggregation="mean", 
+    # using gemma-scope-9b-pt-res as done in Kantamneni, not gemma-2-9b-it
+    "sae_16k_l0_408_last": SAEProbeConfig(
+        aggregation="last", # no matter right now
         sae_id="layer_20/width_16k/average_l0_408", # for some reason lo_189 doesn't exist! 
         weighting_method='weighted_sampler'
     ),
-    "sae_16k_l0_91_mean": SAEProbeConfig(
-        aggregation="mean", 
-        sae_id="layer_20/width_16k/average_l0_91",
-        encoding_batch_size=512,  # Larger batch size for smaller SAE
-        training_batch_size=128,  # Larger batch size for training
+    "sae_262k_l0_259_last": SAEProbeConfig(
+        aggregation="last", 
+        sae_id="layer_20/width_262k/average_l0_259",
+        encoding_batch_size=512,
+        training_batch_size=16,
         weighting_method='weighted_sampler'
     ),
     # Mass-mean probe configs (IID functionality disabled due to numerical instability)

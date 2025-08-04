@@ -319,7 +319,7 @@ class ActivationManager:
         growth_ratio = (new_rows - old_rows) / old_rows
         start_time = time.time()
         
-        if growth_ratio < 0.3:  # Less than 30% growth
+        if growth_ratio < 0.9:  # Less than 90% growth
             print(f"[DEBUG] Using append-only growth for hash file (adding {new_rows - old_rows} rows)")
             result = self._append_grow_hash(hash_path, old_rows, new_rows)
         else:

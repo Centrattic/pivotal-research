@@ -268,6 +268,7 @@ class Dataset:
         llm_csv_base_path: str,
         val_size: float = 0.10,
         test_size: float = 0.15,
+        test_only: bool = False,
     ):
         """
         Build a dataset with LLM upsampling for a specific number of real samples and upsampling factor.
@@ -281,6 +282,7 @@ class Dataset:
             val_size: Validation set size
             test_size: Test set size
             llm_csv_base_path: Base path for LLM sample CSV files
+            test_only: If True and insufficient samples for standard splits, use all data as test set
         
         Returns:
             Dataset object with the specified upsampling
@@ -302,16 +304,47 @@ class Dataset:
         
         # Build test/val indices (balanced 50/50 from real data only)
         test_indices, val_indices, used_indices = [], [], set()
+        insufficient_samples = False
         for cls in classes:
             cls_indices = np.where(y == cls)[0]
             rng = np.random.RandomState(seed)
             cls_indices_shuffled = cls_indices.copy()
             rng.shuffle(cls_indices_shuffled)
             if len(cls_indices_shuffled) < n_per_class_test + n_per_class_val:
-                raise ValueError(f"Not enough samples for class {cls} to fill test+val splits.")
+                if test_only:
+                    print(f"Not enough samples for class {cls} to fill test+val splits. Using all samples as test set.")
+                    insufficient_samples = True
+                    break
+                else:
+                    raise ValueError(f"Not enough samples for class {cls} to fill test+val splits.")
             test_indices.extend(cls_indices_shuffled[:n_per_class_test])
             val_indices.extend(cls_indices_shuffled[n_per_class_test:n_per_class_test+n_per_class_val])
             used_indices.update(cls_indices_shuffled[:n_per_class_test+n_per_class_val])
+        
+        # If insufficient samples and test_only is True, use all data as test set
+        if insufficient_samples and test_only:
+            # Use all samples as test set
+            all_indices = np.arange(n_total)
+            test_df = df.iloc[all_indices]
+            
+            # Calculate max_len from all possible data (only from original df since we're not using LLM data)
+            all_lengths = df["prompt_len"].max() if "prompt_len" in df.columns else df["prompt"].str.len().max()
+            max_len = all_lengths // 2
+            
+            return Dataset.from_dataframe(
+                test_df,
+                dataset_name=f"{original_dataset.dataset_name}_llm_upsampling",
+                model=original_dataset.model,
+                device=original_dataset.device,
+                cache_root=original_dataset.cache_root,
+                seed=seed,
+                task_type=original_dataset.task_type,
+                n_classes=original_dataset.n_classes,
+                max_len=max_len,
+                train_indices=None,
+                val_indices=None,
+                test_indices=np.arange(len(test_df)),
+            )
         
         # Remove test/val indices from available pool for train
         available_indices = np.array([i for i in range(n_total) if i not in used_indices])
@@ -401,6 +434,7 @@ class Dataset:
         train_total_samples=None,
         val_size: float = 0.10,
         test_size: float = 0.15,
+        test_only: bool = False,
     ):
         """
         Returns a single Dataset object with precomputed splits:
@@ -410,6 +444,7 @@ class Dataset:
         - Default split: 75% train, 10% val, 15% test
         - No overlap between splits
         - Calculates max_len from all possible data upfront to avoid activation manager recreation
+        - If test_only=True and insufficient samples for standard splits, uses all data as test set
         """
         import copy
         import pandas as pd
@@ -430,6 +465,7 @@ class Dataset:
         
         # Build test/val indices (real data only, 50/50)
         test_indices, val_indices, used_indices = [], [], set()
+        insufficient_samples = False
         for cls in classes:
             cls_indices = np.where(y == cls)[0]
             # Use consistent shuffling with the same seed for each class
@@ -437,10 +473,36 @@ class Dataset:
             cls_indices_shuffled = cls_indices.copy()
             rng.shuffle(cls_indices_shuffled)
             if len(cls_indices_shuffled) < n_per_class_test + n_per_class_val:
-                raise ValueError(f"Not enough samples for class {cls} to fill test+val splits.")
+                if test_only:
+                    print(f"Not enough samples for class {cls} to fill test+val splits. Using all samples as test set.")
+                    insufficient_samples = True
+                    break
+                else:
+                    raise ValueError(f"Not enough samples for class {cls} to fill test+val splits.")
             test_indices.extend(cls_indices_shuffled[:n_per_class_test])
             val_indices.extend(cls_indices_shuffled[n_per_class_test:n_per_class_test+n_per_class_val])
             used_indices.update(cls_indices_shuffled[:n_per_class_test+n_per_class_val])
+        
+        # If insufficient samples and test_only is True, use all data as test set
+        if insufficient_samples and test_only:
+            # Use all samples as test set
+            all_indices = np.arange(n_total)
+            test_df = df.iloc[all_indices]
+            
+            return Dataset.from_dataframe(
+                test_df,
+                dataset_name=original_dataset.dataset_name,
+                model=original_dataset.model,
+                device=original_dataset.device,
+                cache_root=original_dataset.cache_root,
+                seed=seed,
+                task_type=original_dataset.task_type,
+                n_classes=original_dataset.n_classes,
+                max_len=max_len,
+                train_indices=None,
+                val_indices=None,
+                test_indices=np.arange(len(test_df)),
+            )
         
         # Check if we should create a train set
         create_train = (train_class_counts is not None or train_class_percents is not None or train_total_samples is not None)

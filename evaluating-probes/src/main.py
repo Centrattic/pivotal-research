@@ -377,15 +377,10 @@ def main():
                                     else:
                                         # If no rebuild_config was used, save to train directory
                                         eval_results_path = experiment_dir / f"train_{train_dataset}" / f"eval_on_{eval_dataset}__{probe_filename_base}_allres.json"
-                                        eval_results_path.parent.mkdir(parents=True, exist_ok=True)                                    
+                                        eval_results_path.parent.mkdir(parents=True, exist_ok=True)
                                     
                                     with open(eval_results_path, "w") as f:
                                         json.dump(all_eval_results, f, indent=2)
-                                    # if any(rebuild_configs):
-                                    #     dataclass_eval_results_path = experiment_dir / f"dataclass_exps_{train_dataset}" / f"eval_on_{eval_dataset}__{probe_filename_base}_allres.json"
-                                    #     dataclass_eval_results_path.parent.mkdir(parents=True, exist_ok=True)
-                                    #     with open(dataclass_eval_results_path, "w") as f:
-                                    #         json.dump(all_eval_results, f, indent=2)
     finally:
         if 'model' in locals():
             del model

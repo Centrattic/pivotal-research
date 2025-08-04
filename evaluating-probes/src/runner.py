@@ -247,6 +247,7 @@ def evaluate_probe(
 
     if rebuild_config is not None:
         orig_ds = Dataset(eval_dataset_name, model=model, device=device, seed=seed)
+        
         # Check if this is LLM upsampling with new method
         if 'llm_upsampling' in rebuild_config and rebuild_config['llm_upsampling']:
             n_real_neg = rebuild_config.get('n_real_neg')
@@ -326,7 +327,7 @@ def evaluate_probe(
             "filtered": False
         }
     }
-    
+
     # Add filtered scores only if filtering was requested and actually removed data points
     if 'filtered' in score_options and 'filtered_examples' in combined_metrics:
         filtered_metrics = combined_metrics["filtered_examples"]

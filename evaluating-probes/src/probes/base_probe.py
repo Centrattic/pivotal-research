@@ -377,15 +377,21 @@ class BaseProbe:
         return result
 
     def score_filtered(self, X: np.ndarray, y: np.ndarray, dataset_name: str, results_dir: Path, 
-                      seed: int, logit_diff_threshold: float = 2.0, test_size: float = 0.15, mask: Optional[np.ndarray] = None) -> dict[str, float]:
+                      seed: int, threshold_class_0: float = 2.0, threshold_class_1: float = 2.0, 
+                      test_size: float = 0.15, mask: Optional[np.ndarray] = None) -> dict[str, float]:
         """
         Calculate metrics only on examples where the model's logit_diff is above threshold.
         Filters out examples where abs(logit_diff) <= threshold from the CSV file.
+        
+        Args:
+            threshold_class_0: Threshold for class 0 samples
+            threshold_class_1: Threshold for class 1 samples
         """
         print(f"\n=== FILTERED SCORING START ===")
         print(f"Input X shape: {X.shape}")
         print(f"Input y shape: {y.shape}")
-        print(f"Logit diff threshold: {logit_diff_threshold}")
+        print(f"Class 0 threshold: {threshold_class_0}")
+        print(f"Class 1 threshold: {threshold_class_1}")
         
         # Read the CSV file to get logit_diff values
         # Runthrough directory is always in the parent directory (results/{experiment_name}/)
@@ -430,8 +436,20 @@ class BaseProbe:
                 print("Using unfiltered scoring.")
                 return self.score(X, y, mask)
             
-            # Filter based on logit_diff threshold
-            mask_filter = np.abs(df['logit_diff'].values) > logit_diff_threshold
+            # Filter based on class-specific logit_diff thresholds
+            logit_diff_values = df['logit_diff'].values
+            
+            # Initialize mask filter
+            mask_filter = np.zeros(len(logit_diff_values), dtype=bool)
+            
+            # Apply class-specific thresholds
+            for i, (logit_diff, true_label) in enumerate(zip(logit_diff_values, y)):
+                if true_label == 0:
+                    threshold = threshold_class_0
+                elif true_label == 1:
+                    threshold = threshold_class_1
+                
+                mask_filter[i] = np.abs(logit_diff) > threshold
             
             # Get the filtered indices
             filtered_indices = np.where(mask_filter)[0]
@@ -457,7 +475,8 @@ class BaseProbe:
             
             # Add filter info to result
             result["filtered"] = True
-            result["logit_diff_threshold"] = logit_diff_threshold
+            result["threshold_class_0"] = threshold_class_0
+            result["threshold_class_1"] = threshold_class_1
             result["original_size"] = len(test_texts)
             result["filtered_size"] = len(filtered_indices)
             result["removed_count"] = len(test_texts) - len(filtered_indices)
@@ -470,7 +489,8 @@ class BaseProbe:
             return self.score(X, y, mask)
 
     def score_with_filtered(self, X: np.ndarray, y: np.ndarray, dataset_name: str, results_dir: Path,
-                           seed: int, logit_diff_threshold: float = 1.0, test_size: float = 0.15, mask: Optional[np.ndarray] = None) -> dict[str, dict]:
+                           seed: int, threshold_class_0: float = 2.0, threshold_class_1: float = 2.0, 
+                           test_size: float = 0.15, mask: Optional[np.ndarray] = None) -> dict[str, dict]:
         """
         Calculate both regular and filtered metrics, returning them in a combined dictionary.
         """
@@ -481,7 +501,8 @@ class BaseProbe:
         regular_metrics["filtered"] = False
         
         # Get filtered metrics
-        filtered_metrics = self.score_filtered(X, y, dataset_name, results_dir, seed, logit_diff_threshold, test_size, mask)
+        filtered_metrics = self.score_filtered(X, y, dataset_name, results_dir, seed, threshold_class_0, 
+                                             threshold_class_1, test_size, mask)
         
         # Combine results
         combined_results = {
@@ -758,7 +779,8 @@ class BaseProbeNonTrainable:
         return result
 
     def score_filtered(self, X: np.ndarray, y: np.ndarray, dataset_name: str, results_dir: Path, 
-                      seed: int, logit_diff_threshold: float = 2.0, test_size: float = 0.15, mask: Optional[np.ndarray] = None) -> dict[str, float]:
+                      seed: int, threshold_class_0: float = 2.0, threshold_class_1: float = 2.0, 
+                      test_size: float = 0.15, mask: Optional[np.ndarray] = None) -> dict[str, float]:
         """
         Calculate metrics only on examples where the model's logit_diff is above threshold.
         """
@@ -791,8 +813,21 @@ class BaseProbeNonTrainable:
             if len(test_texts) != len(y):
                 return self.score(X, y, mask)
             
-            # Filter based on logit_diff threshold
-            mask_filter = np.abs(df['logit_diff'].values) > logit_diff_threshold
+            # Filter based on class-specific logit_diff thresholds
+            logit_diff_values = df['logit_diff'].values
+            
+            # Initialize mask filter
+            mask_filter = np.zeros(len(logit_diff_values), dtype=bool)
+            
+            # Apply class-specific thresholds
+            for i, (logit_diff, true_label) in enumerate(zip(logit_diff_values, y)):
+                if true_label == 0:
+                    threshold = threshold_class_0
+                elif true_label == 1:
+                    threshold = threshold_class_1
+                
+                mask_filter[i] = np.abs(logit_diff) > threshold
+            
             filtered_indices = np.where(mask_filter)[0]
             
             if len(filtered_indices) == 0:
@@ -808,7 +843,8 @@ class BaseProbeNonTrainable:
             
             # Add filter info to result
             result["filtered"] = True
-            result["logit_diff_threshold"] = logit_diff_threshold
+            result["threshold_class_0"] = threshold_class_0
+            result["threshold_class_1"] = threshold_class_1
             result["original_size"] = len(test_texts)
             result["filtered_size"] = len(filtered_indices)
             result["removed_count"] = len(test_texts) - len(filtered_indices)
@@ -819,7 +855,8 @@ class BaseProbeNonTrainable:
             return self.score(X, y, mask)
 
     def score_with_filtered(self, X: np.ndarray, y: np.ndarray, dataset_name: str, results_dir: Path,
-                           seed: int, logit_diff_threshold: float = 1.0, test_size: float = 0.15, mask: Optional[np.ndarray] = None) -> dict[str, dict]:
+                           seed: int, threshold_class_0: float = 2.0, threshold_class_1: float = 2.0, 
+                           test_size: float = 0.15, mask: Optional[np.ndarray] = None) -> dict[str, dict]:
         """
         Calculate both regular and filtered metrics, returning them in a combined dictionary.
         """
@@ -828,7 +865,8 @@ class BaseProbeNonTrainable:
         regular_metrics["filtered"] = False
         
         # Get filtered metrics
-        filtered_metrics = self.score_filtered(X, y, dataset_name, results_dir, seed, logit_diff_threshold, test_size, mask)
+        filtered_metrics = self.score_filtered(X, y, dataset_name, results_dir, seed, threshold_class_0, 
+                                             threshold_class_1, test_size, mask)
         
         # Combine results
         combined_results = {

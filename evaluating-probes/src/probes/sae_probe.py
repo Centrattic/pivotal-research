@@ -198,15 +198,7 @@ class SAEProbe(BaseProbe):
         print(f"[DEBUG] Feature selection input shapes: X_train={X_train.shape}, y_train={y_train.shape}")
         print(f"[DEBUG] Memory at start of feature selection: {get_memory_usage()}")
         
-        # Aggregate across sequence dimension first
-        if self.aggregation == "mean":
-            # Use mean aggregation for feature selection
-            mask = np.ones((X_train.shape[0], X_train.shape[1]))  # Assume all tokens are valid
-            X_agg = X_train * mask[:, :, np.newaxis]
-            X_agg = X_agg.sum(axis=1) / mask.sum(axis=1, keepdims=True)
-        else:
-            # For other aggregations, use mean for feature selection
-            X_agg = X_train.mean(axis=1)
+        X_agg = X_train.mean(axis=1) # agg doesnt matter rn
         
         print(f"[DEBUG] Aggregated X shape: {X_agg.shape}")
         print(f"[DEBUG] Memory after aggregation: {get_memory_usage()}")
