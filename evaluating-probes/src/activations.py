@@ -217,7 +217,7 @@ class ActivationManager:
         act_path: Path,
         hash_path: Path,
         shape_path: Path,
-        bs: int = 1,
+        bs: int = 10,
     ):
         if not missing:
             return
@@ -270,10 +270,13 @@ class ActivationManager:
             return np.memmap(act_path, dtype=np.float16, mode="w+", shape=shape)
         
         # For small additions (< 10% of file size), use append-only growth
-        growth_ratio = (new_rows - old_rows) / old_rows
+        if old_rows > 0:
+            growth_ratio = (new_rows - old_rows) / old_rows
+        else:
+            growth_ratio = 1 # need new
         start_time = time.time()
         
-        if growth_ratio < 0.1:  # Less than 10% growth
+        if growth_ratio < 0.9:  # Less than 90% growth, basically all the time
             print(f"[DEBUG] Using append-only growth for activation file (adding {new_rows - old_rows} rows)")
             result = self._append_grow_act(act_path, old_rows, new_rows, max_length)
         else:
@@ -316,7 +319,11 @@ class ActivationManager:
             return np.memmap(hash_path, dtype=self.hash_dtype, mode="w+", shape=shape)
         
         # For small additions, use append-only growth
-        growth_ratio = (new_rows - old_rows) / old_rows
+        if old_rows > 0:
+            growth_ratio = (new_rows - old_rows) / old_rows
+        else:
+            growth_ratio = 1 # need new
+
         start_time = time.time()
         
         if growth_ratio < 0.9:  # Less than 90% growth
