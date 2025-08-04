@@ -33,8 +33,6 @@ architectures:
     config_name: "act_sim_max"
   # add mean once you fix the nan issue
 
-
-
 # ToDo: filtered scoring is currently broken, and I need to make sure it works for new ds's too
 
 # List of experiments to run
