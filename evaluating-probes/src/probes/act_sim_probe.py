@@ -18,7 +18,6 @@ class ActivationSimilarityProbe(BaseProbeNonTrainable):
         super().__init__(d_model, device, task_type, aggregation)
         self.positive_prototype = None
         self.negative_prototype = None
-        self.class_prototypes = None  # For multiclass
         
     def fit(self, X: np.ndarray, y: np.ndarray, mask: Optional[np.ndarray] = None, batch_size: int = 1000, **kwargs):
         """
@@ -66,103 +65,67 @@ class ActivationSimilarityProbe(BaseProbeNonTrainable):
         
         print(f"Aggregated X shape: {aggregated_X.shape}")
         
-        if self.task_type == "classification":
-            # Handle binary and multiclass classification
-            if y.ndim == 1 or y.shape[1] == 1:
-                # Binary classification
-                y_flat = y.flatten() if y.ndim > 1 else y
-                unique_classes = np.unique(y_flat)
-                
-                if len(unique_classes) == 2:
-                    # Binary classification
-                    pos_mask = y_flat == unique_classes[1]  # Assume class 1 is positive
-                    neg_mask = y_flat == unique_classes[0]  # Assume class 0 is negative
-                    
-                    if pos_mask.sum() > 0:
-                        self.positive_prototype = aggregated_X[pos_mask].mean(axis=0)
-                    else:
-                        self.positive_prototype = np.zeros(aggregated_X.shape[1])
-                    
-                    if neg_mask.sum() > 0:
-                        self.negative_prototype = aggregated_X[neg_mask].mean(axis=0)
-                    else:
-                        self.negative_prototype = np.zeros(aggregated_X.shape[1])
-                    
-                    print(f"Binary classification - Positive class: {unique_classes[1]}, Negative class: {unique_classes[0]}")
-                    print(f"Positive samples: {pos_mask.sum()}, Negative samples: {neg_mask.sum()}")
-                else:
-                    # Single class (edge case)
-                    self.positive_prototype = aggregated_X.mean(axis=0)
-                    self.negative_prototype = np.zeros(aggregated_X.shape[1])
-                    print(f"Single class detected: {unique_classes[0]}")
+        # Binary classification only
+        y_flat = y.flatten() if y.ndim > 1 else y
+        unique_classes = np.unique(y_flat)
+        
+        if len(unique_classes) == 2:
+            # Binary classification
+            pos_mask = y_flat == unique_classes[1]  # Assume class 1 is positive
+            neg_mask = y_flat == unique_classes[0]  # Assume class 0 is negative
+            
+            if pos_mask.sum() > 0:
+                self.positive_prototype = aggregated_X[pos_mask].mean(axis=0)
             else:
-                # Multiclass classification
-                y_flat = np.argmax(y, axis=1) if y.ndim > 1 else y
-                unique_classes = np.unique(y_flat)
-                n_classes = len(unique_classes)
-                
-                self.class_prototypes = {}
-                for cls in unique_classes:
-                    cls_mask = y_flat == cls
-                    if cls_mask.sum() > 0:
-                        self.class_prototypes[cls] = aggregated_X[cls_mask].mean(axis=0)
-                    else:
-                        self.class_prototypes[cls] = np.zeros(aggregated_X.shape[1])
-                
-                print(f"Multiclass classification - {n_classes} classes: {unique_classes}")
-                for cls in unique_classes:
-                    cls_mask = y_flat == cls
-                    print(f"  Class {cls}: {cls_mask.sum()} samples")
+                self.positive_prototype = np.zeros(aggregated_X.shape[1])
+            
+            if neg_mask.sum() > 0:
+                self.negative_prototype = aggregated_X[neg_mask].mean(axis=0)
+            else:
+                self.negative_prototype = np.zeros(aggregated_X.shape[1])
+            
+            print(f"Binary classification - Positive class: {unique_classes[1]}, Negative class: {unique_classes[0]}")
+            print(f"Positive samples: {pos_mask.sum()}, Negative samples: {neg_mask.sum()}")
         else:
-            # Regression - not really applicable for similarity probes
-            raise ValueError("ActivationSimilarityProbe is designed for classification tasks only")
+            # Single class (edge case)
+            self.positive_prototype = aggregated_X.mean(axis=0)
+            self.negative_prototype = np.zeros(aggregated_X.shape[1])
+            print(f"Warning: Expected 2 classes for binary classification, got {len(unique_classes)}")
+            print(f"Single class detected: {unique_classes[0]}")
+        
+        print(f"=== ACTIVATION SIMILARITY PROBE FITTING COMPLETE ===\n")
+        return self
         
         print(f"=== ACTIVATION SIMILARITY PROBE FITTING COMPLETE ===\n")
         return self
     
     def _fit_class_by_class(self, X: np.ndarray, y: np.ndarray, mask: Optional[np.ndarray] = None, batch_size: int = 1000):
         """
-        Fit the probe by processing each class separately to save memory.
+        Fit the probe by processing each class separately to save memory (binary classification only).
         """
-        if self.task_type == "classification":
-            if y.ndim == 1 or y.shape[1] == 1:
-                # Binary classification
-                y_flat = y.flatten() if y.ndim > 1 else y
-                unique_classes = np.unique(y_flat)
-                
-                if len(unique_classes) == 2:
-                    # Process positive class
-                    pos_mask = y_flat == unique_classes[1]
-                    pos_indices = np.where(pos_mask)[0]
-                    self.positive_prototype = self._compute_class_prototype(X, pos_indices, mask, batch_size)
-                    
-                    # Process negative class
-                    neg_mask = y_flat == unique_classes[0]
-                    neg_indices = np.where(neg_mask)[0]
-                    self.negative_prototype = self._compute_class_prototype(X, neg_indices, mask, batch_size)
-                    
-                    print(f"Binary classification - Positive class: {unique_classes[1]}, Negative class: {unique_classes[0]}")
-                    print(f"Positive samples: {pos_mask.sum()}, Negative samples: {neg_mask.sum()}")
-                else:
-                    # Single class (edge case)
-                    self.positive_prototype = self._compute_class_prototype(X, np.arange(len(X)), mask, batch_size)
-                    self.negative_prototype = np.zeros(X.shape[2])
-                    print(f"Single class detected: {unique_classes[0]}")
-            else:
-                # Multiclass classification
-                y_flat = np.argmax(y, axis=1) if y.ndim > 1 else y
-                unique_classes = np.unique(y_flat)
-                n_classes = len(unique_classes)
-                
-                self.class_prototypes = {}
-                for cls in unique_classes:
-                    cls_indices = np.where(y_flat == cls)[0]
-                    self.class_prototypes[cls] = self._compute_class_prototype(X, cls_indices, mask, batch_size)
-                    print(f"  Class {cls}: {len(cls_indices)} samples")
-                
-                print(f"Multiclass classification - {n_classes} classes: {unique_classes}")
+        # Binary classification only
+        y_flat = y.flatten() if y.ndim > 1 else y
+        unique_classes = np.unique(y_flat)
+        
+        if len(unique_classes) == 2:
+            # Process positive class
+            pos_mask = y_flat == unique_classes[1]
+            pos_indices = np.where(pos_mask)[0]
+            self.positive_prototype = self._compute_class_prototype(X, pos_indices, mask, batch_size)
+            
+            # Process negative class
+            neg_mask = y_flat == unique_classes[0]
+            neg_indices = np.where(neg_mask)[0]
+            self.negative_prototype = self._compute_class_prototype(X, neg_indices, mask, batch_size)
+            
+            print(f"Binary classification - Positive class: {unique_classes[1]}, Negative class: {unique_classes[0]}")
+            print(f"Positive samples: {pos_mask.sum()}, Negative samples: {neg_mask.sum()}")
         else:
-            raise ValueError("ActivationSimilarityProbe is designed for classification tasks only")
+            # Single class (edge case)
+            self.positive_prototype = self._compute_class_prototype(X, np.arange(len(X)), mask, batch_size)
+            self.negative_prototype = np.zeros(X.shape[2])
+            print(f"Warning: Expected 2 classes for binary classification, got {len(unique_classes)}")
+            print(f"Single class detected: {unique_classes[0]}")
     
     def _compute_class_prototype(self, X: np.ndarray, indices: np.ndarray, mask: Optional[np.ndarray], batch_size: int) -> np.ndarray:
         """
@@ -193,101 +156,70 @@ class ActivationSimilarityProbe(BaseProbeNonTrainable):
     
     def _compute_logits(self, processed_X: np.ndarray) -> np.ndarray:
         """
-        Compute logits (similarity scores) from processed activations.
+        Compute logits (similarity scores) from processed activations (binary classification only).
         """
-        if self.task_type == "classification":
-            if self.class_prototypes is not None:
-                # Multiclass: compute similarity to each class prototype
-                n_samples = processed_X.shape[0]
-                n_classes = len(self.class_prototypes)
-                logits = np.zeros((n_samples, n_classes))
-                
-                for i, cls in enumerate(sorted(self.class_prototypes.keys())):
-                    prototype = self.class_prototypes[cls]
-                    similarities = self._cosine_similarity(processed_X, prototype)
-                    logits[:, i] = similarities
-                
-                return logits
-            else:
-                # Binary: positive similarity - negative similarity
-                # Check prototypes for NaN
-                if np.isnan(self.positive_prototype).any():
-                    print(f"Warning: NaN detected in positive_prototype")
-                    # Replace NaN with zeros
-                    self.positive_prototype = np.nan_to_num(self.positive_prototype, nan=0.0)
-                if np.isnan(self.negative_prototype).any():
-                    print(f"Warning: NaN detected in negative_prototype")
-                    # Replace NaN with zeros
-                    self.negative_prototype = np.nan_to_num(self.negative_prototype, nan=0.0)
-                
-                # Check if prototypes are all zeros
-                if np.all(self.positive_prototype == 0):
-                    print(f"Warning: positive_prototype is all zeros")
-                if np.all(self.negative_prototype == 0):
-                    print(f"Warning: negative_prototype is all zeros")
-                
-                pos_sim = self._cosine_similarity(processed_X, self.positive_prototype)
-                neg_sim = self._cosine_similarity(processed_X, self.negative_prototype)
-                logits = pos_sim - neg_sim
-                
-                # Check for NaN in logits
-                if np.isnan(logits).any():
-                    print(f"Warning: NaN detected in logits computation")
-                    print(f"pos_sim range: [{pos_sim.min():.4f}, {pos_sim.max():.4f}]")
-                    print(f"neg_sim range: [{neg_sim.min():.4f}, {neg_sim.max():.4f}]")
-                    print(f"logits range: [{logits.min():.4f}, {logits.max():.4f}]")
-                    # Replace NaN with zeros as fallback
-                    logits = np.nan_to_num(logits, nan=0.0)
-                
-                return logits
-        else:
-            raise ValueError("ActivationSimilarityProbe is designed for classification tasks only")
+        # Binary classification only: positive similarity - negative similarity
+        # Check prototypes for NaN
+        if np.isnan(self.positive_prototype).any():
+            print(f"Warning: NaN detected in positive_prototype")
+            # Replace NaN with zeros
+            self.positive_prototype = np.nan_to_num(self.positive_prototype, nan=0.0)
+        if np.isnan(self.negative_prototype).any():
+            print(f"Warning: NaN detected in negative_prototype")
+            # Replace NaN with zeros
+            self.negative_prototype = np.nan_to_num(self.negative_prototype, nan=0.0)
+        
+        # Check if prototypes are all zeros
+        if np.all(self.positive_prototype == 0):
+            print(f"Warning: positive_prototype is all zeros")
+        if np.all(self.negative_prototype == 0):
+            print(f"Warning: negative_prototype is all zeros")
+        
+        pos_sim = self._cosine_similarity(processed_X, self.positive_prototype)
+        neg_sim = self._cosine_similarity(processed_X, self.negative_prototype)
+        logits = pos_sim - neg_sim
+        
+        # Check for NaN in logits
+        if np.isnan(logits).any():
+            print(f"Warning: NaN detected in logits computation")
+            print(f"pos_sim range: [{pos_sim.min():.4f}, {pos_sim.max():.4f}]")
+            print(f"neg_sim range: [{neg_sim.min():.4f}, {neg_sim.max():.4f}]")
+            print(f"logits range: [{logits.min():.4f}, {logits.max():.4f}]")
+            # Replace NaN with zeros as fallback
+            logits = np.nan_to_num(logits, nan=0.0)
+        
+        return logits
     
     def _compute_predictions(self, processed_X: np.ndarray) -> np.ndarray:
         """
-        Compute predictions from processed activations.
+        Compute predictions from processed activations (binary classification only).
         """
         logits = self._compute_logits(processed_X)
         
-        if self.task_type == "classification":
-            if self.class_prototypes is not None:
-                # Multiclass: argmax
-                return np.argmax(logits, axis=1)
-            else:
-                # Binary: threshold at 0
-                return (logits > 0).astype(int)
-        else:
-            raise ValueError("ActivationSimilarityProbe is designed for classification tasks only")
+        # Binary classification only: threshold at 0
+        return (logits > 0).astype(int)
     
     def _compute_probabilities(self, processed_X: np.ndarray) -> np.ndarray:
         """
-        Compute probabilities from processed activations.
+        Compute probabilities from processed activations (binary classification only).
         """
         logits = self._compute_logits(processed_X)
         
-        if self.task_type == "classification":
-            if self.class_prototypes is not None:
-                # Multiclass: softmax
-                exp_logits = np.exp(logits - np.max(logits, axis=1, keepdims=True))
-                return exp_logits / np.sum(exp_logits, axis=1, keepdims=True)
-            else:
-                # Binary: use PyTorch sigmoid for GPU acceleration
-                # Check for NaN in input logits
-                if np.isnan(logits).any():
-                    print(f"Warning: NaN detected in logits before sigmoid")
-                    # Replace NaN with 0 for sigmoid computation
-                    logits = np.nan_to_num(logits, nan=0.0)
-                
-                logits_tensor = torch.tensor(logits, dtype=torch.float32, device=self.device)
-                probs = torch.sigmoid(logits_tensor).cpu().numpy()
-                
-                # Check for NaN in output probabilities
-                if np.isnan(probs).any():
-                    print(f"Warning: NaN detected in probabilities after sigmoid")
-                
-                return probs
-        else:
-            raise ValueError("ActivationSimilarityProbe is designed for classification tasks only")
+        # Binary classification only: use PyTorch sigmoid for GPU acceleration
+        # Check for NaN in input logits
+        if np.isnan(logits).any():
+            print(f"Warning: NaN detected in logits before sigmoid")
+            # Replace NaN with 0 for sigmoid computation
+            logits = np.nan_to_num(logits, nan=0.0)
+        
+        logits_tensor = torch.tensor(logits, dtype=torch.float32, device=self.device)
+        probs = torch.sigmoid(logits_tensor).cpu().numpy()
+        
+        # Check for NaN in output probabilities
+        if np.isnan(probs).any():
+            print(f"Warning: NaN detected in probabilities after sigmoid")
+        
+        return probs
     
     def _cosine_similarity(self, X: np.ndarray, prototype: np.ndarray) -> np.ndarray:
         """

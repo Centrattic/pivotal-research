@@ -15,23 +15,31 @@ def should_skip_dataset(dataset_name, data, logger=None):
     # if hasattr(data, "max_len") and data.max_len > 512:
     #     if logger: logger.log(f"  - ⏭️  INVALID Dataset '{dataset_name}': Max length ({data.max_len}) exceeds 512.")
     #     return True
-    # SKIP: Continuous
-    if hasattr(data, "task_type") and "continuous" in data.task_type.strip().lower():
-        if logger: logger.log(f"  - ⏭️  INVALID Dataset '{dataset_name}': Continuous data is not supported.")
-        return True
-    # SKIP: Any class has < 2 samples (classification only)
-    if hasattr(data, "task_type") and "classification" in data.task_type.strip().lower():
-        # Use y_train/y_test if available, else fallback to .df
-        y = None
-        if hasattr(data, 'y_train') and hasattr(data, 'y_test'):
-            y = np.concatenate([data.y_train, data.y_test])
-        elif hasattr(data, 'df'):
-            y = np.array(getattr(data.df, 'target', []))
-        if y is not None and len(y) > 0:
-            unique, counts = np.unique(y, return_counts=True)
-            if len(counts) == 0 or counts.min() < 2:
-                if logger: logger.log(f"  - ⏭️  INVALID Dataset '{dataset_name}': At least one class has <2 samples (counts: {dict(zip(unique, counts))}).")
-                return True
+    # SKIP: Non-binary classification or continuous data
+    if hasattr(data, "task_type"):
+        task_type = data.task_type.strip().lower()
+        if "continuous" in task_type or "regression" in task_type:
+            if logger: logger.log(f"  - ⏭️  INVALID Dataset '{dataset_name}': Continuous/regression data is not supported.")
+            return True
+        elif "classification" in task_type:
+            # Check for binary classification
+            y = None
+            if hasattr(data, 'y_train') and hasattr(data, 'y_test'):
+                y = np.concatenate([data.y_train, data.y_test])
+            elif hasattr(data, 'df'):
+                y = np.array(getattr(data.df, 'target', []))
+            if y is not None and len(y) > 0:
+                unique_classes = np.unique(y)
+                if len(unique_classes) != 2:
+                    if logger: 
+                        logger.log(f"  - ⏭️  INVALID Dataset '{dataset_name}': Expected binary classification, got {len(unique_classes)} classes.")
+                    return True
+                # Check for minimum samples per class
+                unique, counts = np.unique(y, return_counts=True)
+                if len(counts) == 0 or counts.min() < 2:
+                    if logger: 
+                        logger.log(f"  - ⏭️  INVALID Dataset '{dataset_name}': At least one class has <2 samples (counts: {dict(zip(unique, counts))}).")
+                    return True
     return False
 
 

@@ -78,22 +78,19 @@ class Dataset:
             df["prompt_len"].max()//2 if "prompt_len" in df.columns else df["prompt"].str.len().max()//2
         )
 
-        if "classification" in self.task_type:
-            # Map minority class to 1, majority to 0 for binary classification
-            value_counts = df["target"].astype(str).value_counts()
-            if len(value_counts) == 2:
-                # Binary: assign 1 to minority, 0 to majority
-                classes_sorted = value_counts.index[::-1]  # minority first
-                class_to_int = {classes_sorted[0]: 1, classes_sorted[1]: 0}
-                df["target"] = df["target"].astype(str).map(class_to_int)
-                uniq = np.array(list(classes_sorted))
-            else:
-                # Multiclass: use default factorize
-                df["target"], uniq = pd.factorize(df["target"].astype(str))
-            self.n_classes = len(np.unique(df["target"]))
+        # Binary classification only - map minority class to 1, majority to 0
+        value_counts = df["target"].astype(str).value_counts()
+        if len(value_counts) == 2:
+            # Binary: assign 1 to minority, 0 to majority
+            classes_sorted = value_counts.index[::-1]  # minority first
+            class_to_int = {classes_sorted[0]: 1, classes_sorted[1]: 0}
+            df["target"] = df["target"].astype(str).map(class_to_int)
+            uniq = np.array(list(classes_sorted))
         else:
-            df["target"] = pd.to_numeric(df["target"], errors="coerce")
-            self.n_classes = None
+            # If not exactly 2 classes, warn and use factorize
+            print(f"Warning: Expected 2 classes for binary classification, got {len(value_counts)}")
+            df["target"], uniq = pd.factorize(df["target"].astype(str))
+        self.n_classes = len(np.unique(df["target"]))
 
         # Store all data before splitting
         self.X = df["prompt"].astype(str).to_numpy()

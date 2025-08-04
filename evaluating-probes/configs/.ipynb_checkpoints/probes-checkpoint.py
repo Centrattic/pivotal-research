@@ -11,8 +11,8 @@ class PytorchLinearProbeConfig(ProbeConfig):
     """Hyperparameters for the PyTorch LinearProbe."""
     aggregation: str = "mean"  # mean, max, last, softmax
     lr: float = 5e-4
-    epochs: int = 100
-    batch_size: int = 1000 # H100: 2048, H200: 800, A6000: 32
+    epochs: int = 150
+    batch_size: int = 800 # H200: 800, A6000: 32
     weight_decay: float = 0.0
     weighting_method: str = 'weighted_sampler'  # 'weighted_loss', 'weighted_sampler', or 'pcngd'
     # Add more as needed
@@ -21,8 +21,8 @@ class PytorchLinearProbeConfig(ProbeConfig):
 class PytorchAttentionProbeConfig(ProbeConfig):
     """Hyperparameters for the PyTorch AttentionProbe."""
     lr: float = 5e-4
-    epochs: int = 100
-    batch_size: int = 1000 # H100: 2560, H200: 1024, A6000: 32
+    epochs: int = 150
+    batch_size: int = 1024 # H200: 1024, A6000: 32
     weight_decay: float = 0.0
     weighting_method: str = 'weighted_sampler'  # 'weighted_loss', 'weighted_sampler', or 'pcngd'
     # Add more as needed
@@ -36,9 +36,9 @@ class SAEProbeConfig(ProbeConfig):
     sae_id: str = None  # Specific SAE ID to use
     top_k_features: int = 128
     lr: float = 5e-4
-    epochs: int = 100
-    encoding_batch_size: int = 1000  # Batch size for SAE encoding (memory intensive) - H100: 2048
-    training_batch_size: int = 512   # Batch size for probe training - H100: 512
+    epochs: int = 150
+    encoding_batch_size: int = 1024  # Batch size for SAE encoding (memory intensive)
+    training_batch_size: int = 32   # Batch size for probe training
     weight_decay: float = 0.0
     weighting_method: str = 'weighted_sampler'  # 'weighted_loss', 'weighted_sampler', or 'pcngd'
 
@@ -46,14 +46,14 @@ class SAEProbeConfig(ProbeConfig):
 class MassMeanProbeConfig(ProbeConfig):
     """Configuration for the Mass Mean probe (no training needed)."""
     use_iid: bool = False  # Whether to use IID version (Fisher's LDA)
-    batch_size: int = 1024  # Batch size for processing - H100: 1024
+    batch_size: int = 200  # Batch size for processing to avoid memory issues
     # No other parameters needed since mass-mean is computed analytically
 
 @dataclass
 class ActivationSimilarityProbeConfig(ProbeConfig):
     """Configuration for the Activation Similarity probe (no training needed)."""
     aggregation: str = "mean"  # mean, max, last, softmax
-    batch_size: int = 1024  # Batch size for processing - H100: 1024
+    batch_size: int = 200  # Batch size for processing to avoid memory issues
     # No other parameters needed since activation similarity is computed analytically
 
 # A dictionary to easily access configs by name. Configs are updated by -ht flag (Optuna tuning).
@@ -93,8 +93,8 @@ PROBE_CONFIGS = {
     "sae_262k_l0_259_last": SAEProbeConfig(
         aggregation="last", 
         sae_id="layer_20/width_262k/average_l0_259",
-        encoding_batch_size=1024,  # H100: 1024
-        training_batch_size=256,   # H100: 256
+        encoding_batch_size=512,
+        training_batch_size=16,
         weighting_method='weighted_sampler'
     ),
     # Mass-mean probe configs (IID functionality disabled due to numerical instability)

@@ -73,7 +73,18 @@ def main():
     cache_dir = Path("activation_cache") / config['model_name']
     results_dir.mkdir(parents=True, exist_ok=True)
 
-    logger = Logger(results_dir / "output.log")
+    # Get log file path from config, default to results_dir / "output.log"
+    log_file_path = config.get('log_file', results_dir / "output.log")
+    # If log_file is a string, convert to Path and make it relative to results_dir if it's not absolute
+    if isinstance(log_file_path, str):
+        log_file_path = Path(log_file_path)
+        if not log_file_path.is_absolute():
+            log_file_path = results_dir / log_file_path
+    
+    # Ensure the log file directory exists
+    log_file_path.parent.mkdir(parents=True, exist_ok=True)
+    
+    logger = Logger(log_file_path)
 
     # Get all seeds to process
     all_seeds = get_effective_seeds(config)
@@ -240,17 +251,11 @@ def main():
                             logger.log(f"      - Skipping evaluation due to eval dataset validation failure")
                             continue
                         
-                        # Check task compatibility
-                        train_meta = {
-                            'task_type': getattr(train_data, 'task_type', None), 
-                            'n_classes': getattr(train_data, 'n_classes', None)
-                        }
-                        eval_meta = {
-                            'task_type': getattr(eval_data, 'task_type', None), 
-                            'n_classes': getattr(eval_data, 'n_classes', None)
-                        }
-                        if train_meta['task_type'] != eval_meta['task_type'] or train_meta['n_classes'] != eval_meta['n_classes']:
-                            logger.log(f"      - 🫡 Skipping evaluation of probe from '{job['train_dataset']}' on '{eval_dataset}' due to task mismatch.")
+                        # Check task compatibility (binary classification only)
+                        train_n_classes = getattr(train_data, 'n_classes', None)
+                        eval_n_classes = getattr(eval_data, 'n_classes', None)
+                        if train_n_classes != eval_n_classes:
+                            logger.log(f"      - 🫡 Skipping evaluation of probe from '{job['train_dataset']}' on '{eval_dataset}' due to class count mismatch.")
                             continue
                             
                     except Exception as e:

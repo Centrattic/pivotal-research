@@ -1,6 +1,11 @@
+import os
+# Fix tokenizers parallelism warning
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.amp import autocast, GradScaler
 import numpy as np
 import pandas as pd
 from pathlib import Path
@@ -19,7 +24,7 @@ class BaseProbe:
     def __init__(self, d_model: int, device: str = "cpu", task_type: str = "classification"):
         self.d_model = d_model
         self.device = device
-        self.task_type = task_type  # 'classification' or 'regression'
+        self.task_type = task_type  # Keep for future extensibility
         self.model: Optional[nn.Module] = None
         self.loss_history = []
         self._init_model()
@@ -29,7 +34,7 @@ class BaseProbe:
 
     def fit(self, X: np.ndarray, y: np.ndarray, mask: Optional[np.ndarray] = None, 
             epochs: int = 20, lr: float = 1e-3, batch_size: int = 1, weight_decay: float = 0.0, 
-            verbose: bool = True, early_stopping: bool = True, patience: int = 20, min_delta: float = 0.005,
+            verbose: bool = True, early_stopping: bool = True, patience: int = 10, min_delta: float = 0.07,
             use_weighted_loss: bool = True, use_weighted_sampler: bool = False):
         """
         Train the probe model.
@@ -57,28 +62,59 @@ class BaseProbe:
         print(f"Epochs: {epochs}, LR: {lr}, Batch size: {batch_size}, Weight decay: {weight_decay}")
         print(f"Weighted loss: {use_weighted_loss}, Weighted sampler: {use_weighted_sampler}")
         
-        X = torch.tensor(X, dtype=torch.float32)
-        y = torch.tensor(y, dtype=torch.float32 if self.task_type == "regression" else torch.long)
+        # Create tensors in chunks to reduce memory pressure
+        print("Creating tensors in memory-efficient chunks...")
+        
+        # Convert to float16 numpy first to reduce memory
+        X_np = X.astype(np.float16)
+        y_np = y.astype(np.int64)
         if mask is not None:
-            mask = torch.tensor(mask, dtype=torch.bool)
+            mask_np = mask.astype(np.bool_)
         else:
-            mask = torch.ones(X.shape[:2], dtype=torch.bool)
+            mask_np = np.ones(X.shape[:2], dtype=np.bool_)
+        
+        # Create tensors in smaller chunks
+        chunk_size = min(1000, len(X))  # Process in chunks of 1000 or less
+        X_tensors = []
+        y_tensors = []
+        mask_tensors = []
+        
+        for i in range(0, len(X), chunk_size):
+            end_idx = min(i + chunk_size, len(X))
+            X_tensors.append(torch.tensor(X_np[i:end_idx], dtype=torch.float16))
+            y_tensors.append(torch.tensor(y_np[i:end_idx], dtype=torch.long))
+            mask_tensors.append(torch.tensor(mask_np[i:end_idx], dtype=torch.bool))
+            
+            # Force garbage collection after each chunk
+            import gc
+            gc.collect()
+        
+        # Concatenate chunks
+        X = torch.cat(X_tensors, dim=0)
+        y = torch.cat(y_tensors, dim=0)
+        mask = torch.cat(mask_tensors, dim=0)
+        
+        # Clear chunk lists to free memory
+        del X_tensors, y_tensors, mask_tensors, X_np, y_np, mask_np
+        gc.collect()
         
         print(f"Tensor X shape: {X.shape}")
         print(f"Tensor y shape: {y.shape}")
         print(f"Tensor mask shape: {mask.shape}")
 
-        # Compute class weights for weighted loss (classification only)
+        # Compute class weights for weighted loss (binary classification only)
         class_weights = None
-        if self.task_type == "classification" and use_weighted_loss:
+        if use_weighted_loss:
             try:
                 from sklearn.utils.class_weight import compute_class_weight
                 y_np = y.cpu().numpy() if hasattr(y, 'cpu') else y.numpy()
                 if y_np.ndim > 1 and y_np.shape[1] == 1:
                     y_np = y_np.squeeze(-1)
                 classes = np.unique(y_np)
+                if len(classes) != 2:
+                    print(f"Warning: Expected 2 classes for binary classification, got {len(classes)}")
                 class_weights_np = compute_class_weight('balanced', classes=classes, y=y_np)
-                class_weights = torch.tensor(class_weights_np, dtype=torch.float32, device=self.device)
+                class_weights = torch.tensor(class_weights_np, dtype=torch.float16, device=self.device)
                 # Print class sample counts and weights for debugging
                 class_sample_counts = {int(cls): int((y_np == cls).sum()) for cls in classes}
                 print(f"Class sample counts: {class_sample_counts}")
@@ -87,15 +123,24 @@ class BaseProbe:
                 print(f"Could not compute class weights: {e}")
                 class_weights = None
 
+        # Create dataset with memory-efficient tensors
         dataset = torch.utils.data.TensorDataset(X, y, mask)
+        
+        # Print memory usage after dataset creation
+        import psutil
+        process = psutil.Process()
+        print(f"Memory after dataset creation: {process.memory_info().rss / 1024**3:.2f} GB")
 
-        # WeightedRandomSampler for class balancing (classification only)
+        # WeightedRandomSampler for class balancing (binary classification only)
         sampler = None
-        if self.task_type == "classification" and use_weighted_sampler:
+        if use_weighted_sampler:
             y_np = y.cpu().numpy() if hasattr(y, 'cpu') else y.numpy()
             if y_np.ndim > 1 and y_np.shape[1] == 1:
                 y_np = y_np.squeeze(-1)
-            class_sample_count = np.array([len(np.where(y_np == t)[0]) for t in np.unique(y_np)])
+            classes = np.unique(y_np)
+            if len(classes) != 2:
+                print(f"Warning: Expected 2 classes for binary classification, got {len(classes)}")
+            class_sample_count = np.array([len(np.where(y_np == t)[0]) for t in classes])
             weight = 1. / class_sample_count
             samples_weight = np.array([weight[int(t)] for t in y_np])
             samples_weight = torch.from_numpy(samples_weight).float()
@@ -103,79 +148,116 @@ class BaseProbe:
             sampler = WeightedRandomSampler(samples_weight, len(samples_weight), replacement=True)
             print(f"Using WeightedRandomSampler for class balancing.")
 
+        # Optimize for GPU utilization with larger batch sizes
+        # For H100 with large batches, we can use async loading
+        num_workers = 2  # Minimal workers for async loading
+        prefetch_factor = 2  # Prefetch batches to keep GPU busy
+                
         if sampler is not None:
-            loader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, sampler=sampler)
+            loader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, 
+                                                sampler=sampler, pin_memory=True, num_workers=num_workers,
+                                                persistent_workers=True, prefetch_factor=prefetch_factor)
         else:
-            loader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=True)
+            loader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=True,
+                                                pin_memory=True, num_workers=num_workers, persistent_workers=True, 
+                                                prefetch_factor=prefetch_factor)
         print(f"Dataset size: {len(dataset)}")
         print(f"Number of batches: {len(loader)}")
+        print(f"Using {num_workers} workers for data loading")
+        print(f"Batch size: {batch_size}")
+ 
+        # Print memory usage info
+        if torch.cuda.is_available():
+            print(f"GPU memory allocated: {torch.cuda.memory_allocated(self.device) / 1024**3:.2f} GB")
+            print(f"GPU memory cached: {torch.cuda.memory_reserved(self.device) / 1024**3:.2f} GB")
 
+        # Ensure model is on the correct device
+        self.model = self.model.to(self.device)
         self.model.train()
+        
+        # Use mixed precision optimizer for better performance
         optimizer = torch.optim.Adam(self.model.parameters(), lr=lr, weight_decay=weight_decay)
-        if self.task_type == "classification":
-            if y.ndim == 1 or y.shape[1] == 1:
-                # Binary classification
-                if use_weighted_loss and class_weights is not None:
-                    # For BCEWithLogitsLoss, use pos_weight for positive class
-                    # pos_weight should be a single value: weight for positive class / weight for negative class
-                    if len(class_weights) == 2:
-                        pos_weight = class_weights[1] / class_weights[0]
-                        criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
-                        print(f"Using BCEWithLogitsLoss with pos_weight={pos_weight}")
-                    else:
-                        criterion = nn.BCEWithLogitsLoss()
-                        print(f"Using BCEWithLogitsLoss (no pos_weight, class_weights length != 2)")
-                else:
-                    criterion = nn.BCEWithLogitsLoss()
-                    print(f"Using BCEWithLogitsLoss (no class weights)")
+        
+        # Binary classification only
+        if use_weighted_loss and class_weights is not None:
+            # For BCEWithLogitsLoss, use pos_weight for positive class
+            # pos_weight should be a single value: weight for positive class / weight for negative class
+            if len(class_weights) == 2:
+                pos_weight = class_weights[1] / class_weights[0]
+                criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
+                print(f"Using BCEWithLogitsLoss with pos_weight={pos_weight}")
             else:
-                # Multiclass
-                if use_weighted_loss and class_weights is not None:
-                    criterion = nn.CrossEntropyLoss(weight=class_weights)
-                    print(f"Using CrossEntropyLoss with class weights")
-                else:
-                    criterion = nn.CrossEntropyLoss()
-                    print(f"Using CrossEntropyLoss (no class weights)")
+                criterion = nn.BCEWithLogitsLoss()
+                print(f"Using BCEWithLogitsLoss (no pos_weight, class_weights length != 2)")
         else:
-            criterion = nn.MSELoss()
-            print(f"Using MSELoss (regression)")
+            criterion = nn.BCEWithLogitsLoss()
+            print(f"Using BCEWithLogitsLoss (no class weights)")
         
         best_loss = float('inf')
         epochs_no_improve = 0
         stop_epoch = None
 
+        scaler = GradScaler('cuda')
+
         for epoch in tqdm(range(epochs)):
             epoch_loss = 0.0
             batch_count = 0
+            
+            # Clear cache periodically to prevent memory buildup
+            if epoch % 5 == 0:  # More frequent cache clearing
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+                gc.collect()  # Force CPU garbage collection
+                
+            # Print memory usage every 5 epochs
+            if epoch % 5 == 0:
+                if torch.cuda.is_available():
+                    print(f"Epoch {epoch}: GPU memory allocated: {torch.cuda.memory_allocated(self.device) / 1024**3:.2f} GB")
+                    # Try to get GPU utilization (if available)
+                    try:
+                        import pynvml
+                        pynvml.nvmlInit()
+                        handle = pynvml.nvmlDeviceGetHandleByIndex(0)
+                        util = pynvml.nvmlDeviceGetUtilizationRates(handle)
+                        print(f"Epoch {epoch}: GPU utilization: {util.gpu}%")
+                    except:
+                        print(f"Epoch {epoch}: GPU utilization: Unable to measure")
+                # Print CPU memory usage
+                import psutil
+                process = psutil.Process()
+                print(f"Epoch {epoch}: CPU memory usage: {process.memory_info().rss / 1024**3:.2f} GB")
             for xb, yb, mb in loader:
-                # Only move one batch to the device at a time
-                xb = xb.to(self.device)
-                yb = yb.to(self.device)
-                mb = mb.to(self.device)
+                # Move batch to device with non_blocking for efficiency
+                xb = xb.to(self.device, non_blocking=True)
+                yb = yb.to(self.device, non_blocking=True)
+                mb = mb.to(self.device, non_blocking=True)
 
-                optimizer.zero_grad()
-                logits = self.model(xb, mb)
+                optimizer.zero_grad(set_to_none=True)  # More efficient than zero_grad()
+                with autocast('cuda'):
+                    logits = self.model(xb, mb)
                 
-                if batch_count == 0 and epoch == 0:
-                    print(f"First batch - xb shape: {xb.shape}, yb shape: {yb.shape}, mb shape: {mb.shape}")
-                    print(f"First batch - logits shape: {logits.shape}")
-                
-                if self.task_type == "classification":
-                    if yb.ndim == 1 or yb.shape[-1] == 1:
-                        yb = yb.float()
-                        loss = criterion(logits, yb)
-                    else:
-                        loss = criterion(logits, yb)
-                else:
+                    if batch_count == 0 and epoch == 0:
+                        print(f"First batch - xb shape: {xb.shape}, yb shape: {yb.shape}, mb shape: {mb.shape}")
+                        print(f"First batch - logits shape: {logits.shape}")
+                    
+                    # Binary classification only
+                    yb = yb.float()
                     loss = criterion(logits, yb)
+                    
+                    if batch_count == 0 and epoch == 0:
+                        print(f"First batch - loss: {loss.item():.4f}")
                 
-                if batch_count == 0 and epoch == 0:
-                    print(f"First batch - loss: {loss.item():.4f}")
-                
-                loss.backward()
-                optimizer.step()
-                epoch_loss += loss.item() * xb.size(0)
+                scaler.scale(loss).backward()
+                scaler.step(optimizer)
+                scaler.update() 
+
+                # Use detach() to prevent memory leaks - keep on GPU to avoid CPU transfer
+                epoch_loss += loss.detach().item() * xb.size(0)
                 batch_count += 1
+                
+                # Don't delete variables immediately - let GPU handle cleanup
+                # This reduces CPU-GPU synchronization overhead
+
             avg_loss = epoch_loss / len(dataset)
             self.loss_history.append(avg_loss)
             if verbose:
@@ -218,7 +300,7 @@ class BaseProbe:
         print(f"Processing {num_batches} batches")
         
         for i in range(0, len(X), batch_size):
-            batch_X = torch.tensor(X[i:i+batch_size], dtype=torch.float32, device=self.device)
+            batch_X = torch.tensor(X[i:i+batch_size], dtype=torch.float16, device=self.device)
             batch_mask = mask[i:i+batch_size]
             
             if i == 0:
@@ -230,14 +312,9 @@ class BaseProbe:
                 if i == 0:
                     print(f"First batch - logits shape: {logits.shape}")
                 
-                if self.task_type == "classification":
-                    if logits.ndim == 1 or logits.shape[-1] == 1:
-                        probs = torch.sigmoid(logits)
-                        preds = (probs > 0.5).long().cpu().numpy()
-                    else:
-                        preds = torch.argmax(logits, dim=-1).cpu().numpy()
-                else:
-                    preds = logits.cpu().numpy()
+                # Binary classification only
+                probs = torch.sigmoid(logits)
+                preds = (probs > 0.5).long().cpu().numpy()
                 
                 if i == 0:
                     print(f"First batch - preds shape: {preds.shape}")
@@ -266,7 +343,7 @@ class BaseProbe:
         print(f"Processing {num_batches} batches")
         
         for i in range(0, len(X), batch_size):
-            batch_X = torch.tensor(X[i:i+batch_size], dtype=torch.float32, device=self.device)
+            batch_X = torch.tensor(X[i:i+batch_size], dtype=torch.float16, device=self.device)
             batch_mask = mask[i:i+batch_size]
             
             if i == 0:
@@ -278,13 +355,8 @@ class BaseProbe:
                 if i == 0:
                     print(f"First batch - logits shape: {logits.shape}")
                 
-                if self.task_type == "classification":
-                    if logits.ndim == 1 or logits.shape[-1] == 1:
-                        probs = torch.sigmoid(logits).cpu().numpy()
-                    else:
-                        probs = torch.softmax(logits, dim=-1).cpu().numpy()
-                else:
-                    probs = logits.cpu().numpy()
+                # Binary classification only
+                probs = torch.sigmoid(logits).cpu().numpy()
                 
                 if i == 0:
                     print(f"First batch - probs shape: {probs.shape}")
@@ -308,7 +380,7 @@ class BaseProbe:
         all_logits = []
         num_batches = (len(X) + batch_size - 1) // batch_size
         for i in range(0, len(X), batch_size):
-            batch_X = torch.tensor(X[i:i+batch_size], dtype=torch.float32, device=self.device)
+            batch_X = torch.tensor(X[i:i+batch_size], dtype=torch.float16, device=self.device)
             batch_mask = mask[i:i+batch_size]
             with torch.no_grad():
                 logits = self.model(batch_X, batch_mask)
@@ -330,48 +402,27 @@ class BaseProbe:
         print(f"Predictions shape: {preds.shape}")
         print(f"Predictions unique values: {np.unique(preds)}")
         
-        if self.task_type == "regression":
-            r2 = float(r2_score(y, preds))
-            mse = float(mean_squared_error(y, preds))
-            print(f"Regression metrics - R²: {r2:.4f}, MSE: {mse:.4f}")
-            result = {
-                "r2_score": r2,
-                "mse": mse,
-            }
-        else:
-            y_true = y
-            y_prob = self.predict_proba(X, mask, batch_size=batch_size)
-            print(f"Probabilities shape: {y_prob.shape}")
-            print(f"True labels unique values: {np.unique(y_true)}")
-            
-            if y_prob.ndim == 1 or y_prob.shape[-1] == 1:
-                auc = roc_auc_score(y_true, y_prob) if len(np.unique(y_true)) > 1 else 0.5
-                acc = accuracy_score(y_true, preds)
-                precision = precision_score(y_true, preds, zero_division=0)
-                recall = recall_score(y_true, preds, zero_division=0)
-                tn, fp, fn, tp = confusion_matrix(y_true, preds).ravel()
-                fpr = fp / (fp + tn) if (fp + tn) > 0 else 0.0
-                print(f"Binary classification metrics:")
-                print(f"  Accuracy: {acc:.4f}")
-                print(f"  AUC: {auc:.4f}")
-                print(f"  Precision: {precision:.4f}")
-                print(f"  Recall: {recall:.4f}")
-                print(f"  FPR: {fpr:.4f}")
-                print(f"  Confusion Matrix: TN={tn}, FP={fp}, FN={fn}, TP={tp}")
-            else:
-                auc = roc_auc_score(y_true, y_prob, multi_class='ovr')
-                acc = accuracy_score(y_true, preds)
-                precision = precision_score(y_true, preds, average='macro', zero_division=0)
-                recall = recall_score(y_true, preds, average='macro', zero_division=0)
-                fpr = 1 - recall_score(y_true, preds, average='macro', zero_division=0)
-                print(f"Multiclass classification metrics:")
-                print(f"  Accuracy: {acc:.4f}")
-                print(f"  AUC: {auc:.4f}")
-                print(f"  Precision: {precision:.4f}")
-                print(f"  Recall: {recall:.4f}")
-                print(f"  FPR: {fpr:.4f}")
-            
-            result = {"acc": float(acc), "auc": float(auc), "precision": float(precision), "recall": float(recall), "fpr": float(fpr)}
+        # Binary classification only
+        y_true = y
+        y_prob = self.predict_proba(X, mask, batch_size=batch_size)
+        print(f"Probabilities shape: {y_prob.shape}")
+        print(f"True labels unique values: {np.unique(y_true)}")
+        
+        auc = roc_auc_score(y_true, y_prob) if len(np.unique(y_true)) > 1 else 0.5
+        acc = accuracy_score(y_true, preds)
+        precision = precision_score(y_true, preds, zero_division=0)
+        recall = recall_score(y_true, preds, zero_division=0)
+        tn, fp, fn, tp = confusion_matrix(y_true, preds).ravel()
+        fpr = fp / (fp + tn) if (fp + tn) > 0 else 0.0
+        print(f"Binary classification metrics:")
+        print(f"  Accuracy: {acc:.4f}")
+        print(f"  AUC: {auc:.4f}")
+        print(f"  Precision: {precision:.4f}")
+        print(f"  Recall: {recall:.4f}")
+        print(f"  FPR: {fpr:.4f}")
+        print(f"  Confusion Matrix: TN={tn}, FP={fp}, FN={fn}, TP={tp}")
+        
+        result = {"acc": float(acc), "auc": float(auc), "precision": float(precision), "recall": float(recall), "fpr": float(fpr)}
         
         print(f"=== SCORING COMPLETE ===\n")
         return result
@@ -517,7 +568,7 @@ class BaseProbe:
         save_dict = {
             'model_state_dict': self.model.state_dict(),
             'd_model': self.d_model,
-            'task_type': self.task_type,
+            'task_type': self.task_type,  # Keep for future extensibility
         }
         # Only save aggregation if it exists (for backward compatibility)
         if hasattr(self, 'aggregation'):
@@ -537,7 +588,7 @@ class BaseProbe:
     def load_state(self, path: Path):
         checkpoint = torch.load(path, map_location=self.device)
         self.d_model = checkpoint['d_model']
-        self.task_type = checkpoint['task_type']
+        self.task_type = checkpoint.get('task_type', 'classification')  # Keep for future extensibility
         # Load aggregation if it exists (for backward compatibility)
         if 'aggregation' in checkpoint:
             self.aggregation = checkpoint['aggregation']
@@ -550,10 +601,11 @@ class BaseProbeNonTrainable:
     """
     Base class for probes that don't require training. Handles evaluation and saving/loading.
     """
-    def __init__(self, d_model: int, device: str = "cpu", task_type: str = "classification", aggregation: str = "mean"):
+    def __init__(self, d_model: int, device: str = "cpu", task_type: str = "classification", 
+                aggregation: str = "mean"):
         self.d_model = d_model
         self.device = device
-        self.task_type = task_type  # 'classification' or 'regression'
+        self.task_type = task_type  # Keep for future extensibility
         self.aggregation = aggregation  # 'mean', 'max', 'last', 'softmax', or None for probes that don't need aggregation
         self.model = None  # No trainable model for these probes
         self.loss_history = []  # Empty for non-trainable probes
@@ -743,38 +795,23 @@ class BaseProbeNonTrainable:
 
     def score(self, X: np.ndarray, y: np.ndarray, mask: Optional[np.ndarray] = None, batch_size: int = 200) -> dict[str, float]:
         """
-        Calculate performance metrics for the non-trainable probe.
+        Calculate performance metrics for the non-trainable probe (binary classification only).
         """
-        from sklearn.metrics import accuracy_score, roc_auc_score, r2_score, mean_squared_error, precision_score, recall_score, confusion_matrix
+        from sklearn.metrics import accuracy_score, roc_auc_score, precision_score, recall_score, confusion_matrix
         
         preds = self.predict(X, mask, batch_size=batch_size)
+        y_true = y
+        y_prob = self.predict_proba(X, mask, batch_size=batch_size)
         
-        if self.task_type == "regression":
-            r2 = float(r2_score(y, preds))
-            mse = float(mean_squared_error(y, preds))
-            result = {
-                "r2_score": r2,
-                "mse": mse,
-            }
-        else:
-            y_true = y
-            y_prob = self.predict_proba(X, mask, batch_size=batch_size)
-            
-            if y_prob.ndim == 1 or y_prob.shape[-1] == 1:
-                auc = roc_auc_score(y_true, y_prob) if len(np.unique(y_true)) > 1 else 0.5
-                acc = accuracy_score(y_true, preds)
-                precision = precision_score(y_true, preds, zero_division=0)
-                recall = recall_score(y_true, preds, zero_division=0)
-                tn, fp, fn, tp = confusion_matrix(y_true, preds).ravel()
-                fpr = fp / (fp + tn) if (fp + tn) > 0 else 0.0
-            else:
-                auc = roc_auc_score(y_true, y_prob, multi_class='ovr')
-                acc = accuracy_score(y_true, preds)
-                precision = precision_score(y_true, preds, average='macro', zero_division=0)
-                recall = recall_score(y_true, preds, average='macro', zero_division=0)
-                fpr = 1 - recall_score(y_true, preds, average='macro', zero_division=0)
-            
-            result = {"acc": float(acc), "auc": float(auc), "precision": float(precision), "recall": float(recall), "fpr": float(fpr)}
+        # Binary classification only
+        auc = roc_auc_score(y_true, y_prob) if len(np.unique(y_true)) > 1 else 0.5
+        acc = accuracy_score(y_true, preds)
+        precision = precision_score(y_true, preds, zero_division=0)
+        recall = recall_score(y_true, preds, zero_division=0)
+        tn, fp, fn, tp = confusion_matrix(y_true, preds).ravel()
+        fpr = fp / (fp + tn) if (fp + tn) > 0 else 0.0
+        
+        result = {"acc": float(acc), "auc": float(auc), "precision": float(precision), "recall": float(recall), "fpr": float(fpr)}
         
         return result
 

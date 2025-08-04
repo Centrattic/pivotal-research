@@ -118,7 +118,7 @@ def train_probe(
         if key in fit_param_names:
             fit_params[key] = value
     
-    # Handle mass-mean probe configuration specially, add activation sims here
+    # Handle mass-mean probe configuration specially (binary classification only)
     if architecture_name in ["mass_mean", "mass_mean_iid"]:
         # Mass-mean probes don't have weighting_method, they're computed analytically
         weighting_method = "mass_mean"
