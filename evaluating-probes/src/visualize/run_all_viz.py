@@ -15,6 +15,10 @@ from src.visualize.utils_viz import (
     plot_experiment_3_upsampling_lineplot_recall,
     plot_experiment_3_upsampling_lineplot_per_architecture,
     plot_experiment_3_upsampling_lineplot_grid,
+    plot_experiment_2_per_seed,
+    plot_experiment_3_per_seed,
+    plot_experiment_2_total_with_error_bars,
+    plot_experiment_2_recall_total_with_error_bars,
 )
 
 def main():
@@ -82,19 +86,7 @@ def main():
                 folder_labels.append(f"{k}-{folder_name}")
         
         colors = [f"C{i}" for i in range(len(dataclass_folders))]
-        for arch in architectures:
-            # Recall@FPR
-            save_path = viz_root / f"recall_at_fpr_{arch}.png"
-            plot_multi_folder_recall_at_fpr(
-                dataclass_folders, folder_labels, arch, class_names=class_names, 
-                save_path=save_path, colors=colors, filtered=args.filtered, seeds=args.seeds
-            )
-            # AUC vs n_class1
-            save_path = viz_root / f"auc_vs_n_class1_{arch}.png"
-            plot_multi_folder_auc_vs_n_class1(
-                dataclass_folders, folder_labels, arch, class_names=class_names, 
-                save_path=save_path, colors=colors, filtered=args.filtered, seeds=args.seeds
-            )
+        # Note: Individual architecture plots removed as requested
 
     # 3. For each of the experiment folders 1-, 2-, 3-, 4-, plot all probe loss curves
     for k in ['1', '2', '3', '4']:
@@ -117,35 +109,50 @@ def main():
                     plot_all_probe_loss_curves_in_folder(str(loss_folder), save_path=save_path, seeds=args.seeds)
 
     # 4. New experiment-specific visualizations
-    for arch in architectures:
-        # Experiment 2: All probes with evaluation dataset comparison
-        # Check in seed folders
-        exp2_exists = False
-        if seed_dir.exists() and '2' in [f.name for f in seed_dir.iterdir() if f.is_dir()]:
-            exp2_exists = True
-            
-        if exp2_exists:
-            print(f"Creating experiment 2 visualization for architecture {arch}")
-            save_path = viz_root / f'experiment_2_all_probes_{arch}.png'
-            plot_experiment_2_all_probes_with_eval(
-                results_dir, arch, save_path=save_path, filtered=args.filtered, seeds=args.seeds
-            )
-        else:
-            print(f"Experiment 2 not found for architecture {arch}")
+    # Check for experiments once, outside the architecture loop
+    exp2_exists = False
+    exp3_exists = False
+    if seed_dir.exists():
+        for sub in os.listdir(seed_dir):
+            if sub.startswith('2-'):
+                exp2_exists = True
+            elif sub.startswith('3-'):
+                exp3_exists = True
+    
+    # Create experiment 2 visualizations for each seed
+    if exp2_exists:
+        print(f"Creating experiment 2 visualizations for each seed")
+        save_path = viz_root / f'experiment_2_per_seed.png'
+        plot_experiment_2_per_seed(
+            results_dir, architectures, save_path=save_path, filtered=args.filtered, 
+            seeds=args.seeds, config_name=args.config
+        )
         
-        # Experiment 3: Upsampling heatmap
-        # Check in seed folders
-        exp3_exists = False
-        if seed_dir.exists() and '3' in [f.name for f in seed_dir.iterdir() if f.is_dir()]:
-            exp3_exists = True
-            
-        if exp3_exists:
-            print(f"Creating experiment 3 visualization for architecture {arch}")
-            save_path = viz_root / f'experiment_3_upsampling_heatmap_{arch}.png'
-            plot_experiment_3_upsampling_heatmap(
-                results_dir, arch, save_path=save_path, filtered=args.filtered, seeds=args.seeds
-            )
-        else:
-            print(f"Experiment 3 not found for architecture {arch}")
+        # Create total experiment 2 plots with error bars
+        print(f"Creating experiment 2 total plots with error bars")
+        save_path = viz_root / f'experiment_2_total_auc.png'
+        plot_experiment_2_total_with_error_bars(
+            results_dir, architectures, save_path=save_path, filtered=args.filtered, 
+            seeds=args.seeds, config_name=args.config
+        )
+        
+        save_path = viz_root / f'experiment_2_total_recall.png'
+        plot_experiment_2_recall_total_with_error_bars(
+            results_dir, architectures, save_path=save_path, filtered=args.filtered, 
+            seeds=args.seeds, config_name=args.config
+        )
+    else:
+        print(f"Experiment 2 not found")
+    
+    # Create experiment 3 visualizations for each seed
+    if exp3_exists:
+        print(f"Creating experiment 3 visualizations for each seed")
+        save_path = viz_root / f'experiment_3_per_seed.png'
+        plot_experiment_3_per_seed(
+            results_dir, architectures, save_path=save_path, filtered=args.filtered, 
+            seeds=args.seeds, config_name=args.config
+        )
+    else:
+        print(f"Experiment 3 not found")
 
 main() 

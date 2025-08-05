@@ -1278,3 +1278,376 @@ def plot_all_probe_loss_curves_in_folder(folder, save_path=None, max_probes=40, 
         plt.close()
     else:
         plt.show()
+
+
+def plot_experiment_2_per_seed(base_results_dir: Path, architectures: List[str], save_path=None, 
+                              filtered: bool = True, seeds: List[str] = None, config_name: str = None):
+    """Plot experiment 2 for each seed separately."""
+    from scipy.special import expit
+    from sklearn.metrics import roc_auc_score
+    
+    if seeds is None:
+        seeds = ['42']
+    
+    experiment_folder = "2-spam-pred-auc-increasing-spam-fixed-total"
+    
+    # Create one plot per seed
+    for seed in seeds:
+        seed_dir = base_results_dir / f"seed_{seed}"
+        if not seed_dir.exists():
+            continue
+            
+        # Check if experiment 2 exists for this seed
+        exp2_exists = False
+        for sub in os.listdir(seed_dir):
+            if sub.startswith('2-'):
+                exp2_exists = True
+                break
+        
+        if not exp2_exists:
+            continue
+            
+        plt.figure(figsize=(12, 8))
+        colors = [f"C{i}" for i in range(len(architectures))]
+        
+        for arch_idx, architecture in enumerate(architectures):
+            # Get result files for this seed and architecture
+            seed_files = _get_result_files_for_seeds(base_results_dir, [seed], experiment_folder, 
+                                                    architecture, 'dataclass_exps_94_better_spam')
+            
+            if not seed_files or seed not in seed_files:
+                continue
+            
+            files = seed_files[seed]
+            
+            # Group by class1 count
+            class1_to_files = {}
+            for file in files:
+                match = re.search(r'class1_(\d+)', file)
+                if match:
+                    class1_count = int(match.group(1))
+                    if class1_count not in class1_to_files:
+                        class1_to_files[class1_count] = []
+                    class1_to_files[class1_count].append(file)
+            
+            color = colors[arch_idx]
+            x_values = []
+            y_values = []
+            
+            for class1_count in sorted(class1_to_files.keys()):
+                files = class1_to_files[class1_count]
+                aucs = []
+                
+                for file in files:
+                    try:
+                        scores, labels = _get_scores_and_labels_from_result_file(file, filtered=filtered)
+                        scores = expit(scores)
+                        auc = roc_auc_score(labels, scores)
+                        aucs.append(auc)
+                    except Exception as e:
+                        print(f"Error processing file {file}: {e}")
+                        continue
+                
+                if aucs:
+                    x_values.append(class1_count)
+                    y_values.append(np.mean(aucs))
+            
+            if x_values:
+                label = f"{config_name}_{architecture}" if config_name else architecture
+                plt.plot(x_values, y_values, 'o-', label=label, linewidth=2, color=color)
+        
+        plt.title(f"Experiment 2: Seed {seed} - All Architecture Probe Performance" + 
+                  (" (filtered)" if filtered else " (all)"))
+        plt.ylabel("AUC")
+        plt.xlabel("Number of class 1 (positive) samples in train set")
+        plt.xscale('log')
+        plt.ylim(0.4, 1)
+        plt.legend()
+        plt.grid(True, alpha=0.3)
+        plt.tight_layout()
+        
+        # Save with seed in filename
+        if save_path:
+            base_path = Path(save_path)
+            seed_save_path = base_path.parent / f"{base_path.stem}_seed_{seed}{base_path.suffix}"
+            plt.savefig(seed_save_path, dpi=150)
+            print(f"Saved experiment 2 plot for seed {seed} to {seed_save_path}")
+            plt.close()
+        else:
+            plt.show()
+
+
+def plot_experiment_3_per_seed(base_results_dir: Path, architectures: List[str], save_path=None, 
+                              filtered: bool = True, seeds: List[str] = None, config_name: str = None):
+    """Plot experiment 3 for each seed separately with gradient colors and different line styles."""
+    from scipy.special import expit
+    from sklearn.metrics import roc_auc_score
+    
+    if seeds is None:
+        seeds = ['42']
+    
+    experiment_folder = "3-spam-pred-auc-llm-upsampling"
+    
+    # Create one plot per seed
+    for seed in seeds:
+        seed_dir = base_results_dir / f"seed_{seed}"
+        if not seed_dir.exists():
+            continue
+            
+        # Check if experiment 3 exists for this seed
+        exp3_exists = False
+        for sub in os.listdir(seed_dir):
+            if sub.startswith('3-'):
+                exp3_exists = True
+                break
+        
+        if not exp3_exists:
+            continue
+            
+        plt.figure(figsize=(12, 8))
+        
+        # Define line styles for different architectures
+        line_styles = ['-', '--', '-.', ':', '-']
+        
+        for arch_idx, architecture in enumerate(architectures):
+            # Get result files for this seed and architecture
+            seed_files = _get_result_files_for_seeds(base_results_dir, [seed], experiment_folder, 
+                                                    architecture, 'dataclass_exps_94_better_spam')
+            
+            if not seed_files or seed not in seed_files:
+                continue
+            
+            files = seed_files[seed]
+            
+            # Parse filenames to extract true samples and upsampling ratio
+            data_points = {}
+            for file in files:
+                llm_match = re.search(r'llm_neg(\d+)_pos(\d+)_(\d+)x', file)
+                if llm_match:
+                    n_real_pos = int(llm_match.group(2))
+                    upsampling_factor = int(llm_match.group(3))
+                    
+                    try:
+                        scores, labels = _get_scores_and_labels_from_result_file(file, filtered=filtered)
+                        scores = expit(scores)
+                        auc = roc_auc_score(labels, scores)
+                        
+                        key = (n_real_pos, upsampling_factor)
+                        if key not in data_points:
+                            data_points[key] = []
+                        data_points[key].append(auc)
+                    except Exception as e:
+                        print(f"Error processing file {file}: {e}")
+                        continue
+            
+            # Plot each upsampling factor with gradient colors
+            upsampling_factors = sorted(list(set([k[1] for k in data_points.keys()])))
+            colors = plt.cm.Reds(np.linspace(0.3, 0.9, len(upsampling_factors)))
+            
+            for i, factor in enumerate(upsampling_factors):
+                x_values = []
+                y_values = []
+                
+                for samples in sorted(set([k[0] for k in data_points.keys() if k[1] == factor])):
+                    key = (samples, factor)
+                    if key in data_points and data_points[key]:
+                        x_values.append(samples)
+                        y_values.append(np.mean(data_points[key]))
+                
+                if x_values:
+                    label = f"{config_name}_{architecture}_{factor}x" if config_name else f"{architecture}_{factor}x"
+                    plt.plot(x_values, y_values, 'o' + line_styles[arch_idx], 
+                            label=label, color=colors[i], linewidth=2, markersize=6)
+        
+        plt.title(f"Experiment 3: Seed {seed} - All Architecture Probe Performance vs Upsampling" + 
+                  (" (filtered)" if filtered else " (all)"))
+        plt.ylabel("AUC")
+        plt.xlabel("Number of True Positive Samples")
+        plt.xscale('log')
+        plt.ylim(0.4, 1)
+        plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+        plt.grid(True, alpha=0.3)
+        plt.tight_layout()
+        
+        # Save with seed in filename
+        if save_path:
+            base_path = Path(save_path)
+            seed_save_path = base_path.parent / f"{base_path.stem}_seed_{seed}{base_path.suffix}"
+            plt.savefig(seed_save_path, dpi=150, bbox_inches='tight')
+            print(f"Saved experiment 3 plot for seed {seed} to {seed_save_path}")
+            plt.close()
+        else:
+            plt.show()
+
+
+def plot_experiment_2_total_with_error_bars(base_results_dir: Path, architectures: List[str], save_path=None, 
+                                          filtered: bool = True, seeds: List[str] = None, config_name: str = None):
+    """Plot experiment 2 total with averages and error bars across all seeds."""
+    from scipy.special import expit
+    from sklearn.metrics import roc_auc_score
+    
+    if seeds is None:
+        seeds = ['42']
+    
+    experiment_folder = "2-spam-pred-auc-increasing-spam-fixed-total"
+    
+    plt.figure(figsize=(12, 8))
+    colors = [f"C{i}" for i in range(len(architectures))]
+    
+    for arch_idx, architecture in enumerate(architectures):
+        # Collect data across all seeds
+        all_data = {}
+        
+        for seed in seeds:
+            seed_files = _get_result_files_for_seeds(base_results_dir, [seed], experiment_folder, 
+                                                    architecture, 'dataclass_exps_94_better_spam')
+            
+            if not seed_files or seed not in seed_files:
+                continue
+            
+            files = seed_files[seed]
+            
+            # Group by class1 count
+            for file in files:
+                match = re.search(r'class1_(\d+)', file)
+                if match:
+                    class1_count = int(match.group(1))
+                    if class1_count not in all_data:
+                        all_data[class1_count] = []
+                    
+                    try:
+                        scores, labels = _get_scores_and_labels_from_result_file(file, filtered=filtered)
+                        scores = expit(scores)
+                        auc = roc_auc_score(labels, scores)
+                        all_data[class1_count].append(auc)
+                    except Exception as e:
+                        print(f"Error processing file {file}: {e}")
+                        continue
+        
+        # Calculate means and stds
+        x_values = []
+        means = []
+        stds = []
+        
+        for class1_count in sorted(all_data.keys()):
+            if all_data[class1_count]:
+                x_values.append(class1_count)
+                means.append(np.mean(all_data[class1_count]))
+                stds.append(np.std(all_data[class1_count]))
+        
+        if x_values:
+            label = f"{config_name}_{architecture}" if config_name else architecture
+            plt.errorbar(x_values, means, yerr=stds, fmt='o-', 
+                        label=label, linewidth=2, capsize=5, capthick=2, color=colors[arch_idx])
+    
+    plt.title(f"Experiment 2: All Architecture Probe Performance (Averaged across seeds)" + 
+              (" (filtered)" if filtered else " (all)") + 
+              (f" (seeds: {', '.join(seeds)})" if len(seeds) > 1 else ""))
+    plt.ylabel("AUC")
+    plt.xlabel("Number of class 1 (positive) samples in train set")
+    plt.xscale('log')
+    plt.ylim(0.4, 1)
+    plt.legend()
+    plt.grid(True, alpha=0.3)
+    plt.tight_layout()
+    
+    if save_path:
+        plt.savefig(save_path, dpi=150)
+        print(f"Saved experiment 2 total plot to {save_path}")
+        plt.close()
+    else:
+        plt.show()
+
+
+def plot_experiment_2_recall_total_with_error_bars(base_results_dir: Path, architectures: List[str], save_path=None, 
+                                                  fpr_target: float = 0.01, filtered: bool = True, 
+                                                  seeds: List[str] = None, config_name: str = None):
+    """Plot experiment 2 recall at FPR total with averages and error bars across all seeds."""
+    from scipy.special import expit
+    
+    if seeds is None:
+        seeds = ['42']
+    
+    experiment_folder = "2-spam-pred-auc-increasing-spam-fixed-total"
+    
+    def recall_at_fpr_func(scores, labels):
+        scores = expit(scores)
+        thresholds = np.unique(scores)[::-1]
+        best_recall = 0.0
+        for thresh in thresholds:
+            preds = (scores >= thresh).astype(int)
+            tp = np.sum((preds == 1) & (labels == 1))
+            fn = np.sum((preds == 0) & (labels == 1))
+            fp = np.sum((preds == 1) & (labels == 0))
+            tn = np.sum((preds == 0) & (labels == 0))
+            fpr = fp / (fp + tn) if (fp + tn) > 0 else 0.0
+            recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
+            if fpr <= fpr_target and recall > best_recall:
+                best_recall = recall
+        return best_recall
+    
+    plt.figure(figsize=(12, 8))
+    colors = [f"C{i}" for i in range(len(architectures))]
+    
+    for arch_idx, architecture in enumerate(architectures):
+        # Collect data across all seeds
+        all_data = {}
+        
+        for seed in seeds:
+            seed_files = _get_result_files_for_seeds(base_results_dir, [seed], experiment_folder, 
+                                                    architecture, 'dataclass_exps_94_better_spam')
+            
+            if not seed_files or seed not in seed_files:
+                continue
+            
+            files = seed_files[seed]
+            
+            # Group by class1 count
+            for file in files:
+                match = re.search(r'class1_(\d+)', file)
+                if match:
+                    class1_count = int(match.group(1))
+                    if class1_count not in all_data:
+                        all_data[class1_count] = []
+                    
+                    try:
+                        scores, labels = _get_scores_and_labels_from_result_file(file, filtered=filtered)
+                        recall = recall_at_fpr_func(scores, labels)
+                        all_data[class1_count].append(recall)
+                    except Exception as e:
+                        print(f"Error processing file {file}: {e}")
+                        continue
+        
+        # Calculate means and stds
+        x_values = []
+        means = []
+        stds = []
+        
+        for class1_count in sorted(all_data.keys()):
+            if all_data[class1_count]:
+                x_values.append(class1_count)
+                means.append(np.mean(all_data[class1_count]))
+                stds.append(np.std(all_data[class1_count]))
+        
+        if x_values:
+            label = f"{config_name}_{architecture}" if config_name else architecture
+            plt.errorbar(x_values, means, yerr=stds, fmt='o-', 
+                        label=label, linewidth=2, capsize=5, capthick=2, color=colors[arch_idx])
+    
+    plt.title(f"Experiment 2: Recall at {fpr_target*100}% FPR - All Architecture Probe Performance (Averaged across seeds)" + 
+              (" (filtered)" if filtered else " (all)") + 
+              (f" (seeds: {', '.join(seeds)})" if len(seeds) > 1 else ""))
+    plt.ylabel(f"Recall at {fpr_target*100}% FPR")
+    plt.xlabel("Number of class 1 (positive) samples in train set")
+    plt.xscale('log')
+    plt.ylim(0, 1)
+    plt.legend()
+    plt.grid(True, alpha=0.3)
+    plt.tight_layout()
+    
+    if save_path:
+        plt.savefig(save_path, dpi=150)
+        print(f"Saved experiment 2 recall total plot to {save_path}")
+        plt.close()
+    else:
+        plt.show()
