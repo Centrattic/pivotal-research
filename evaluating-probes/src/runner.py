@@ -301,7 +301,7 @@ def evaluate_probe(
 
     # Calculate metrics based on score options
     combined_metrics = {}
-    
+
     if 'all' in score_options:
         logger.log(f"  - 🥰 Calculating metrics for all examples...")
         all_metrics = probe.score(test_acts, y_test, batch_size=batch_size)

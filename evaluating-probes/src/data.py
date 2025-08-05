@@ -303,7 +303,7 @@ class Dataset:
         only_test: bool = False,
     ):
         if only_test:
-            return None
+            return original_dataset
         import copy
         import pandas as pd
         np.random.seed(seed)
@@ -456,7 +456,7 @@ class Dataset:
         only_test: bool = False,
     ):
         if only_test:
-            return None
+            return original_dataset
         import copy
         import pandas as pd
         np.random.seed(seed)
