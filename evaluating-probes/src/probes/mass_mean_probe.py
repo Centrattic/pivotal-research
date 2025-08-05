@@ -126,8 +126,8 @@ class MassMeanProbe(BaseProbeNonTrainable):
             raise ValueError("Mass-mean direction not computed. Call fit() first.")
         
         # Convert to PyTorch tensors
-        X_tensor = torch.tensor(processed_X, dtype=torch.float32, device=self.device)
-        theta_tensor = torch.tensor(self.theta_mm, dtype=torch.float32, device=self.device)
+        X_tensor = torch.tensor(processed_X, dtype=torch.float16, device=self.device)
+        theta_tensor = torch.tensor(self.theta_mm, dtype=torch.float16, device=self.device)
         
         # IID functionality disabled due to numerical instability with small sample sizes
         # Always use basic version: θ_mm^T x
@@ -145,7 +145,7 @@ class MassMeanProbe(BaseProbeNonTrainable):
         logits = self._compute_logits(processed_X)
         
         # Use PyTorch sigmoid for GPU acceleration
-        logits_tensor = torch.tensor(logits, dtype=torch.float32, device=self.device)
+        logits_tensor = torch.tensor(logits, dtype=torch.float16, device=self.device)
         probs = torch.sigmoid(logits_tensor).cpu().numpy()
         
         # For binary classification, return just the positive class probability

@@ -76,7 +76,8 @@ def train_probe(
                 upsampling_factor=upsampling_factor,
                 val_size=val_size,
                 test_size=test_size,
-                llm_csv_base_path=llm_csv_base_path
+                llm_csv_base_path=llm_csv_base_path,
+                only_test=False,
             )
         else:
             # Original rebuild_config logic
@@ -91,6 +92,7 @@ def train_probe(
                 val_size=val_size,
                 test_size=test_size,
                 seed=seed,  # Use the global seed passed to this function
+                only_test=False,
             )
     else:
         train_ds = Dataset(train_dataset_name, model=model, device=device, seed=seed)
@@ -245,8 +247,10 @@ def evaluate_probe(
     else:
         batch_size = probe_config.get('batch_size', 200)
 
+    # Prepare evaluation dataset
+    only_test = (eval_dataset_name != train_dataset_name)
     if rebuild_config is not None:
-        orig_ds = Dataset(eval_dataset_name, model=model, device=device, seed=seed)
+        orig_ds = Dataset(eval_dataset_name, model=model, device=device, seed=seed, only_test=only_test)
         
         # Check if this is LLM upsampling with new method
         if 'llm_upsampling' in rebuild_config and rebuild_config['llm_upsampling']:
@@ -268,7 +272,8 @@ def evaluate_probe(
                 upsampling_factor=upsampling_factor,
                 val_size=val_size,
                 test_size=test_size,
-                llm_csv_base_path=llm_csv_base_path
+                llm_csv_base_path=llm_csv_base_path,
+                only_test=only_test,
             )
         else:
             # Original rebuild_config logic
@@ -283,9 +288,10 @@ def evaluate_probe(
                 val_size=val_size,
                 test_size=test_size,
                 seed=seed,
+                only_test=only_test,
             )
     else:
-        eval_ds = Dataset(eval_dataset_name, model=model, device=device, seed=seed)
+        eval_ds = Dataset(eval_dataset_name, model=model, device=device, seed=seed, only_test=only_test)
         eval_ds.split_data(train_size=train_size, val_size=val_size, test_size=test_size, seed=seed)
     # Use contrast activations if contrast_fn is provided
     if contrast_fn is not None:
@@ -443,7 +449,8 @@ def run_non_trainable_probe(
                 upsampling_factor=upsampling_factor,
                 val_size=val_size,
                 test_size=test_size,
-                llm_csv_base_path=llm_csv_base_path
+                llm_csv_base_path=llm_csv_base_path,
+                only_test=False,
             )
         else:
             # Original rebuild_config logic
@@ -458,6 +465,7 @@ def run_non_trainable_probe(
                 val_size=val_size,
                 test_size=test_size,
                 seed=seed,
+                only_test=False,
             )
     else:
         train_ds = Dataset(train_dataset_name, model=model, device=device, seed=seed)

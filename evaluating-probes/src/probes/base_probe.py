@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any, Optional
 import json
 import math
+import gc
 from tqdm import tqdm
 import optuna
 
@@ -62,41 +63,16 @@ class BaseProbe:
         print(f"Epochs: {epochs}, LR: {lr}, Batch size: {batch_size}, Weight decay: {weight_decay}")
         print(f"Weighted loss: {use_weighted_loss}, Weighted sampler: {use_weighted_sampler}")
         
-        # Create tensors in chunks to reduce memory pressure
-        print("Creating tensors in memory-efficient chunks...")
+        # Create tensors efficiently with minimal memory overhead
+        print("Creating tensors efficiently...")
         
-        # Convert to float16 numpy first to reduce memory
-        X_np = X.astype(np.float16)
-        y_np = y.astype(np.int64)
+        # Keep data on CPU and move batches to GPU as needed to avoid GPU memory overflow
+        X = torch.tensor(X, dtype=torch.float32, device="cpu")
+        y = torch.tensor(y, dtype=torch.long, device="cpu")
         if mask is not None:
-            mask_np = mask.astype(np.bool_)
+            mask = torch.tensor(mask, dtype=torch.bool, device="cpu")
         else:
-            mask_np = np.ones(X.shape[:2], dtype=np.bool_)
-        
-        # Create tensors in smaller chunks
-        chunk_size = min(1000, len(X))  # Process in chunks of 1000 or less
-        X_tensors = []
-        y_tensors = []
-        mask_tensors = []
-        
-        for i in range(0, len(X), chunk_size):
-            end_idx = min(i + chunk_size, len(X))
-            X_tensors.append(torch.tensor(X_np[i:end_idx], dtype=torch.float16))
-            y_tensors.append(torch.tensor(y_np[i:end_idx], dtype=torch.long))
-            mask_tensors.append(torch.tensor(mask_np[i:end_idx], dtype=torch.bool))
-            
-            # Force garbage collection after each chunk
-            import gc
-            gc.collect()
-        
-        # Concatenate chunks
-        X = torch.cat(X_tensors, dim=0)
-        y = torch.cat(y_tensors, dim=0)
-        mask = torch.cat(mask_tensors, dim=0)
-        
-        # Clear chunk lists to free memory
-        del X_tensors, y_tensors, mask_tensors, X_np, y_np, mask_np
-        gc.collect()
+            mask = torch.ones(X.shape[:2], dtype=torch.bool, device="cpu")
         
         print(f"Tensor X shape: {X.shape}")
         print(f"Tensor y shape: {y.shape}")
@@ -107,16 +83,20 @@ class BaseProbe:
         if use_weighted_loss:
             try:
                 from sklearn.utils.class_weight import compute_class_weight
-                y_np = y.cpu().numpy() if hasattr(y, 'cpu') else y.numpy()
-                if y_np.ndim > 1 and y_np.shape[1] == 1:
-                    y_np = y_np.squeeze(-1)
-                classes = np.unique(y_np)
+                # Compute class weights directly on GPU to avoid CPU transfer
+                y_unique, y_counts = torch.unique(y, return_counts=True)
+                classes = y_unique.cpu().numpy()
+                y_counts_np = y_counts.cpu().numpy()
+                
                 if len(classes) != 2:
                     print(f"Warning: Expected 2 classes for binary classification, got {len(classes)}")
-                class_weights_np = compute_class_weight('balanced', classes=classes, y=y_np)
+                
+                # Compute class weights using sklearn
+                class_weights_np = compute_class_weight('balanced', classes=classes, y=y.cpu().numpy())
                 class_weights = torch.tensor(class_weights_np, dtype=torch.float16, device=self.device)
+                
                 # Print class sample counts and weights for debugging
-                class_sample_counts = {int(cls): int((y_np == cls).sum()) for cls in classes}
+                class_sample_counts = {int(cls): int(count) for cls, count in zip(classes, y_counts_np)}
                 print(f"Class sample counts: {class_sample_counts}")
                 print(f"Class weights: {class_weights}")
             except Exception as e:
@@ -134,33 +114,37 @@ class BaseProbe:
         # WeightedRandomSampler for class balancing (binary classification only)
         sampler = None
         if use_weighted_sampler:
-            y_np = y.cpu().numpy() if hasattr(y, 'cpu') else y.numpy()
-            if y_np.ndim > 1 and y_np.shape[1] == 1:
-                y_np = y_np.squeeze(-1)
-            classes = np.unique(y_np)
+            # Compute weights directly on GPU to avoid CPU transfer
+            y_unique, y_counts = torch.unique(y, return_counts=True)
+            classes = y_unique.cpu().numpy()
+            y_counts_np = y_counts.cpu().numpy()
+            
             if len(classes) != 2:
                 print(f"Warning: Expected 2 classes for binary classification, got {len(classes)}")
-            class_sample_count = np.array([len(np.where(y_np == t)[0]) for t in classes])
-            weight = 1. / class_sample_count
-            samples_weight = np.array([weight[int(t)] for t in y_np])
-            samples_weight = torch.from_numpy(samples_weight).float()
+            
+            # Compute sample weights
+            weight = 1. / y_counts_np
+            samples_weight = torch.zeros_like(y, dtype=torch.float32)
+            for i, cls in enumerate(classes):
+                samples_weight[y == cls] = weight[i]
+            
             from torch.utils.data import WeightedRandomSampler
             sampler = WeightedRandomSampler(samples_weight, len(samples_weight), replacement=True)
             print(f"Using WeightedRandomSampler for class balancing.")
 
-        # Optimize for GPU utilization with larger batch sizes
-        # For H100 with large batches, we can use async loading
-        num_workers = 2  # Minimal workers for async loading
-        prefetch_factor = 2  # Prefetch batches to keep GPU busy
-                
+        # Use DataLoader with proper CPU-GPU batch transfers
+        # This keeps data on CPU and moves batches to GPU as needed
+        # Use multiple workers for efficient data loading
+        num_workers = min(4, batch_size)  # Use up to 4 workers, but not more than batch_size
+        
         if sampler is not None:
             loader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, 
                                                 sampler=sampler, pin_memory=True, num_workers=num_workers,
-                                                persistent_workers=True, prefetch_factor=prefetch_factor)
+                                                persistent_workers=True)
         else:
             loader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=True,
-                                                pin_memory=True, num_workers=num_workers, persistent_workers=True, 
-                                                prefetch_factor=prefetch_factor)
+                                                pin_memory=True, num_workers=num_workers,
+                                                persistent_workers=True)
         print(f"Dataset size: {len(dataset)}")
         print(f"Number of batches: {len(loader)}")
         print(f"Using {num_workers} workers for data loading")
@@ -241,7 +225,7 @@ class BaseProbe:
                         print(f"First batch - logits shape: {logits.shape}")
                     
                     # Binary classification only
-                    yb = yb.float()
+                    yb = yb.float()  # Keep as float32 for mixed precision training
                     loss = criterion(logits, yb)
                     
                     if batch_count == 0 and epoch == 0:
@@ -290,18 +274,22 @@ class BaseProbe:
         print(f"Batch size: {batch_size}")
         
         self.model.eval()
+        
+        # Convert to tensors on CPU and transfer batches to GPU as needed
+        # Convert activations to float32 to match model parameters
+        X_tensor = torch.tensor(X, dtype=torch.float32, device="cpu")
         if mask is not None:
-            mask = torch.tensor(mask, dtype=torch.bool, device=self.device)
+            mask_tensor = torch.tensor(mask, dtype=torch.bool, device="cpu")
         else:
-            mask = torch.ones(X.shape[:2], dtype=torch.bool, device=self.device)
+            mask_tensor = torch.ones(X.shape[:2], dtype=torch.bool, device="cpu")
         
         all_preds = []
         num_batches = (len(X) + batch_size - 1) // batch_size
         print(f"Processing {num_batches} batches")
         
         for i in range(0, len(X), batch_size):
-            batch_X = torch.tensor(X[i:i+batch_size], dtype=torch.float16, device=self.device)
-            batch_mask = mask[i:i+batch_size]
+            batch_X = X_tensor[i:i+batch_size].to(self.device, non_blocking=True)
+            batch_mask = mask_tensor[i:i+batch_size].to(self.device, non_blocking=True)
             
             if i == 0:
                 print(f"First batch - batch_X shape: {batch_X.shape}, batch_mask shape: {batch_mask.shape}")
@@ -333,18 +321,22 @@ class BaseProbe:
         print(f"Batch size: {batch_size}")
         
         self.model.eval()
+        
+        # Convert to tensors on CPU and transfer batches to GPU as needed
+        # Convert activations to float32 to match model parameters
+        X_tensor = torch.tensor(X, dtype=torch.float32, device="cpu")
         if mask is not None:
-            mask = torch.tensor(mask, dtype=torch.bool, device=self.device)
+            mask_tensor = torch.tensor(mask, dtype=torch.bool, device="cpu")
         else:
-            mask = torch.ones(X.shape[:2], dtype=torch.bool, device=self.device)
+            mask_tensor = torch.ones(X.shape[:2], dtype=torch.bool, device="cpu")
         
         all_probs = []
         num_batches = (len(X) + batch_size - 1) // batch_size
         print(f"Processing {num_batches} batches")
         
         for i in range(0, len(X), batch_size):
-            batch_X = torch.tensor(X[i:i+batch_size], dtype=torch.float16, device=self.device)
-            batch_mask = mask[i:i+batch_size]
+            batch_X = X_tensor[i:i+batch_size].to(self.device, non_blocking=True)
+            batch_mask = mask_tensor[i:i+batch_size].to(self.device, non_blocking=True)
             
             if i == 0:
                 print(f"First batch - batch_X shape: {batch_X.shape}, batch_mask shape: {batch_mask.shape}")
@@ -373,15 +365,20 @@ class BaseProbe:
         Returns the raw logits (pre-sigmoid/softmax) for the input X.
         """
         self.model.eval()
+        
+        # Convert to tensors on CPU and transfer batches to GPU as needed
+        # Convert activations to float32 to match model parameters
+        X_tensor = torch.tensor(X, dtype=torch.float32, device="cpu")
         if mask is not None:
-            mask = torch.tensor(mask, dtype=torch.bool, device=self.device)
+            mask_tensor = torch.tensor(mask, dtype=torch.bool, device="cpu")
         else:
-            mask = torch.ones(X.shape[:2], dtype=torch.bool, device=self.device)
+            mask_tensor = torch.ones(X.shape[:2], dtype=torch.bool, device="cpu")
+        
         all_logits = []
         num_batches = (len(X) + batch_size - 1) // batch_size
         for i in range(0, len(X), batch_size):
-            batch_X = torch.tensor(X[i:i+batch_size], dtype=torch.float16, device=self.device)
-            batch_mask = mask[i:i+batch_size]
+            batch_X = X_tensor[i:i+batch_size].to(self.device, non_blocking=True)
+            batch_mask = mask_tensor[i:i+batch_size].to(self.device, non_blocking=True)
             with torch.no_grad():
                 logits = self.model(batch_X, batch_mask)
                 if logits.ndim == 1:

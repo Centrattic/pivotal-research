@@ -154,6 +154,19 @@ class ActivationManager:
         self.clear_index_cache()
         # Note: LazyActivationLoader instances are not stored in ActivationManager
         # They are created per-request and should be garbage collected automatically
+    
+    def clear_activation_cache(self):
+        """Clear activation cache to free memory. Call this when done with activations."""
+        # Force garbage collection to free memory
+        import gc
+        gc.collect()
+        
+        # Clear any cached lazy loaders
+        if hasattr(self, '_lazy_loaders'):
+            for loader in self._lazy_loaders.values():
+                if hasattr(loader, 'clear_cache'):
+                    loader.clear_cache()
+            self._lazy_loaders.clear()
 
     def _selective_flush(self, act_mm, hash_mm, old_rows, new_rows, max_length):
         """Fast flush that skips explicit flush for small additions."""
@@ -363,7 +376,7 @@ class ActivationManager:
         return np.memmap(hash_path, dtype=self.hash_dtype, mode="r+", shape=(new_rows,))
 
 class LazyActivationLoader:
-    """Lazy loader for large activation files that only loads requested rows."""
+    """Efficient GPU-optimized loader for large activation files."""
     
     def __init__(self, act_path: Path, total_rows: int, max_length: int, d_model: int):
         self.act_path = act_path
@@ -371,46 +384,85 @@ class LazyActivationLoader:
         self.max_length = max_length
         self.d_model = d_model
         self.row_size = max_length * d_model * 2  # float16 = 2 bytes
+        
+        # Use memory mapping for efficient access
+        self._mmap = np.memmap(act_path, dtype=np.float16, mode='r', 
+                              shape=(total_rows, max_length, d_model))
+        
+        # Cache for frequently accessed rows (small cache to avoid memory explosion)
         self._cache = {}
-    
+        self._cache_size_limit = 1000  # Limit cache size
+        
     def __getitem__(self, key):
         if isinstance(key, int):
             # Single row
             return self._load_row(key)
         elif isinstance(key, list):
-            # List of row indices
-            return np.stack([self._load_row(i) for i in key])
+            # List of row indices - load in batch for efficiency
+            return self._load_rows_batch(key)
         elif isinstance(key, slice):
-            # Slice of rows
+            # Slice of rows - use direct memmap slicing
             start, stop, step = key.indices(self.total_rows)
-            indices = list(range(start, stop, step))
-            return np.stack([self._load_row(i) for i in indices])
+            if step == 1:  # Contiguous slice - most efficient
+                return self._mmap[start:stop].copy()  # Copy to avoid memmap issues
+            else:
+                indices = list(range(start, stop, step))
+                return self._load_rows_batch(indices)
         else:
             raise TypeError(f"Unsupported key type: {type(key)}")
     
     def _load_row(self, row_idx: int):
-        """Load a single row from the file."""
+        """Load a single row with caching."""
         if row_idx in self._cache:
             return self._cache[row_idx]
         
         if row_idx >= self.total_rows:
             raise IndexError(f"Row index {row_idx} out of bounds (max: {self.total_rows-1})")
         
-        # Calculate file offset for this row
-        offset = row_idx * self.row_size
+        # Use memmap for efficient access
+        row_data = self._mmap[row_idx].copy()  # Copy to avoid memmap issues
         
-        # Read the row directly from file
-        with open(self.act_path, 'rb') as f:
-            f.seek(offset)
-            data = f.read(self.row_size)
+        # Cache with size limit
+        if len(self._cache) < self._cache_size_limit:
+            self._cache[row_idx] = row_data
         
-        # Convert to numpy array
-        row_data = np.frombuffer(data, dtype=np.float16).reshape(self.max_length, self.d_model)
-        
-        # Cache the result
-        self._cache[row_idx] = row_data
         return row_data
+    
+    def _load_rows_batch(self, indices: list):
+        """Load multiple rows efficiently in batch."""
+        if not indices:
+            return np.empty((0, self.max_length, self.d_model), dtype=np.float16)
+        
+        # Check cache first
+        cached_rows = {}
+        uncached_indices = []
+        
+        for idx in indices:
+            if idx in self._cache:
+                cached_rows[idx] = self._cache[idx]
+            else:
+                uncached_indices.append(idx)
+        
+        # Load uncached rows in batch using memmap
+        if uncached_indices:
+            # Use advanced indexing for batch loading
+            batch_data = self._mmap[uncached_indices].copy()
+            
+            # Cache the new rows
+            for i, idx in enumerate(uncached_indices):
+                if len(self._cache) < self._cache_size_limit:
+                    self._cache[idx] = batch_data[i]
+                cached_rows[idx] = batch_data[i]
+        
+        # Return in the original order
+        result = np.stack([cached_rows[idx] for idx in indices])
+        return result
     
     def clear_cache(self):
         """Clear the row cache to free memory."""
         self._cache.clear()
+    
+    def __del__(self):
+        """Clean up memmap when object is destroyed."""
+        if hasattr(self, '_mmap'):
+            del self._mmap

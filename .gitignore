@@ -7,4 +7,5 @@ evaluating-probes/datasets/original/*
 *.zip
 runpod_cli
 runpod_cli/*
-*.ipynb_checkpoints/*
+*/.ipynb_checkpoints/*
+evaluating-probes/src/.ipynb_checkpoints/*

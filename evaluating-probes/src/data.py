@@ -44,12 +44,14 @@ class Dataset:
         data_dir: Path = Path("datasets/cleaned"),
         cache_root: Path = Path("activation_cache"),
         seed: int, # This is so important - how train and test sets persist across models/runs/etc.
+        only_test: bool = False,  # <-- Add this argument
     ):
         self.dataset_name = dataset_name
         self.model = model  # Ensure model is always set as an attribute
         self.device = device
         self.cache_root = cache_root
         self.seed = seed
+        self.only_test = only_test  # <-- Store the flag
         
         meta = get_main_csv_metadata()
         # Robust lookup: try 'name' column, else try integer index, else error
@@ -107,6 +109,31 @@ class Dataset:
         self.val_indices = None
         self.test_indices = None
 
+        # If only_test is True, override splits
+        if only_test:
+            # Find all indices for each class
+            classes, counts = np.unique(self.y, return_counts=True)
+            if len(classes) != 2:
+                raise ValueError("only_test=True requires exactly 2 classes for 50/50 split.")
+            min_class = classes[np.argmin(counts)]
+            maj_class = classes[np.argmax(counts)]
+            min_indices = np.where(self.y == min_class)[0]
+            maj_indices = np.where(self.y == maj_class)[0]
+            n = len(min_indices)
+            # Randomly sample n from majority class
+            rng = np.random.RandomState(seed)
+            maj_indices_sample = rng.choice(maj_indices, size=n, replace=False)
+            test_indices = np.concatenate([min_indices, maj_indices_sample])
+            rng.shuffle(test_indices)
+            self.X_test_text = self.X[test_indices].tolist()
+            self.y_test = self.y[test_indices]
+            self.test_indices = test_indices
+            self.X_train_text = None
+            self.y_train = None
+            self.X_val_text = None
+            self.y_val = None
+            self.train_indices = None
+            self.val_indices = None
         try: 
             cache_dir = cache_root / model.cfg.model_name / dataset_name
             self.act_manager = ActivationManager(
@@ -124,6 +151,9 @@ class Dataset:
         Split the data into train, val, and test sets. Can be called multiple times to override splits.
         Default: 75% train, 10% val, 15% test.
         """
+        if self.only_test:
+            return
+            
         if seed is None:
             raise ValueError("Seed must be provided")
         assert abs(train_size + val_size + test_size - 1.0) < 1e-6, "Splits must sum to 1.0"
@@ -190,6 +220,11 @@ class Dataset:
             raise ValueError("Data not split yet. Split data first.")
         acts = self.act_manager.get_activations_for_texts(self.X_test_text, layer, component)
         return acts, self.y_test
+    
+    def clear_activation_cache(self):
+        """Clear activation cache to free memory."""
+        if hasattr(self, 'act_manager'):
+            self.act_manager.clear_activation_cache()
 
     @classmethod
     def from_dataframe(cls, df, *, dataset_name, model, device, cache_root, seed, task_type=None, n_classes=None, max_len=None, train_indices=None, val_indices=None, test_indices=None):
@@ -265,25 +300,10 @@ class Dataset:
         llm_csv_base_path: str,
         val_size: float = 0.10,
         test_size: float = 0.15,
-        test_only: bool = False,
+        only_test: bool = False,
     ):
-        """
-        Build a dataset with LLM upsampling for a specific number of real samples and upsampling factor.
-        
-        Args:
-            original_dataset: The original dataset to upsample
-            seed: Random seed for reproducibility
-            n_real_neg: Number of real negative samples to use (constant)
-            n_real_pos: Number of real positive samples to use (variable: 1, 2, 3, 4, 5, etc.)
-            upsampling_factor: How many times to upsample positives (1x, 2x, 3x, 4x, 5x)
-            val_size: Validation set size
-            test_size: Test set size
-            llm_csv_base_path: Base path for LLM sample CSV files
-            test_only: If True and insufficient samples for standard splits, use all data as test set
-        
-        Returns:
-            Dataset object with the specified upsampling
-        """
+        if only_test:
+            return None
         import copy
         import pandas as pd
         np.random.seed(seed)
@@ -308,7 +328,7 @@ class Dataset:
             cls_indices_shuffled = cls_indices.copy()
             rng.shuffle(cls_indices_shuffled)
             if len(cls_indices_shuffled) < n_per_class_test + n_per_class_val:
-                if test_only:
+                if only_test:
                     print(f"Not enough samples for class {cls} to fill test+val splits. Using all samples as test set.")
                     insufficient_samples = True
                     break
@@ -318,8 +338,8 @@ class Dataset:
             val_indices.extend(cls_indices_shuffled[n_per_class_test:n_per_class_test+n_per_class_val])
             used_indices.update(cls_indices_shuffled[:n_per_class_test+n_per_class_val])
         
-        # If insufficient samples and test_only is True, use all data as test set
-        if insufficient_samples and test_only:
+        # If insufficient samples and only_test is True, use all data as test set
+        if insufficient_samples and only_test:
             # Use all samples as test set
             all_indices = np.arange(n_total)
             test_df = df.iloc[all_indices]
@@ -341,6 +361,7 @@ class Dataset:
                 train_indices=None,
                 val_indices=None,
                 test_indices=np.arange(len(test_df)),
+                only_test=only_test,
             )
         
         # Remove test/val indices from available pool for train
@@ -420,6 +441,7 @@ class Dataset:
             train_indices=train_indices_new,
             val_indices=val_indices_new,
             test_indices=test_indices_new,
+            only_test=only_test,
         )
 
     @staticmethod
@@ -431,18 +453,10 @@ class Dataset:
         train_total_samples=None,
         val_size: float = 0.10,
         test_size: float = 0.15,
-        test_only: bool = False,
+        only_test: bool = False,
     ):
-        """
-        Returns a single Dataset object with precomputed splits:
-        - test and val are both balanced 50/50 (as large as possible given split sizes and data)
-        - train is constructed from the remaining data using the requested class balance
-        - If all train parameters are None, only test/val sets are created (no train set)
-        - Default split: 75% train, 10% val, 15% test
-        - No overlap between splits
-        - Calculates max_len from all possible data upfront to avoid activation manager recreation
-        - If test_only=True and insufficient samples for standard splits, uses all data as test set
-        """
+        if only_test:
+            return None
         import copy
         import pandas as pd
         np.random.seed(seed)
@@ -470,7 +484,7 @@ class Dataset:
             cls_indices_shuffled = cls_indices.copy()
             rng.shuffle(cls_indices_shuffled)
             if len(cls_indices_shuffled) < n_per_class_test + n_per_class_val:
-                if test_only:
+                if only_test:
                     print(f"Not enough samples for class {cls} to fill test+val splits. Using all samples as test set.")
                     insufficient_samples = True
                     break
@@ -480,8 +494,8 @@ class Dataset:
             val_indices.extend(cls_indices_shuffled[n_per_class_test:n_per_class_test+n_per_class_val])
             used_indices.update(cls_indices_shuffled[:n_per_class_test+n_per_class_val])
         
-        # If insufficient samples and test_only is True, use all data as test set
-        if insufficient_samples and test_only:
+        # If insufficient samples and only_test is True, use all data as test set
+        if insufficient_samples and only_test:
             # Use all samples as test set
             all_indices = np.arange(n_total)
             test_df = df.iloc[all_indices]

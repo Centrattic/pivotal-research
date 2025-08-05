@@ -18,6 +18,7 @@ class ActivationSimilarityProbe(BaseProbeNonTrainable):
         super().__init__(d_model, device, task_type, aggregation)
         self.positive_prototype = None
         self.negative_prototype = None
+        self.class_prototypes = None
         
     def fit(self, X: np.ndarray, y: np.ndarray, mask: Optional[np.ndarray] = None, batch_size: int = 1000, **kwargs):
         """
@@ -212,7 +213,7 @@ class ActivationSimilarityProbe(BaseProbeNonTrainable):
             # Replace NaN with 0 for sigmoid computation
             logits = np.nan_to_num(logits, nan=0.0)
         
-        logits_tensor = torch.tensor(logits, dtype=torch.float32, device=self.device)
+        logits_tensor = torch.tensor(logits, dtype=torch.float16, device=self.device)
         probs = torch.sigmoid(logits_tensor).cpu().numpy()
         
         # Check for NaN in output probabilities
@@ -235,8 +236,8 @@ class ActivationSimilarityProbe(BaseProbeNonTrainable):
         import torch.nn.functional as F
         
         # Convert to PyTorch tensors
-        X_tensor = torch.tensor(X, dtype=torch.float32, device=self.device)
-        prototype_tensor = torch.tensor(prototype, dtype=torch.float32, device=self.device)
+        X_tensor = torch.tensor(X, dtype=torch.float16, device=self.device)
+        prototype_tensor = torch.tensor(prototype, dtype=torch.float16, device=self.device)
         
         # Replace any infinity values with zeros
         X_tensor = torch.nan_to_num(X_tensor, nan=0.0, posinf=0.0, neginf=0.0)
