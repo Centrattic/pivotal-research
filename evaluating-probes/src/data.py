@@ -387,7 +387,7 @@ class Dataset:
         n_llm_pos = n_real_pos * upsampling_factor - n_real_pos  # Total needed - real samples
 
         # Load LLM samples for this base count (use n_real_pos as the base count)
-        llm_csv_path = Path(llm_csv_base_path) / f"llm_samples_{n_real_pos}.csv"
+        llm_csv_path = Path(llm_csv_base_path) / f"samples_{n_real_pos}.csv"
         if not llm_csv_path.exists():
             raise FileNotFoundError(f"LLM samples file not found: {llm_csv_path}")
         

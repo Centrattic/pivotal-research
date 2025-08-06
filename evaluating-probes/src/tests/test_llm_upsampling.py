@@ -10,7 +10,7 @@ import numpy as np
 from pathlib import Path
 import tempfile
 import shutil
-from llm_upsampling_script import LLMUpsamplingStateMachine, extract_samples_for_upsampling
+from src.llm_upsampling.llm_upsampling_script import LLMUpsamplingStateMachine, extract_samples_for_upsampling
 
 def create_test_data():
     """Create test data for validation."""
@@ -123,7 +123,7 @@ run_name: "test_run"
 model_name: "test_model"
 experiments:
   - name: "test_exp"
-    train_on: "test_dataset"
+    train_on: "87_is_spam"
 """
         f.write(config_content)
         config_path = Path(f.name)
