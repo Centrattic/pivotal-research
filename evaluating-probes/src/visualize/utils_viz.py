@@ -314,156 +314,7 @@ def plot_multi_folder_auc_vs_n_class1(folders, folder_labels, architecture, clas
         plt.show()
 
 
-def plot_experiment_2_all_probes_with_eval(base_results_dir: Path, architectures: List[str], save_path=None, 
-                                          filtered: bool = True, seeds: List[str] = None):
-    """Plot all architectures for experiment 2 with training and evaluation datasets."""
-    from scipy.special import expit
-    from sklearn.metrics import roc_auc_score
-    
-    if seeds is None:
-        seeds = ['42']
-    
-    experiment_folder = "2-spam-pred-auc-increasing-spam-fixed-total"
-    
-    plt.figure(figsize=(12, 8))
-    colors = [f"C{i}" for i in range(len(architectures))]
-    
-    for arch_idx, architecture in enumerate(architectures):
-        # Get all result files across seeds for this architecture
-        seed_files = _get_result_files_for_seeds(base_results_dir, seeds, experiment_folder, 
-                                                architecture, 'dataclass_exps_94_better_spam')
-        
-        if not seed_files:
-            print(f"No result files found for experiment 2, architecture {architecture}")
-            continue
-        
-        # Group by class1 count and get both train and eval results
-        class1_to_train_files = {}
-        class1_to_eval_files = {}
-        
-        for seed, files in seed_files.items():
-            for file in files:
-                match = re.search(r'class1_(\d+)', file)
-                if match:
-                    class1_count = int(match.group(1))
-                    
-                    # Check if this is an eval file (contains eval_on_ in filename)
-                    if 'eval_on_' in file:
-                        if class1_count not in class1_to_eval_files:
-                            class1_to_eval_files[class1_count] = []
-                        class1_to_eval_files[class1_count].append(file)
-                    else:
-                        if class1_count not in class1_to_train_files:
-                            class1_to_train_files[class1_count] = []
-                        class1_to_train_files[class1_count].append(file)
-        
-        color = colors[arch_idx]
-        
-        # Plot training results (solid lines)
-        train_x = []
-        train_aucs = []
-        train_stds = []
-        
-        for class1_count in sorted(class1_to_train_files.keys()):
-            files = class1_to_train_files[class1_count]
-            aucs = []
-            
-            for file in files:
-                try:
-                    scores, labels = _get_scores_and_labels_from_result_file(file, filtered=filtered)
-                    scores = expit(scores)
-                    auc = roc_auc_score(labels, scores)
-                    aucs.append(auc)
-                except Exception as e:
-                    print(f"Error processing train file {file}: {e}")
-                    continue
-            
-            if aucs:
-                train_x.append(class1_count)
-                train_aucs.append(np.mean(aucs))
-                train_stds.append(np.std(aucs))
-        
-        # Plot training results (solid lines)
-        if train_x:
-            if len(seeds) > 1:
-                plt.errorbar(train_x, train_aucs, yerr=train_stds, fmt='o-', 
-                            label=f'{architecture}', linewidth=2, capsize=5, capthick=2, color=color)
-            else:
-                plt.plot(train_x, train_aucs, 'o-', label=f'{architecture}', linewidth=2, color=color)
-        
-        # Plot evaluation results (dashed lines) - if any exist
-        eval_x = []
-        eval_aucs = []
-        eval_stds = []
-        
-        for class1_count in sorted(class1_to_eval_files.keys()):
-            files = class1_to_eval_files[class1_count]
-            aucs = []
-            
-            for file in files:
-                try:
-                    scores, labels = _get_scores_and_labels_from_result_file(file, filtered=filtered)
-                    scores = expit(scores)
-                    auc = roc_auc_score(labels, scores)
-                    aucs.append(auc)
-                except Exception as e:
-                    print(f"Error processing eval file {file}: {e}")
-                    continue
-            
-            if aucs:
-                eval_x.append(class1_count)
-                eval_aucs.append(np.mean(aucs))
-                eval_stds.append(np.std(aucs))
-        
-        # Plot evaluation results (dashed lines in same color) - only if eval data exists
-        if eval_x:
-            if len(seeds) > 1:
-                plt.errorbar(eval_x, eval_aucs, yerr=eval_stds, fmt='o--', 
-                            label=f'{architecture} Eval', linewidth=2, capsize=5, capthick=2, color=color)
-            else:
-                plt.plot(eval_x, eval_aucs, 'o--', label=f'{architecture} Eval', linewidth=2, color=color)
-    
-    plt.title(f"Experiment 2: All Architecture Probe Performance" + 
-              (" (filtered)" if filtered else " (all)") + 
-              (f" (seeds: {', '.join(seeds)})" if len(seeds) > 1 else ""))
-    plt.ylabel("AUC")
-    plt.xlabel("Number of class 1 (positive) samples in train set")
-    plt.xscale('log')
-    
-    # Set y-axis to start at a reasonable nonzero value based on the data
-    all_aucs = []
-    for arch_idx, architecture in enumerate(architectures):
-        # Collect all AUC values for this architecture
-        seed_files = _get_result_files_for_seeds(base_results_dir, seeds, experiment_folder, 
-                                                architecture, 'dataclass_exps_94_better_spam')
-        if seed_files:
-            for seed, files in seed_files.items():
-                for file in files:
-                    try:
-                        scores, labels = _get_scores_and_labels_from_result_file(file, filtered=filtered)
-                        scores = expit(scores)
-                        auc = roc_auc_score(labels, scores)
-                        all_aucs.append(auc)
-                    except Exception:
-                        continue
-    
-    if all_aucs:
-        min_auc = min(all_aucs)
-        y_min = max(0.4, min_auc - 0.1)  # Start at least 0.1 below the minimum, but not below 0.4
-        plt.ylim(y_min, 1)
-    else:
-        plt.ylim(0.4, 1)  # Fallback range
-    
-    plt.legend()
-    plt.grid(True, alpha=0.3)
-    plt.tight_layout()
-    
-    if save_path:
-        plt.savefig(save_path, dpi=150)
-        print(f"Saved experiment 2 plot to {save_path}")
-        plt.close()
-    else:
-        plt.show()
+# Removed: plot_experiment_2_all_probes_with_eval - replaced by plot_experiment_2_unified
 
 
 def plot_experiment_3_upsampling_lineplot(base_results_dir: Path, architectures: List[str], save_path=None, 
@@ -598,168 +449,7 @@ def plot_experiment_3_upsampling_lineplot(base_results_dir: Path, architectures:
         plt.show()
 
 
-def plot_experiment_2_recall_at_fpr(base_results_dir: Path, architectures: List[str], save_path=None, 
-                                   fpr_target: float = 0.01, filtered: bool = True, seeds: List[str] = None):
-    """Plot Recall at 1% FPR for all architectures in experiment 2."""
-    from scipy.special import expit
-    
-    if seeds is None:
-        seeds = ['42']
-    
-    experiment_folder = "2-spam-pred-auc-increasing-spam-fixed-total"
-    
-    plt.figure(figsize=(12, 8))
-    colors = [f"C{i}" for i in range(len(architectures))]
-    
-    for arch_idx, architecture in enumerate(architectures):
-        # Get all result files across seeds for this architecture
-        seed_files = _get_result_files_for_seeds(base_results_dir, seeds, experiment_folder, 
-                                                architecture, 'dataclass_exps_94_better_spam')
-        
-        if not seed_files:
-            print(f"No result files found for experiment 2, architecture {architecture}")
-            continue
-        
-        # Group by class1 count and get both train and eval results
-        class1_to_train_files = {}
-        class1_to_eval_files = {}
-        
-        for seed, files in seed_files.items():
-            for file in files:
-                match = re.search(r'class1_(\d+)', file)
-                if match:
-                    class1_count = int(match.group(1))
-                    
-                    # Check if this is an eval file (contains eval_on_ in filename)
-                    if 'eval_on_' in file:
-                        if class1_count not in class1_to_eval_files:
-                            class1_to_eval_files[class1_count] = []
-                        class1_to_eval_files[class1_count].append(file)
-                    else:
-                        if class1_count not in class1_to_train_files:
-                            class1_to_train_files[class1_count] = []
-                        class1_to_train_files[class1_count].append(file)
-        
-        color = colors[arch_idx]
-        
-        def recall_at_fpr_func(scores, labels):
-            scores = expit(scores)
-            thresholds = np.unique(scores)[::-1]
-            best_recall = 0.0
-            for thresh in thresholds:
-                preds = (scores >= thresh).astype(int)
-                tp = np.sum((preds == 1) & (labels == 1))
-                fn = np.sum((preds == 0) & (labels == 1))
-                fp = np.sum((preds == 1) & (labels == 0))
-                tn = np.sum((preds == 0) & (labels == 0))
-                fpr = fp / (fp + tn) if (fp + tn) > 0 else 0.0
-                recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
-                if fpr <= fpr_target and recall > best_recall:
-                    best_recall = recall
-            return best_recall
-        
-        # Plot training results (solid lines)
-        train_x = []
-        train_recalls = []
-        train_stds = []
-        
-        for class1_count in sorted(class1_to_train_files.keys()):
-            files = class1_to_train_files[class1_count]
-            recalls = []
-            
-            for file in files:
-                try:
-                    scores, labels = _get_scores_and_labels_from_result_file(file, filtered=filtered)
-                    recall = recall_at_fpr_func(scores, labels)
-                    recalls.append(recall)
-                except Exception as e:
-                    print(f"Error processing train file {file}: {e}")
-                    continue
-            
-            if recalls:
-                train_x.append(class1_count)
-                train_recalls.append(np.mean(recalls))
-                train_stds.append(np.std(recalls))
-        
-        # Plot training results (solid lines)
-        if train_x:
-            if len(seeds) > 1:
-                plt.errorbar(train_x, train_recalls, yerr=train_stds, fmt='o-', 
-                            label=f'{architecture}', linewidth=2, capsize=5, capthick=2, color=color)
-            else:
-                plt.plot(train_x, train_recalls, 'o-', label=f'{architecture}', linewidth=2, color=color)
-        
-        # Plot evaluation results (dashed lines) - if any exist
-        eval_x = []
-        eval_recalls = []
-        eval_stds = []
-        
-        for class1_count in sorted(class1_to_eval_files.keys()):
-            files = class1_to_eval_files[class1_count]
-            recalls = []
-            
-            for file in files:
-                try:
-                    scores, labels = _get_scores_and_labels_from_result_file(file, filtered=filtered)
-                    recall = recall_at_fpr_func(scores, labels)
-                    recalls.append(recall)
-                except Exception as e:
-                    print(f"Error processing eval file {file}: {e}")
-                    continue
-            
-            if recalls:
-                eval_x.append(class1_count)
-                eval_recalls.append(np.mean(recalls))
-                eval_stds.append(np.std(recalls))
-        
-        # Plot evaluation results (dashed lines in same color) - only if eval data exists
-        if eval_x:
-            if len(seeds) > 1:
-                plt.errorbar(eval_x, eval_recalls, yerr=eval_stds, fmt='o--', 
-                            label=f'{architecture} Eval', linewidth=2, capsize=5, capthick=2, color=color)
-            else:
-                plt.plot(eval_x, eval_recalls, 'o--', label=f'{architecture} Eval', linewidth=2, color=color)
-    
-    plt.title(f"Experiment 2: Recall at {fpr_target*100}% FPR - All Architecture Probe Performance" + 
-              (" (filtered)" if filtered else " (all)") + 
-              (f" (seeds: {', '.join(seeds)})" if len(seeds) > 1 else ""))
-    plt.ylabel(f"Recall at {fpr_target*100}% FPR")
-    plt.xlabel("Number of class 1 (positive) samples in train set")
-    plt.xscale('log')
-    
-    # Set y-axis to start at a reasonable nonzero value based on the data
-    all_recalls = []
-    for arch_idx, architecture in enumerate(architectures):
-        # Collect all recall values for this architecture
-        seed_files = _get_result_files_for_seeds(base_results_dir, seeds, experiment_folder, 
-                                                architecture, 'dataclass_exps_94_better_spam')
-        if seed_files:
-            for seed, files in seed_files.items():
-                for file in files:
-                    try:
-                        scores, labels = _get_scores_and_labels_from_result_file(file, filtered=filtered)
-                        recall = recall_at_fpr_func(scores, labels)
-                        all_recalls.append(recall)
-                    except Exception:
-                        continue
-    
-    if all_recalls:
-        min_recall = min(all_recalls)
-        y_min = max(0.0, min_recall - 0.1)  # Start at least 0.1 below the minimum, but not below 0
-        plt.ylim(y_min, 1)
-    else:
-        plt.ylim(0, 1)  # Fallback range
-    
-    plt.legend()
-    plt.grid(True, alpha=0.3)
-    plt.tight_layout()
-    
-    if save_path:
-        plt.savefig(save_path, dpi=150)
-        print(f"Saved experiment 2 recall@FPR plot to {save_path}")
-        plt.close()
-    else:
-        plt.show()
+# Removed: plot_experiment_2_recall_at_fpr - replaced by plot_experiment_2_unified
 
 
 def plot_experiment_3_upsampling_lineplot_per_architecture(base_results_dir: Path, architectures: List[str], save_path=None, 
@@ -1280,101 +970,7 @@ def plot_all_probe_loss_curves_in_folder(folder, save_path=None, max_probes=40, 
         plt.show()
 
 
-def plot_experiment_2_per_seed(base_results_dir: Path, architectures: List[str], save_path=None, 
-                              filtered: bool = True, seeds: List[str] = None, config_name: str = None):
-    """Plot experiment 2 for each seed separately."""
-    from scipy.special import expit
-    from sklearn.metrics import roc_auc_score
-    
-    if seeds is None:
-        seeds = ['42']
-    
-    experiment_folder = "2-spam-pred-auc-increasing-spam-fixed-total"
-    
-    # Create one plot per seed
-    for seed in seeds:
-        seed_dir = base_results_dir / f"seed_{seed}"
-        if not seed_dir.exists():
-            continue
-            
-        # Check if experiment 2 exists for this seed
-        exp2_exists = False
-        for sub in os.listdir(seed_dir):
-            if sub.startswith('2-'):
-                exp2_exists = True
-                break
-        
-        if not exp2_exists:
-            continue
-            
-        plt.figure(figsize=(12, 8))
-        colors = [f"C{i}" for i in range(len(architectures))]
-        
-        for arch_idx, architecture in enumerate(architectures):
-            # Get result files for this seed and architecture
-            seed_files = _get_result_files_for_seeds(base_results_dir, [seed], experiment_folder, 
-                                                    architecture, 'dataclass_exps_94_better_spam')
-            
-            if not seed_files or seed not in seed_files:
-                continue
-            
-            files = seed_files[seed]
-            
-            # Group by class1 count
-            class1_to_files = {}
-            for file in files:
-                match = re.search(r'class1_(\d+)', file)
-                if match:
-                    class1_count = int(match.group(1))
-                    if class1_count not in class1_to_files:
-                        class1_to_files[class1_count] = []
-                    class1_to_files[class1_count].append(file)
-            
-            color = colors[arch_idx]
-            x_values = []
-            y_values = []
-            
-            for class1_count in sorted(class1_to_files.keys()):
-                files = class1_to_files[class1_count]
-                aucs = []
-                
-                for file in files:
-                    try:
-                        scores, labels = _get_scores_and_labels_from_result_file(file, filtered=filtered)
-                        scores = expit(scores)
-                        auc = roc_auc_score(labels, scores)
-                        aucs.append(auc)
-                    except Exception as e:
-                        print(f"Error processing file {file}: {e}")
-                        continue
-                
-                if aucs:
-                    x_values.append(class1_count)
-                    y_values.append(np.mean(aucs))
-            
-            if x_values:
-                label = f"{config_name}_{architecture}" if config_name else architecture
-                plt.plot(x_values, y_values, 'o-', label=label, linewidth=2, color=color)
-        
-        plt.title(f"Experiment 2: Seed {seed} - All Architecture Probe Performance" + 
-                  (" (filtered)" if filtered else " (all)"))
-        plt.ylabel("AUC")
-        plt.xlabel("Number of class 1 (positive) samples in train set")
-        plt.xscale('log')
-        plt.ylim(0.4, 1)
-        plt.legend()
-        plt.grid(True, alpha=0.3)
-        plt.tight_layout()
-        
-        # Save with seed in filename
-        if save_path:
-            base_path = Path(save_path)
-            seed_save_path = base_path.parent / f"{base_path.stem}_seed_{seed}{base_path.suffix}"
-            plt.savefig(seed_save_path, dpi=150)
-            print(f"Saved experiment 2 plot for seed {seed} to {seed_save_path}")
-            plt.close()
-        else:
-            plt.show()
+# Removed: plot_experiment_2_per_seed - replaced by plot_experiment_2_unified
 
 
 def plot_experiment_3_per_seed(base_results_dir: Path, architectures: List[str], save_path=None, 
@@ -1480,9 +1076,101 @@ def plot_experiment_3_per_seed(base_results_dir: Path, architectures: List[str],
             plt.show()
 
 
-def plot_experiment_2_total_with_error_bars(base_results_dir: Path, architectures: List[str], save_path=None, 
-                                          filtered: bool = True, seeds: List[str] = None, config_name: str = None):
-    """Plot experiment 2 total with averages and error bars across all seeds."""
+# Removed: plot_experiment_2_total_with_error_bars - replaced by plot_experiment_2_unified
+# Removed: plot_experiment_2_recall_total_with_error_bars - replaced by plot_experiment_2_unified
+
+
+def get_best_probes_by_type(base_results_dir: Path, seeds: List[str], filtered: bool = True, eval_dataset: str = None) -> Dict[str, str]:
+    """
+    Determine the best performing probe of each type based on median AUC across all class1 counts.
+    
+    Args:
+        base_results_dir: Path to results directory
+        seeds: List of seeds to use
+        filtered: Whether to use filtered scores
+        eval_dataset: Evaluation dataset name (e.g., '87_is_spam', '94_better_spam')
+    
+    Returns:
+        Dict mapping probe type to best probe name:
+        - 'linear': best linear probe (last, max, mean, softmax)
+        - 'sae': best SAE probe (16k_l0_408, 262k_l0_259)
+        - 'attention': attention probe
+        - 'act_sim': best activation similarity probe (max_max, last_last)
+    """
+    from scipy.special import expit
+    from sklearn.metrics import roc_auc_score
+    
+    experiment_folder = "2-spam-pred-auc-increasing-spam-fixed-total"
+    dataclass_folder = "dataclass_exps_94_better_spam"
+    
+    # Define probe type patterns
+    probe_patterns = {
+        'linear': ['linear_last', 'linear_max', 'linear_mean', 'linear_softmax'],
+        'sae': ['sae_16k_l0_408', 'sae_262k_l0_259'],
+        'attention': ['attention_attention'],
+        'act_sim': ['act_sim_max_max', 'act_sim_last_last']
+    }
+    
+    best_probes = {}
+    
+    for probe_type, patterns in probe_patterns.items():
+        probe_scores = {}
+        
+        for pattern in patterns:
+            all_aucs = []
+            
+            # Get all result files for this probe pattern across seeds
+            for seed in seeds:
+                seed_dir = base_results_dir / f"seed_{seed}" / experiment_folder / dataclass_folder
+                if not seed_dir.exists():
+                    continue
+                
+                # Find files matching this pattern and evaluation dataset
+                if eval_dataset:
+                    result_files = glob.glob(str(seed_dir / f"eval_on_{eval_dataset}__*{pattern}*_results.json"))
+                else:
+                    result_files = glob.glob(str(seed_dir / f"*{pattern}*_results.json"))
+                
+                for file in result_files:
+                    try:
+                        scores, labels = _get_scores_and_labels_from_result_file(file, filtered=filtered)
+                        scores = expit(scores)
+                        auc = roc_auc_score(labels, scores)
+                        all_aucs.append(auc)
+                    except Exception as e:
+                        print(f"Error processing {file}: {e}")
+                        continue
+            
+            if all_aucs:
+                median_auc = np.median(all_aucs)
+                probe_scores[pattern] = median_auc
+        
+        # Select the best probe for this type
+        if probe_scores:
+            best_probe = max(probe_scores.items(), key=lambda x: x[1])[0]
+            best_probes[probe_type] = best_probe
+            print(f"Best {probe_type} probe: {best_probe} (median AUC: {probe_scores[best_probe]:.3f})")
+    
+    return best_probes
+
+
+def plot_experiment_2_unified(base_results_dir: Path, probe_names: List[str], save_path=None, 
+                             metric='auc', fpr_target: float = 0.01, filtered: bool = True, 
+                             seeds: List[str] = None, plot_title: str = None, eval_dataset: str = None):
+    """
+    Unified experiment 2 plotting function that can handle any selection of probes.
+    
+    Args:
+        base_results_dir: Path to results directory
+        probe_names: List of probe names to plot (e.g., ['linear_last', 'sae_16k_l0_408', 'attention_attention'])
+        save_path: Path to save the plot
+        metric: 'auc' or 'recall_at_fpr'
+        fpr_target: FPR target for recall calculation (default 0.01)
+        filtered: Whether to use filtered scores
+        seeds: List of seeds to use
+        plot_title: Custom title for the plot
+        eval_dataset: Evaluation dataset name (e.g., '87_is_spam', '94_better_spam')
+    """
     from scipy.special import expit
     from sklearn.metrics import roc_auc_score
     
@@ -1490,85 +1178,7 @@ def plot_experiment_2_total_with_error_bars(base_results_dir: Path, architecture
         seeds = ['42']
     
     experiment_folder = "2-spam-pred-auc-increasing-spam-fixed-total"
-    
-    plt.figure(figsize=(12, 8))
-    colors = [f"C{i}" for i in range(len(architectures))]
-    
-    for arch_idx, architecture in enumerate(architectures):
-        # Collect data across all seeds
-        all_data = {}
-        
-        for seed in seeds:
-            seed_files = _get_result_files_for_seeds(base_results_dir, [seed], experiment_folder, 
-                                                    architecture, 'dataclass_exps_94_better_spam')
-            
-            if not seed_files or seed not in seed_files:
-                continue
-            
-            files = seed_files[seed]
-            
-            # Group by class1 count
-            for file in files:
-                match = re.search(r'class1_(\d+)', file)
-                if match:
-                    class1_count = int(match.group(1))
-                    if class1_count not in all_data:
-                        all_data[class1_count] = []
-                    
-                    try:
-                        scores, labels = _get_scores_and_labels_from_result_file(file, filtered=filtered)
-                        scores = expit(scores)
-                        auc = roc_auc_score(labels, scores)
-                        all_data[class1_count].append(auc)
-                    except Exception as e:
-                        print(f"Error processing file {file}: {e}")
-                        continue
-        
-        # Calculate means and stds
-        x_values = []
-        means = []
-        stds = []
-        
-        for class1_count in sorted(all_data.keys()):
-            if all_data[class1_count]:
-                x_values.append(class1_count)
-                means.append(np.mean(all_data[class1_count]))
-                stds.append(np.std(all_data[class1_count]))
-        
-        if x_values:
-            label = f"{config_name}_{architecture}" if config_name else architecture
-            plt.errorbar(x_values, means, yerr=stds, fmt='o-', 
-                        label=label, linewidth=2, capsize=5, capthick=2, color=colors[arch_idx])
-    
-    plt.title(f"Experiment 2: All Architecture Probe Performance (Averaged across seeds)" + 
-              (" (filtered)" if filtered else " (all)") + 
-              (f" (seeds: {', '.join(seeds)})" if len(seeds) > 1 else ""))
-    plt.ylabel("AUC")
-    plt.xlabel("Number of class 1 (positive) samples in train set")
-    plt.xscale('log')
-    plt.ylim(0.4, 1)
-    plt.legend()
-    plt.grid(True, alpha=0.3)
-    plt.tight_layout()
-    
-    if save_path:
-        plt.savefig(save_path, dpi=150)
-        print(f"Saved experiment 2 total plot to {save_path}")
-        plt.close()
-    else:
-        plt.show()
-
-
-def plot_experiment_2_recall_total_with_error_bars(base_results_dir: Path, architectures: List[str], save_path=None, 
-                                                  fpr_target: float = 0.01, filtered: bool = True, 
-                                                  seeds: List[str] = None, config_name: str = None):
-    """Plot experiment 2 recall at FPR total with averages and error bars across all seeds."""
-    from scipy.special import expit
-    
-    if seeds is None:
-        seeds = ['42']
-    
-    experiment_folder = "2-spam-pred-auc-increasing-spam-fixed-total"
+    dataclass_folder = "dataclass_exps_94_better_spam"
     
     def recall_at_fpr_func(scores, labels):
         scores = expit(scores)
@@ -1587,23 +1197,25 @@ def plot_experiment_2_recall_total_with_error_bars(base_results_dir: Path, archi
         return best_recall
     
     plt.figure(figsize=(12, 8))
-    colors = [f"C{i}" for i in range(len(architectures))]
+    colors = [f"C{i}" for i in range(len(probe_names))]
     
-    for arch_idx, architecture in enumerate(architectures):
+    for probe_idx, probe_name in enumerate(probe_names):
         # Collect data across all seeds
         all_data = {}
         
         for seed in seeds:
-            seed_files = _get_result_files_for_seeds(base_results_dir, [seed], experiment_folder, 
-                                                    architecture, 'dataclass_exps_94_better_spam')
-            
-            if not seed_files or seed not in seed_files:
+            seed_dir = base_results_dir / f"seed_{seed}" / experiment_folder / dataclass_folder
+            if not seed_dir.exists():
                 continue
             
-            files = seed_files[seed]
+            # Find files matching this probe name and evaluation dataset
+            if eval_dataset:
+                result_files = glob.glob(str(seed_dir / f"eval_on_{eval_dataset}__*{probe_name}*_results.json"))
+            else:
+                result_files = glob.glob(str(seed_dir / f"*{probe_name}*_results.json"))
             
-            # Group by class1 count
-            for file in files:
+            for file in result_files:
+                # Extract class1 count from filename
                 match = re.search(r'class1_(\d+)', file)
                 if match:
                     class1_count = int(match.group(1))
@@ -1612,42 +1224,133 @@ def plot_experiment_2_recall_total_with_error_bars(base_results_dir: Path, archi
                     
                     try:
                         scores, labels = _get_scores_and_labels_from_result_file(file, filtered=filtered)
-                        recall = recall_at_fpr_func(scores, labels)
-                        all_data[class1_count].append(recall)
+                        if metric == 'auc':
+                            scores = expit(scores)
+                            value = roc_auc_score(labels, scores)
+                        else:  # recall at fpr
+                            value = recall_at_fpr_func(scores, labels)
+                        all_data[class1_count].append(value)
                     except Exception as e:
                         print(f"Error processing file {file}: {e}")
                         continue
         
-        # Calculate means and stds
+        # Calculate medians and confidence intervals
         x_values = []
-        means = []
-        stds = []
+        medians = []
+        lower_bounds = []
+        upper_bounds = []
         
         for class1_count in sorted(all_data.keys()):
             if all_data[class1_count]:
                 x_values.append(class1_count)
-                means.append(np.mean(all_data[class1_count]))
-                stds.append(np.std(all_data[class1_count]))
+                medians.append(np.median(all_data[class1_count]))
+                
+                # Calculate confidence interval (25th and 75th percentiles for interquartile range)
+                sorted_values = np.sort(all_data[class1_count])
+                n = len(sorted_values)
+                q25_idx = max(0, int(0.25 * n))
+                q75_idx = min(n - 1, int(0.75 * n))
+                lower_bounds.append(sorted_values[q25_idx])
+                upper_bounds.append(sorted_values[q75_idx])
         
         if x_values:
-            label = f"{config_name}_{architecture}" if config_name else architecture
-            plt.errorbar(x_values, means, yerr=stds, fmt='o-', 
-                        label=label, linewidth=2, capsize=5, capthick=2, color=colors[arch_idx])
+            color = colors[probe_idx]
+            if len(seeds) > 1:
+                # Plot median line
+                plt.plot(x_values, medians, 'o-', label=probe_name, linewidth=2, color=color, markersize=6)
+                # Add shaded confidence band
+                plt.fill_between(x_values, lower_bounds, upper_bounds, alpha=0.2, color=color)
+            else:
+                plt.plot(x_values, medians, 'o-', label=probe_name, linewidth=2, color=color, markersize=6)
     
-    plt.title(f"Experiment 2: Recall at {fpr_target*100}% FPR - All Architecture Probe Performance (Averaged across seeds)" + 
-              (" (filtered)" if filtered else " (all)") + 
-              (f" (seeds: {', '.join(seeds)})" if len(seeds) > 1 else ""))
-    plt.ylabel(f"Recall at {fpr_target*100}% FPR")
+    # Set plot properties
+    if plot_title:
+        title = plot_title
+    else:
+        if metric == 'auc':
+            title = f"Experiment 2: Probe Performance Comparison (AUC)"
+        else:
+            title = f"Experiment 2: Probe Performance Comparison (Recall at {fpr_target*100}% FPR)"
+        
+        title += (" (filtered)" if filtered else " (all)") + \
+                 (f" (seeds: {', '.join(seeds)})" if len(seeds) > 1 else "")
+    
+    plt.title(title)
+    
+    # Collect all values to determine y-axis limits
+    all_lower_bounds = []  # Store the 25th percentile (lower bound of confidence bands)
+    all_upper_bounds = []  # Store the 75th percentile (upper bound of confidence bands)
+    
+    for probe_idx, probe_name in enumerate(probe_names):
+        for seed in seeds:
+            seed_dir = base_results_dir / f"seed_{seed}" / experiment_folder / dataclass_folder
+            if not seed_dir.exists():
+                continue
+            
+            # Find files matching this probe name and evaluation dataset
+            if eval_dataset:
+                result_files = glob.glob(str(seed_dir / f"eval_on_{eval_dataset}__*{probe_name}*_results.json"))
+            else:
+                result_files = glob.glob(str(seed_dir / f"*{probe_name}*_results.json"))
+            
+            # Group by class1 count to calculate confidence bands
+            class1_to_values = {}
+            for file in result_files:
+                match = re.search(r'class1_(\d+)', file)
+                if match:
+                    class1_count = int(match.group(1))
+                    if class1_count not in class1_to_values:
+                        class1_to_values[class1_count] = []
+                    
+                    try:
+                        scores, labels = _get_scores_and_labels_from_result_file(file, filtered=filtered)
+                        if metric == 'auc':
+                            scores = expit(scores)
+                            value = roc_auc_score(labels, scores)
+                        else:  # recall at fpr
+                            value = recall_at_fpr_func(scores, labels)
+                        class1_to_values[class1_count].append(value)
+                    except Exception as e:
+                        continue
+            
+            # Calculate confidence bands for this probe
+            for class1_count, values in class1_to_values.items():
+                if values:
+                    sorted_values = np.sort(values)
+                    n = len(sorted_values)
+                    q25_idx = max(0, int(0.25 * n))
+                    q75_idx = min(n - 1, int(0.75 * n))
+                    all_lower_bounds.append(sorted_values[q25_idx])
+                    all_upper_bounds.append(sorted_values[q75_idx])
+    
+    # Set y-axis limits based on confidence bands
+    if all_lower_bounds and all_upper_bounds:
+        # Find the lowest point of any confidence band and set y-axis 0.05 below it
+        lowest_confidence_bound = min(all_lower_bounds)
+        y_min = max(0.0, lowest_confidence_bound - 0.05)  # Don't go below 0
+        y_max = 1.0
+        plt.ylim(y_min, y_max)
+    else:
+        # Fallback limits
+        if metric == 'auc':
+            plt.ylim(0.4, 1)
+        else:
+            plt.ylim(0, 1)
+    
+    if metric == 'auc':
+        plt.ylabel("AUC")
+    else:
+        plt.ylabel(f"Recall at {fpr_target*100}% FPR")
+    
     plt.xlabel("Number of class 1 (positive) samples in train set")
     plt.xscale('log')
-    plt.ylim(0, 1)
     plt.legend()
     plt.grid(True, alpha=0.3)
     plt.tight_layout()
     
     if save_path:
         plt.savefig(save_path, dpi=150)
-        print(f"Saved experiment 2 recall total plot to {save_path}")
+        print(f"Saved experiment 2 plot to {save_path}")
         plt.close()
     else:
         plt.show()

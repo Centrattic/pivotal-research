@@ -9,16 +9,13 @@ from src.visualize.utils_viz import (
     plot_multi_folder_recall_at_fpr,
     plot_multi_folder_auc_vs_n_class1,
     plot_all_probe_loss_curves_in_folder,
-    plot_experiment_2_all_probes_with_eval,
-    plot_experiment_2_recall_at_fpr,
     plot_experiment_3_upsampling_lineplot,
     plot_experiment_3_upsampling_lineplot_recall,
     plot_experiment_3_upsampling_lineplot_per_architecture,
     plot_experiment_3_upsampling_lineplot_grid,
-    plot_experiment_2_per_seed,
     plot_experiment_3_per_seed,
-    plot_experiment_2_total_with_error_bars,
-    plot_experiment_2_recall_total_with_error_bars,
+    get_best_probes_by_type,
+    plot_experiment_2_unified,
 )
 
 def main():
@@ -119,28 +116,64 @@ def main():
             elif sub.startswith('3-'):
                 exp3_exists = True
     
-    # Create experiment 2 visualizations for each seed
+    # Create experiment 2 visualizations
     if exp2_exists:
-        print(f"Creating experiment 2 visualizations for each seed")
-        save_path = viz_root / f'experiment_2_per_seed.png'
-        plot_experiment_2_per_seed(
-            results_dir, architectures, save_path=save_path, filtered=args.filtered, 
-            seeds=args.seeds, config_name=args.config
-        )
+        print(f"Creating experiment 2 visualizations")
         
-        # Create total experiment 2 plots with error bars
-        print(f"Creating experiment 2 total plots with error bars")
-        save_path = viz_root / f'experiment_2_total_auc.png'
-        plot_experiment_2_total_with_error_bars(
-            results_dir, architectures, save_path=save_path, filtered=args.filtered, 
-            seeds=args.seeds, config_name=args.config
-        )
+        # Get evaluation datasets from experiment 2 config
+        eval_datasets = []
+        for exp in config.get('experiments', []):
+            if exp.get('name') == '2-spam-pred-auc-increasing-spam-fixed-total':
+                eval_datasets = exp.get('evaluate_on', [])
+                break
         
-        save_path = viz_root / f'experiment_2_total_recall.png'
-        plot_experiment_2_recall_total_with_error_bars(
-            results_dir, architectures, save_path=save_path, filtered=args.filtered, 
-            seeds=args.seeds, config_name=args.config
-        )
+        if not eval_datasets:
+            print("No evaluation datasets found in experiment 2 config")
+            return
+        
+        # Define probe groups
+        probe_groups = {
+            'best_probes': None,  # Will be filled with best probes of each type
+            'sae_probes': ['sae_16k_l0_408', 'sae_262k_l0_259'],
+            'linear_attention_probes': ['linear_last', 'linear_max', 'linear_mean', 'linear_softmax', 'attention_attention'],
+            'act_sim_probes': ['act_sim_max_max', 'act_sim_last_last']
+        }
+        
+        # Define metrics
+        metrics = ['auc', 'recall_at_fpr']
+        
+        # Iterate over evaluation datasets and metrics
+        for eval_dataset in eval_datasets:
+            print(f"Processing evaluation dataset: {eval_dataset}")
+            
+            # Get the best probes of each type for this evaluation dataset
+            best_probes = get_best_probes_by_type(results_dir, args.seeds, filtered=args.filtered, eval_dataset=eval_dataset)
+            probe_groups['best_probes'] = list(best_probes.values()) if len(best_probes) >= 4 else None
+            
+            for metric in metrics:
+                for group_name, probe_names in probe_groups.items():
+                    if probe_names is None:
+                        continue
+                    
+                    # Create plot title
+                    if metric == 'auc':
+                        title = f"Experiment 2: {group_name.replace('_', ' ').title()} Comparison (AUC) - Eval on {eval_dataset}"
+                    else:
+                        title = f"Experiment 2: {group_name.replace('_', ' ').title()} Comparison (Recall at 1% FPR) - Eval on {eval_dataset}"
+                    
+                    # Create filename
+                    filename = f'experiment_2_{group_name}_comparison_{metric}_{eval_dataset}.png'
+                    save_path = viz_root / filename
+                    
+                    print(f"Creating {group_name} comparison plot for {metric} on {eval_dataset}")
+                    
+                    # Create the plot
+                    plot_experiment_2_unified(
+                        results_dir, probe_names, save_path=save_path, 
+                        metric=metric, fpr_target=0.01, filtered=args.filtered, seeds=args.seeds,
+                        plot_title=title, eval_dataset=eval_dataset
+                    )
+        
     else:
         print(f"Experiment 2 not found")
     
