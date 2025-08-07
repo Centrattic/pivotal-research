@@ -6,14 +6,15 @@ cache_activations: True
 log_file: "logs/spam_experiment_gemma_seeds_42_46.log"  # Custom log file path
 # seed: 42  # Old single seed format (still supported for backward compatibility)
 seeds: [42, 43, 44, 45, 46]  # New multi-seed format, 43, 44, 45, 46
+llm_csv_base_path: "results/spam_experiment_gemma"
 
 layers: [20] # Where SAE probes found layers peform the bests
 components:
   - "resid_post"
 
 architectures:
-  - name: "linear"
-    config_name: "linear_mean"
+  # - name: "linear"
+  #   config_name: "linear_mean"
   - name: "linear"
     config_name: "linear_max"
   - name: "linear"
@@ -21,7 +22,7 @@ architectures:
   - name: "linear"
     config_name: "linear_softmax"
   - name: "linear"
-    config_name: "linear_mean_high_reg"
+    config_name: "linear_mean_high_reg" 
   - name: "attention"
     config_name: "default_attention"
   - name: "sae_16k_l0_408_last" # agg across seq dim
@@ -81,6 +82,7 @@ experiments:
     train_on: 94_better_spam
     evaluate_on:
       - 94_better_spam
+      - 87_is_spam
     score:
       - all
     rebuild_config:

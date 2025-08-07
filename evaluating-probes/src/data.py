@@ -386,8 +386,8 @@ class Dataset:
         # Calculate how many total samples we need
         n_llm_pos = n_real_pos * upsampling_factor - n_real_pos  # Total needed - real samples
 
-        # Load LLM samples for this base count (use n_real_pos as the base count)
-        llm_csv_path = Path(llm_csv_base_path) / f"samples_{n_real_pos}.csv"
+        # The LLM samples are saved in seed-specific folders
+        llm_csv_path = Path(llm_csv_base_path) / f"seed_{seed}" / "llm_samples" / f"samples_{n_real_pos}.csv"
         if not llm_csv_path.exists():
             raise FileNotFoundError(f"LLM samples file not found: {llm_csv_path}")
         
@@ -441,7 +441,6 @@ class Dataset:
             train_indices=train_indices_new,
             val_indices=val_indices_new,
             test_indices=test_indices_new,
-            only_test=only_test,
         )
 
     @staticmethod

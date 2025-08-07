@@ -171,6 +171,40 @@ class LLMUpsamplingStateMachine:
         
         return True, "Validation passed"
     
+    def validate_new_samples(self, original_df: pd.DataFrame, new_samples_df: pd.DataFrame, 
+                           upsampling_factor: int) -> Tuple[bool, str]:
+        """Validate only the new samples meet requirements."""
+        
+        # Check that all new samples are class 1 (positive)
+        if 'target' in new_samples_df.columns:
+            if not all(new_samples_df['target'] == 1):
+                return False, "Some new samples are not class 1"
+        
+        # Check for required columns
+        required_cols = ['prompt', 'target']
+        missing_cols = [col for col in required_cols if col not in new_samples_df.columns]
+        if missing_cols:
+            return False, f"Missing required columns in new samples: {missing_cols}"
+        
+        # Check for prompt_len column (should be added by extract_csv_from_response)
+        if 'prompt_len' not in new_samples_df.columns:
+            return False, "Missing prompt_len column in new samples"
+        
+        # Check for duplicates within new samples
+        new_prompts = new_samples_df['prompt'].str.lower().str.strip()
+        duplicate_count = len(new_prompts) - len(new_prompts.unique())
+        if duplicate_count > 0:
+            return False, f"Found {duplicate_count} duplicate prompts within new samples"
+        
+        # Check for duplicates between new samples and original samples
+        original_prompts = set(original_df['prompt'].str.lower().str.strip())
+        new_prompts_set = set(new_prompts)
+        duplicates_with_original = original_prompts.intersection(new_prompts_set)
+        if duplicates_with_original:
+            return False, f"Found {len(duplicates_with_original)} new samples that duplicate original samples"
+        
+        return True, "New samples validation passed"
+    
     def generate_upsampling_prompt(self, original_df: pd.DataFrame, upsampling_factor: int, 
                                  target_samples: int, previous_samples: Optional[pd.DataFrame] = None) -> str:
         """Generate the upsampling prompt for the LLM."""
@@ -187,20 +221,22 @@ class LLMUpsamplingStateMachine:
             previous_samples.to_csv(csv_buffer, index=False)
             previous_csv = f"\n\nPreviously generated samples:\n{csv_buffer.getvalue()}"
         
-        # Calculate how many new samples we need
-        current_total = len(original_df) + (len(previous_samples) if previous_samples is not None else 0)
-        new_samples_needed = target_samples - current_total
+        # For each upsampling factor > 1, we need to add num_real_samples new samples
+        new_samples_needed = len(original_df)  # Always add the same number as original samples
         
-        prompt = f"""You are an expert at creating synthetic data samples for machine learning. I need you to upsample a dataset by analyzing the provided examples and generating EXACTLY {new_samples_needed} new unique samples based on the original data.
+        print(f"    DEBUG: original_df length: {len(original_df)}")
+        print(f"    DEBUG: new_samples_needed: {new_samples_needed} (adding {len(original_df)} samples for {upsampling_factor}x)")
+        
+        prompt = f"""You are an expert at creating synthetic data samples for machine learning. I need you to add {new_samples_needed} new unique samples to the existing dataset.
 
         Here is the original dataset, as well as previous samples generated:
         {original_csv}{previous_csv}
 
         Requirements:
-        - Analyze the original samples to understand the data and its contents
+        - Analyze the existing samples to understand the data and its contents
         - Perform non-trivial upsampling (not just replacement of keywords or simple variations)
-        - Generate exactly {new_samples_needed} new samples that are all class 1 (no class 0 samples)
         - Ensure the new samples are realistic, while being completely unique and diverse in structure from the original samples
+        - Generate exactly {new_samples_needed} new samples that are all class 1 (no class 0 samples)
 
         Output format:
         NEW PROMPT
@@ -209,7 +245,7 @@ class LLMUpsamplingStateMachine:
         [your second actual sample text]
         [continue for exactly {new_samples_needed} samples]
         
-        CRITICAL: Generate REAL sample text based on the original data. Do NOT use placeholder text or example text."""
+        CRITICAL: Generate REAL sample text based on the existing data. Do NOT use placeholder text."""
 
         return prompt
     
@@ -226,7 +262,7 @@ class LLMUpsamplingStateMachine:
                 print(f"    Prompt length: {len(prompt)} characters")
                 print(f"    Original samples: {len(original_df)}")
                 print(f"    Target samples: {target_samples}")
-                print(f"    New samples needed: {target_samples - len(original_df)}")
+                print(f"    New samples needed: {len(original_df)} (always add {len(original_df)})")
                 # print(f"    Prompt preview: {prompt[:500]}...")
                 
                 response = self.client.chat.completions.create(
@@ -251,70 +287,37 @@ class LLMUpsamplingStateMachine:
                 print(f"    Response preview: {response_text[:200]}...")
                 
                 # Extract new samples from response
-                new_samples_df = self.extract_csv_from_response(response_text, target_samples - len(original_df))
+                expected_new_samples = len(original_df)  # Always expect len(original_df) new samples
+                new_samples_df = self.extract_csv_from_response(response_text, expected_new_samples)
                 if new_samples_df is None:
                     print(f"    Failed to parse response, retrying...")
                     time.sleep(self.retry_delay)
                     continue
                 
+                # Validate that we got the right number of new samples
+                if len(new_samples_df) != expected_new_samples:
+                    print(f"    ❌ Got {len(new_samples_df)} new samples, expected {expected_new_samples}")
+                    if attempt < self.max_retries - 1:
+                        print(f"    Retrying...")
+                        time.sleep(self.retry_delay)
+                        continue
+                    else:
+                        print(f"    Max retries reached, returning None")
+                        return None
+                
                 # Combine original samples with new samples
                 combined_df = pd.concat([original_df, new_samples_df], ignore_index=True)
                 
-                # Validate the combined dataset
-                is_valid, validation_msg = self.validate_upsampled_data(
-                    original_df, combined_df, target_samples, upsampling_factor
+                # Validate the new samples (not the combined dataset)
+                is_valid, validation_msg = self.validate_new_samples(
+                    original_df, new_samples_df, upsampling_factor
                 )
                 
                 if is_valid:
-                    print(f"    ✅ Validation passed: {len(new_samples_df)} new samples generated, {len(combined_df)} total")
+                    print(f"    ✅ Validation passed: {len(new_samples_df)} new samples generated")
                     return new_samples_df  # Return only the new samples
                 else:
                     print(f"    ❌ Validation failed: {validation_msg}")
-                    
-                    # Check if we need more samples (incremental generation)
-                    if "Not enough samples" in validation_msg:
-                        current_total = len(combined_df)
-                        missing_samples = target_samples - current_total
-                        print(f"    🔄 Need {missing_samples} more samples, requesting incremental generation...")
-                        
-                        # Generate prompt for missing samples only
-                        incremental_prompt = self.generate_upsampling_prompt(
-                            original_df, upsampling_factor, target_samples, new_samples_df
-                        )
-                        
-                        # Make another API call for missing samples
-                        try:
-                            incremental_response = self.client.chat.completions.create(
-                                model=self.model,
-                                messages=[
-                                    {"role": "system", "content": "You are an expert at creating synthetic data for machine learning tasks. Always respond with the exact number of samples requested."},
-                                    {"role": "user", "content": incremental_prompt}
-                                ],
-                                temperature=0.7,
-                                max_tokens=4000
-                            )
-                            
-                            incremental_response_text = incremental_response.choices[0].message.content
-                            additional_samples_df = self.extract_csv_from_response(incremental_response_text, missing_samples)
-                            
-                            if additional_samples_df is not None and len(additional_samples_df) > 0:
-                                # Combine with previous samples
-                                final_combined_df = pd.concat([combined_df, additional_samples_df], ignore_index=True)
-                                
-                                # Validate again
-                                final_is_valid, final_validation_msg = self.validate_upsampled_data(
-                                    original_df, final_combined_df, target_samples, upsampling_factor
-                                )
-                                
-                                if final_is_valid:
-                                    print(f"    ✅ Incremental generation successful: {len(additional_samples_df)} additional samples, {len(final_combined_df)} total")
-                                    return pd.concat([new_samples_df, additional_samples_df], ignore_index=True)
-                                else:
-                                    print(f"    ❌ Incremental generation validation failed: {final_validation_msg}")
-                        
-                        except Exception as e:
-                            print(f"    ❌ Incremental generation failed: {e}")
-                    
                     if attempt < self.max_retries - 1:
                         print(f"    Retrying...")
                         time.sleep(self.retry_delay)

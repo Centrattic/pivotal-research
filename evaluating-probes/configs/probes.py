@@ -12,7 +12,7 @@ class PytorchLinearProbeConfig(ProbeConfig):
     aggregation: str = "mean"  # mean, max, last, softmax
     lr: float = 5e-4
     epochs: int = 100
-    batch_size: int = 1000 # H100: 2048, H200: 800, A6000: 32
+    batch_size: int = 50 # H100: 2048, H200: 800, A6000: 32
     weight_decay: float = 0.0
     weighting_method: str = 'weighted_sampler'  # 'weighted_loss', 'weighted_sampler', or 'pcngd'
     # Add more as needed
@@ -22,7 +22,7 @@ class PytorchAttentionProbeConfig(ProbeConfig):
     """Hyperparameters for the PyTorch AttentionProbe."""
     lr: float = 5e-4
     epochs: int = 100
-    batch_size: int = 1000 # H100: 2560, H200: 1024, A6000: 32
+    batch_size: int = 50 # H100: 2560, H200: 1024, A6000: 32
     weight_decay: float = 0.0
     weighting_method: str = 'weighted_sampler'  # 'weighted_loss', 'weighted_sampler', or 'pcngd'
     # Add more as needed
@@ -37,8 +37,8 @@ class SAEProbeConfig(ProbeConfig):
     top_k_features: int = 128
     lr: float = 5e-4
     epochs: int = 100
-    encoding_batch_size: int = 1000  # Batch size for SAE encoding (memory intensive) - H100: 2048
-    training_batch_size: int = 512   # Batch size for probe training - H100: 512
+    encoding_batch_size: int = 200  # Batch size for SAE encoding (memory intensive) - H100: 100
+    training_batch_size: int = 50   # Batch size for probe training - H100: 512
     weight_decay: float = 0.0
     weighting_method: str = 'weighted_sampler'  # 'weighted_loss', 'weighted_sampler', or 'pcngd'
 
@@ -93,8 +93,8 @@ PROBE_CONFIGS = {
     "sae_262k_l0_259_last": SAEProbeConfig(
         aggregation="last", 
         sae_id="layer_20/width_262k/average_l0_259",
-        encoding_batch_size=1024,  # H100: 1024
-        training_batch_size=256,   # H100: 256
+        # encoding_batch_size=1024,  # H100: 1024
+        # training_batch_size=256,   # H100: 256
         weighting_method='weighted_sampler'
     ),
     # Mass-mean probe configs (IID functionality disabled due to numerical instability)
