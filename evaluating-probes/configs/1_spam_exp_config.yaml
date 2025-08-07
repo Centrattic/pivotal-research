@@ -6,23 +6,22 @@ cache_activations: True
 log_file: "logs/spam_experiment_gemma_seeds_42_46.log"  # Custom log file path
 # seed: 42  # Old single seed format (still supported for backward compatibility)
 seeds: [42, 43, 44, 45, 46]  # New multi-seed format, 43, 44, 45, 46
-llm_csv_base_path: "results/spam_experiment_gemma"
 
 layers: [20] # Where SAE probes found layers peform the bests
 components:
   - "resid_post"
 
 architectures:
-  # - name: "linear"
-  #   config_name: "linear_mean"
+  - name: "linear"
+    config_name: "linear_mean"
   - name: "linear"
     config_name: "linear_max"
   - name: "linear"
     config_name: "linear_last"
   - name: "linear"
     config_name: "linear_softmax"
-  - name: "linear"
-    config_name: "linear_mean_high_reg" 
+  # - name: "linear" # use linear max or something, and overwrite 2-exp results later wiht linear_mean normal
+  #   config_name: "linear_mean_high_reg"
   - name: "attention"
     config_name: "default_attention"
   - name: "sae_16k_l0_408_last" # agg across seq dim
@@ -34,7 +33,6 @@ architectures:
   - name: "act_sim_max"
     config_name: "act_sim_max"
   # add mean once you fix the nan issue
-
 
 
 # ToDo: filtered scoring is currently broken, and I need to make sure it works for new ds's too
@@ -82,43 +80,49 @@ experiments:
     train_on: 94_better_spam
     evaluate_on:
       - 94_better_spam
-      - 87_is_spam
     score:
       - all
     rebuild_config:
       llm_upsampling_experiments:
         # Fixed 3000 real negative samples, variable real positive samples (1, 2, 3, 4, 5, 10)
         # For each positive count, train 5 probes: 1x, 2x, 3x, 4x, 5x upsampling
+
+        - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 10, upsampling_factor: 5}
+        - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 1, upsampling_factor: 5}
         - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 1, upsampling_factor: 1}
         - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 1, upsampling_factor: 2}
         - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 1, upsampling_factor: 3}
         - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 1, upsampling_factor: 4}
-        - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 1, upsampling_factor: 5}
+
+        - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 2, upsampling_factor: 5}
         - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 2, upsampling_factor: 1}
         - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 2, upsampling_factor: 2}
         - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 2, upsampling_factor: 3}
         - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 2, upsampling_factor: 4}
-        - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 2, upsampling_factor: 5}
+        
+        - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 3, upsampling_factor: 5}
         - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 3, upsampling_factor: 1}
         - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 3, upsampling_factor: 2}
         - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 3, upsampling_factor: 3}
         - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 3, upsampling_factor: 4}
-        - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 3, upsampling_factor: 5}
+        
+        - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 4, upsampling_factor: 5}
         - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 4, upsampling_factor: 1}
         - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 4, upsampling_factor: 2}
         - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 4, upsampling_factor: 3}
         - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 4, upsampling_factor: 4}
-        - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 4, upsampling_factor: 5}
+        
+        - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 5, upsampling_factor: 5}
         - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 5, upsampling_factor: 1}
         - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 5, upsampling_factor: 2}
         - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 5, upsampling_factor: 3}
         - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 5, upsampling_factor: 4}
-        - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 5, upsampling_factor: 5}
+        
         - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 10, upsampling_factor: 1}
         - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 10, upsampling_factor: 2}
         - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 10, upsampling_factor: 3}
         - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 10, upsampling_factor: 4}
-        - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 10, upsampling_factor: 5}
+        
 
 model_check:
   - name: spam-pred

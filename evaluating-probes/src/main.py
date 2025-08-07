@@ -160,9 +160,9 @@ def main():
             # Validate train dataset for this specific seed
             try:
                 logger.log(f"Validating train dataset '{job['train_dataset']}' with seed {job['seed']}")
-                train_data = get_dataset(job['train_dataset'], model, device, job['seed'])
-                train_data.split_data(test_size=0.15, seed=job['seed'])
-                if should_skip_dataset(job['train_dataset'], train_data, logger):
+                # train_data = get_dataset(job['train_dataset'], model, device, job['seed'])
+                # train_data.split_data(test_size=0.15, seed=job['seed'])
+                if should_skip_dataset(job['train_dataset'], data=None, logger=logger):
                     logger.log(f"  - Skipping job due to train dataset validation failure")
                     continue
             except Exception as e:
@@ -244,18 +244,18 @@ def main():
                     try:
                         # Validate eval dataset for this specific seed
                         logger.log(f"    Validating eval dataset '{eval_dataset}' with seed {job['seed']}")
-                        eval_data = get_dataset(eval_dataset, model, device, job['seed'])
-                        eval_data.split_data(test_size=0.15, seed=job['seed'])
-                        if should_skip_dataset(eval_dataset, eval_data, logger):
+                        # eval_data = get_dataset(eval_dataset, model, device, job['seed'])
+                        # eval_data.split_data(test_size=0.15, seed=job['seed'])
+                        if should_skip_dataset(eval_dataset, data=None, logger=logger):
                             logger.log(f"      - Skipping evaluation due to eval dataset validation failure")
                             continue
                         
-                        # Check task compatibility (binary classification only)
-                        train_n_classes = getattr(train_data, 'n_classes', None)
-                        eval_n_classes = getattr(eval_data, 'n_classes', None)
-                        if train_n_classes != eval_n_classes:
-                            logger.log(f"      - 🫡 Skipping evaluation of probe from '{job['train_dataset']}' on '{eval_dataset}' due to class count mismatch.")
-                            continue
+                        # # Check task compatibility (binary classification only)
+                        # train_n_classes = getattr(train_data, 'n_classes', None)
+                        # eval_n_classes = getattr(eval_data, 'n_classes', None)
+                        # if train_n_classes != eval_n_classes:
+                        #     logger.log(f"      - 🫡 Skipping evaluation of probe from '{job['train_dataset']}' on '{eval_dataset}' due to class count mismatch.")
+                        #     continue
                             
                     except Exception as e:
                         logger.log(f"      - 💀 ERROR validating eval dataset '{eval_dataset}' with seed {job['seed']}: {e}")

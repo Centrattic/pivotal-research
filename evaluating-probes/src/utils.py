@@ -8,38 +8,54 @@ from dataclasses import asdict
 from src.probes import LinearProbe, AttentionProbe, MassMeanProbe, ActivationSimilarityProbe, SAEProbe, BaseProbeNonTrainable
 from configs.probes import PROBE_CONFIGS
 from src.data import Dataset
+import pandas as pd
+import os 
 
-def should_skip_dataset(dataset_name, data, logger=None):
-    """ This defines conditions for datasets we should always skip. We have separate conditions for skipping a dataset for evaluation if you trained on it. """
-    # SKIP: Max length
-    # if hasattr(data, "max_len") and data.max_len > 512:
-    #     if logger: logger.log(f"  - ⏭️  INVALID Dataset '{dataset_name}': Max length ({data.max_len}) exceeds 512.")
-    #     return True
-    # SKIP: Non-binary classification or continuous data
-    if hasattr(data, "task_type"):
-        task_type = data.task_type.strip().lower()
-        if "continuous" in task_type or "regression" in task_type:
-            if logger: logger.log(f"  - ⏭️  INVALID Dataset '{dataset_name}': Continuous/regression data is not supported.")
+def should_skip_dataset(dataset_name, data=None, logger=None):
+    """This defines conditions for datasets we should always skip. Now supports passing just a dataset_name (loads from cleaned/)."""
+    # If data is None or a string, try to load the dataset from cleaned folder
+    if data is None or isinstance(data, str):
+        cleaned_dir = Path(__file__).parent.parent / "datasets/cleaned"
+        # Try to find the file by name or by prefix
+        candidates = list(cleaned_dir.glob(f"*{dataset_name}*.csv"))
+        if not candidates:
+            if logger:
+                logger.log(f"  - ⏭️  INVALID Dataset '{dataset_name}': Could not find CSV in {cleaned_dir}.")
             return True
-        elif "classification" in task_type:
-            # Check for binary classification
-            y = None
-            if hasattr(data, 'y_train') and hasattr(data, 'y_test'):
-                y = np.concatenate([data.y_train, data.y_test])
-            elif hasattr(data, 'df'):
-                y = np.array(getattr(data.df, 'target', []))
-            if y is not None and len(y) > 0:
-                unique_classes = np.unique(y)
-                if len(unique_classes) != 2:
-                    if logger: 
-                        logger.log(f"  - ⏭️  INVALID Dataset '{dataset_name}': Expected binary classification, got {len(unique_classes)} classes.")
-                    return True
-                # Check for minimum samples per class
-                unique, counts = np.unique(y, return_counts=True)
-                if len(counts) == 0 or counts.min() < 2:
-                    if logger: 
-                        logger.log(f"  - ⏭️  INVALID Dataset '{dataset_name}': At least one class has <2 samples (counts: {dict(zip(unique, counts))}).")
-                    return True
+        csv_path = candidates[0]
+        try:
+            df = pd.read_csv(csv_path)
+        except Exception as e:
+            if logger:
+                logger.log(f"  - ⏭️  INVALID Dataset '{dataset_name}': Could not load CSV: {e}")
+            return True
+        # Try to infer task type
+        if 'target' not in df.columns:
+            if logger:
+                logger.log(f"  - ⏭️  INVALID Dataset '{dataset_name}': No 'target' column in CSV.")
+            return True
+        y = df['target']
+        # Try to infer if classification or regression
+        if pd.api.types.is_numeric_dtype(y):
+            # Heuristic: if all values are floats and not just 0/1, treat as regression
+            unique_vals = y.unique()
+            if len(unique_vals) > 2 or any(isinstance(v, float) and not v.is_integer() for v in unique_vals):
+                if logger:
+                    logger.log(f"  - ⏭️  INVALID Dataset '{dataset_name}': Continuous/regression data is not supported.")
+                return True
+        # Check for binary classification
+        unique_classes = pd.Series(y).unique()
+        if len(unique_classes) != 2:
+            if logger:
+                logger.log(f"  - ⏭️  INVALID Dataset '{dataset_name}': Expected binary classification, got {len(unique_classes)} classes.")
+            return True
+        # Check for minimum samples per class
+        counts = pd.Series(y).value_counts()
+        if counts.min() < 2:
+            if logger:
+                logger.log(f"  - ⏭️  INVALID Dataset '{dataset_name}': At least one class has <2 samples (counts: {dict(counts)}).")
+            return True
+        return False
     return False
 
 

@@ -126,14 +126,15 @@ class MassMeanProbe(BaseProbeNonTrainable):
             raise ValueError("Mass-mean direction not computed. Call fit() first.")
         
         # Convert to PyTorch tensors
-        X_tensor = torch.tensor(processed_X, dtype=torch.float16, device=self.device)
-        theta_tensor = torch.tensor(self.theta_mm, dtype=torch.float16, device=self.device)
+        X_tensor = torch.tensor(processed_X, dtype=torch.bfloat16, device=self.device)
+        theta_tensor = torch.tensor(self.theta_mm, dtype=torch.bfloat16, device=self.device)
         
         # IID functionality disabled due to numerical instability with small sample sizes
         # Always use basic version: θ_mm^T x
         logits = torch.matmul(X_tensor, theta_tensor)
         
-        return logits.cpu().numpy()
+        # Convert bfloat16 to float32 only for numpy conversion
+        return logits.float().cpu().numpy()
 
     def _compute_predictions(self, processed_X: np.ndarray) -> np.ndarray:
         """Compute predictions for mass-mean probe."""
@@ -145,8 +146,9 @@ class MassMeanProbe(BaseProbeNonTrainable):
         logits = self._compute_logits(processed_X)
         
         # Use PyTorch sigmoid for GPU acceleration
-        logits_tensor = torch.tensor(logits, dtype=torch.float16, device=self.device)
-        probs = torch.sigmoid(logits_tensor).cpu().numpy()
+        logits_tensor = torch.tensor(logits, dtype=torch.bfloat16, device=self.device)
+        # Convert bfloat16 to float32 only for numpy conversion
+        probs = torch.sigmoid(logits_tensor).float().cpu().numpy()
         
         # For binary classification, return just the positive class probability
         # This matches the expected format for sklearn's roc_auc_score

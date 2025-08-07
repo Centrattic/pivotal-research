@@ -27,7 +27,7 @@ class ActivationManager:
 
     _HASH_DTYPE = np.dtype("S40")  # 40‑byte ascii hex sha1
 
-    # ------------------------------- init ------------------------------ #
+    # init #
     def __init__(
         self,
         model: HookedTransformer,
@@ -69,7 +69,7 @@ class ActivationManager:
         self._max_len = int(value)
         self._update_row_bytes()
 
-    # ------------------------ public entrypoint ------------------------ #
+    # public entrypoint #
     def get_activations_for_texts(
         self,
         texts: Iterable[str],
@@ -94,6 +94,7 @@ class ActivationManager:
             return act_mm[rows]
         else:
             # No new activations needed, use existing memmap
+            print(f"[DEBUG] No new activations needed, using existing memmap")
             act_mm = self._open_act(act_path, shape_path, writable=False)
             rows = [index[h] for h in hashes]
             return act_mm[rows]
@@ -103,7 +104,7 @@ class ActivationManager:
         # rows = [index[h] for h in hashes]
         # return act_mm[rows]
 
-    # --------------------------- internals ----------------------------- #
+    # internals #
     # ~~~ path helpers ~~~
     def _paths(self, layer: int, component: str) -> Tuple[Path, Path, Path]:
         hook = f"blocks.{layer}.hook_{component}".replace(".", "‑")
@@ -177,7 +178,6 @@ class ActivationManager:
         # For small additions, skip explicit flush and let OS handle it
         if new_rows - old_rows <= 100:  # Small addition, arbitrary
             print(f"[DEBUG] Skipping explicit flush for small addition ({new_rows - old_rows} rows)")
-            print(f"[DEBUG] OS will handle flush when memmap is closed")
         else:
             # For larger additions, use the original flush method
             print(f"[DEBUG] Using full flush for larger addition ({new_rows - old_rows} rows)")
@@ -236,6 +236,8 @@ class ActivationManager:
             return
         new_hashes, new_prompts = zip(*missing)
         N_new = len(new_prompts)
+
+        print(f"[DEBUG] Appending {N_new} new activations")
 
         # Define max_length at the beginning to avoid UnboundLocalError
         max_length = min(self.max_len, 4096)
@@ -378,20 +380,22 @@ class ActivationManager:
 class LazyActivationLoader:
     """Efficient GPU-optimized loader for large activation files."""
     
-    def __init__(self, act_path: Path, total_rows: int, max_length: int, d_model: int):
+    def __init__(self, act_path: Path, total_rows: int, max_length: int, d_model: int, use_cache: bool = False):
         self.act_path = act_path
         self.total_rows = total_rows
         self.max_length = max_length
         self.d_model = d_model
         self.row_size = max_length * d_model * 2  # float16 = 2 bytes
+        self.use_cache = use_cache
         
         # Use memory mapping for efficient access
         self._mmap = np.memmap(act_path, dtype=np.float16, mode='r', 
                               shape=(total_rows, max_length, d_model))
         
         # Cache for frequently accessed rows (small cache to avoid memory explosion)
-        self._cache = {}
-        self._cache_size_limit = 1000  # Limit cache size
+        if self.use_cache:
+            self._cache = {}
+            self._cache_size_limit = 1000  # Limit cache size
         
     def __getitem__(self, key):
         if isinstance(key, int):
@@ -413,7 +417,7 @@ class LazyActivationLoader:
     
     def _load_row(self, row_idx: int):
         """Load a single row with caching."""
-        if row_idx in self._cache:
+        if self.use_cache and hasattr(self, '_cache') and row_idx in self._cache:
             return self._cache[row_idx]
         
         if row_idx >= self.total_rows:
@@ -423,7 +427,7 @@ class LazyActivationLoader:
         row_data = self._mmap[row_idx].copy()  # Copy to avoid memmap issues
         
         # Cache with size limit
-        if len(self._cache) < self._cache_size_limit:
+        if self.use_cache and hasattr(self, '_cache') and len(self._cache) < self._cache_size_limit:
             self._cache[row_idx] = row_data
         
         return row_data
@@ -437,11 +441,14 @@ class LazyActivationLoader:
         cached_rows = {}
         uncached_indices = []
         
-        for idx in indices:
-            if idx in self._cache:
-                cached_rows[idx] = self._cache[idx]
-            else:
-                uncached_indices.append(idx)
+        if self.use_cache and hasattr(self, '_cache'):
+            for idx in indices:
+                if idx in self._cache:
+                    cached_rows[idx] = self._cache[idx]
+                else:
+                    uncached_indices.append(idx)
+        else:
+            uncached_indices = indices
         
         # Load uncached rows in batch using memmap
         if uncached_indices:
@@ -449,10 +456,14 @@ class LazyActivationLoader:
             batch_data = self._mmap[uncached_indices].copy()
             
             # Cache the new rows
-            for i, idx in enumerate(uncached_indices):
-                if len(self._cache) < self._cache_size_limit:
-                    self._cache[idx] = batch_data[i]
-                cached_rows[idx] = batch_data[i]
+            if self.use_cache and hasattr(self, '_cache'):
+                for i, idx in enumerate(uncached_indices):
+                    if len(self._cache) < self._cache_size_limit:
+                        self._cache[idx] = batch_data[i]
+                    cached_rows[idx] = batch_data[i]
+            else:
+                for i, idx in enumerate(uncached_indices):
+                    cached_rows[idx] = batch_data[i]
         
         # Return in the original order
         result = np.stack([cached_rows[idx] for idx in indices])
@@ -460,7 +471,8 @@ class LazyActivationLoader:
     
     def clear_cache(self):
         """Clear the row cache to free memory."""
-        self._cache.clear()
+        if self.use_cache and hasattr(self, '_cache'):
+            self._cache.clear()
     
     def __del__(self):
         """Clean up memmap when object is destroyed."""

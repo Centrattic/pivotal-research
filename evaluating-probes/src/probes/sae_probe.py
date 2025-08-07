@@ -36,8 +36,8 @@ class SAEProbeNet(nn.Module):
         self.sae_feature_dim = sae_feature_dim
         self.aggregation = aggregation
         self.device = device
-        # Create linear layer with float32 dtype for mixed precision training
-        self.linear = nn.Linear(sae_feature_dim, 1, dtype=torch.float32).to(self.device)
+        # Create linear layer with bfloat16 dtype for mixed precision training
+        self.linear = nn.Linear(sae_feature_dim, 1, dtype=torch.bfloat16).to(self.device)
 
     def forward(self, x: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
         # x: (batch, seq, sae_feature_dim), mask: (batch, seq)
@@ -173,8 +173,9 @@ class SAEProbe(BaseProbe):
         for i in tqdm(range(0, len(flattened), self.encoding_batch_size), desc="Encoding activations"):
             batch = flattened[i:i+self.encoding_batch_size]
             # Convert batch to tensor and move to device only for this batch
-            batch_tensor = torch.tensor(batch, dtype=torch.float16, device=self.device)
-            encoded_batch = sae.encode(batch_tensor).cpu().detach().numpy()
+            batch_tensor = torch.tensor(batch, dtype=torch.bfloat16, device=self.device)
+            # Convert bfloat16 to float32 only for numpy conversion
+            encoded_batch = sae.encode(batch_tensor).float().cpu().detach().numpy()
             encoded_list.append(encoded_batch)
         
         encoded = np.concatenate(encoded_list, axis=0)

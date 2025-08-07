@@ -15,9 +15,9 @@ class AttentionProbeNet(nn.Module):
         self.d_model = d_model
         self.device = device
         self.scale = math.sqrt(d_model)
-        # Create linear layers with float32 dtype for mixed precision training
-        self.context_query = nn.Linear(d_model, 1, dtype=torch.float32)
-        self.classifier = nn.Linear(d_model, 1, dtype=torch.float32)
+        # Create linear layers with bfloat16 dtype for mixed precision training
+        self.context_query = nn.Linear(d_model, 1, dtype=torch.bfloat16)
+        self.classifier = nn.Linear(d_model, 1, dtype=torch.bfloat16)
         # Move the model to the specified device
         self.to(device)
 

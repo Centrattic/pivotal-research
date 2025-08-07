@@ -15,8 +15,8 @@ class LinearProbeNet(nn.Module):
         self.d_model = d_model
         self.aggregation = aggregation
         self.device = device
-        # Create linear layer with float32 dtype for mixed precision training
-        self.linear = nn.Linear(d_model, 1, dtype=torch.float32).to(self.device)
+        # Create linear layer with bfloat16 dtype for mixed precision training
+        self.linear = nn.Linear(d_model, 1, dtype=torch.bfloat16).to(self.device)
 
     def forward(self, x: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
         # x: (batch, seq, d_model), mask: (batch, seq)

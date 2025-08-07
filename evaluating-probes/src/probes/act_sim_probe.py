@@ -213,8 +213,9 @@ class ActivationSimilarityProbe(BaseProbeNonTrainable):
             # Replace NaN with 0 for sigmoid computation
             logits = np.nan_to_num(logits, nan=0.0)
         
-        logits_tensor = torch.tensor(logits, dtype=torch.float16, device=self.device)
-        probs = torch.sigmoid(logits_tensor).cpu().numpy()
+        logits_tensor = torch.tensor(logits, dtype=torch.bfloat16, device=self.device)
+        # Convert bfloat16 to float32 only for numpy conversion
+        probs = torch.sigmoid(logits_tensor).float().cpu().numpy()
         
         # Check for NaN in output probabilities
         if np.isnan(probs).any():
@@ -236,8 +237,8 @@ class ActivationSimilarityProbe(BaseProbeNonTrainable):
         import torch.nn.functional as F
         
         # Convert to PyTorch tensors
-        X_tensor = torch.tensor(X, dtype=torch.float16, device=self.device)
-        prototype_tensor = torch.tensor(prototype, dtype=torch.float16, device=self.device)
+        X_tensor = torch.tensor(X, dtype=torch.bfloat16, device=self.device)
+        prototype_tensor = torch.tensor(prototype, dtype=torch.bfloat16, device=self.device)
         
         # Replace any infinity values with zeros
         X_tensor = torch.nan_to_num(X_tensor, nan=0.0, posinf=0.0, neginf=0.0)
@@ -254,7 +255,8 @@ class ActivationSimilarityProbe(BaseProbeNonTrainable):
         # Clamp to valid range [-1, 1] to handle any numerical errors
         similarities = torch.clamp(similarities, min=-1.0, max=1.0)
         
-        return similarities.cpu().numpy()
+        # Convert bfloat16 to float32 only for numpy conversion
+        return similarities.float().cpu().numpy()
     
     def _get_probe_parameters(self) -> dict:
         """

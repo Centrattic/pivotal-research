@@ -5,7 +5,6 @@ os.environ["TOKENIZERS_PARALLELISM"] = "false"
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch.amp import autocast, GradScaler
 import numpy as np
 import pandas as pd
 from pathlib import Path
@@ -35,7 +34,7 @@ class BaseProbe:
 
     def fit(self, X: np.ndarray, y: np.ndarray, mask: Optional[np.ndarray] = None, 
             epochs: int = 20, lr: float = 1e-3, batch_size: int = 1, weight_decay: float = 0.0, 
-            verbose: bool = True, early_stopping: bool = True, patience: int = 10, min_delta: float = 0.07,
+            verbose: bool = True, early_stopping: bool = True, patience: int = 10, min_delta: float = 0.005,
             use_weighted_loss: bool = True, use_weighted_sampler: bool = False):
         """
         Train the probe model.
@@ -67,7 +66,7 @@ class BaseProbe:
         print("Creating tensors efficiently...")
         
         # Keep data on CPU and move batches to GPU as needed to avoid GPU memory overflow
-        X = torch.tensor(X, dtype=torch.float32, device="cpu")
+        X = torch.tensor(X, dtype=torch.bfloat16, device="cpu")
         y = torch.tensor(y, dtype=torch.long, device="cpu")
         if mask is not None:
             mask = torch.tensor(mask, dtype=torch.bool, device="cpu")
@@ -93,7 +92,7 @@ class BaseProbe:
                 
                 # Compute class weights using sklearn
                 class_weights_np = compute_class_weight('balanced', classes=classes, y=y.cpu().numpy())
-                class_weights = torch.tensor(class_weights_np, dtype=torch.float16, device=self.device)
+                class_weights = torch.tensor(class_weights_np, dtype=torch.bfloat16, device=self.device)
                 
                 # Print class sample counts and weights for debugging
                 class_sample_counts = {int(cls): int(count) for cls, count in zip(classes, y_counts_np)}
@@ -124,7 +123,7 @@ class BaseProbe:
             
             # Compute sample weights
             weight = 1. / y_counts_np
-            samples_weight = torch.zeros_like(y, dtype=torch.float32)
+            samples_weight = torch.zeros_like(y, dtype=torch.bfloat16)
             for i, cls in enumerate(classes):
                 samples_weight[y == cls] = weight[i]
             
@@ -135,7 +134,7 @@ class BaseProbe:
         # Use DataLoader with proper CPU-GPU batch transfers
         # This keeps data on CPU and moves batches to GPU as needed
         # Use multiple workers for efficient data loading
-        num_workers = min(4, batch_size)  # Use up to 4 workers, but not more than batch_size
+        num_workers = min(16, batch_size)  # Use up to 4 workers, but not more than batch_size
         
         if sampler is not None:
             loader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, 
@@ -178,20 +177,25 @@ class BaseProbe:
             print(f"Using BCEWithLogitsLoss (no class weights)")
         
         best_loss = float('inf')
+        best_model_state = None
         epochs_no_improve = 0
         stop_epoch = None
+        # Track losses from last 20 epochs for best loss calculation
+        recent_losses = []
+        recent_model_states = []
+        window_size = 20
 
-        scaler = GradScaler('cuda')
+        # Remove GradScaler and autocast for bfloat16
 
         for epoch in tqdm(range(epochs)):
             epoch_loss = 0.0
             batch_count = 0
             
             # Clear cache periodically to prevent memory buildup
-            if epoch % 5 == 0:  # More frequent cache clearing
-                if torch.cuda.is_available():
-                    torch.cuda.empty_cache()
-                gc.collect()  # Force CPU garbage collection
+            # if epoch % 5 == 0:  # More frequent cache clearing
+            #     if torch.cuda.is_available():
+            #         torch.cuda.empty_cache()
+            #     gc.collect()  # Force CPU garbage collection
                 
             # Print memory usage every 5 epochs
             if epoch % 5 == 0:
@@ -217,23 +221,22 @@ class BaseProbe:
                 mb = mb.to(self.device, non_blocking=True)
 
                 optimizer.zero_grad(set_to_none=True)  # More efficient than zero_grad()
-                with autocast('cuda'):
-                    logits = self.model(xb, mb)
                 
-                    if batch_count == 0 and epoch == 0:
-                        print(f"First batch - xb shape: {xb.shape}, yb shape: {yb.shape}, mb shape: {mb.shape}")
-                        print(f"First batch - logits shape: {logits.shape}")
-                    
-                    # Binary classification only
-                    yb = yb.float()  # Keep as float32 for mixed precision training
-                    loss = criterion(logits, yb)
-                    
-                    if batch_count == 0 and epoch == 0:
-                        print(f"First batch - loss: {loss.item():.4f}")
+                logits = self.model(xb, mb)
                 
-                scaler.scale(loss).backward()
-                scaler.step(optimizer)
-                scaler.update() 
+                if batch_count == 0 and epoch == 0:
+                    print(f"First batch - xb shape: {xb.shape}, yb shape: {yb.shape}, mb shape: {mb.shape}")
+                    print(f"First batch - logits shape: {logits.shape}")
+                
+                # Binary classification only
+                yb = yb.bfloat16()  # Keep as bfloat16 for mixed precision training
+                loss = criterion(logits, yb)
+                
+                if batch_count == 0 and epoch == 0:
+                    print(f"First batch - loss: {loss.item():.4f}")
+                
+                loss.backward()
+                optimizer.step() 
 
                 # Use detach() to prevent memory leaks - keep on GPU to avoid CPU transfer
                 epoch_loss += loss.detach().item() * xb.size(0)
@@ -244,22 +247,58 @@ class BaseProbe:
 
             avg_loss = epoch_loss / len(dataset)
             self.loss_history.append(avg_loss)
+            
+            # Track recent losses and model states
+            recent_losses.append(avg_loss)
+            recent_model_states.append({key: value.clone() for key, value in self.model.state_dict().items()})
+            
+            # Keep only the last window_size epochs
+            if len(recent_losses) > window_size:
+                recent_losses.pop(0)
+                recent_model_states.pop(0)
+            
             if verbose:
                 print(f"Epoch {epoch+1}/{epochs} - Loss: {avg_loss:.4f}")
 
-            # Early stopping logic
-            if early_stopping:
-                if avg_loss < best_loss - min_delta:
-                    best_loss = avg_loss
+            # Early stopping logic - only consider recent epochs for best loss
+            if early_stopping and len(recent_losses) >= window_size:
+                # Find best loss in the recent window
+                min_loss_idx = np.argmin(recent_losses)
+                current_best_loss = recent_losses[min_loss_idx]
+                
+                if current_best_loss < best_loss - min_delta:
+                    improvement = best_loss - current_best_loss
+                    best_loss = current_best_loss
+                    # Save the model state from the best epoch in recent window
+                    best_model_state = recent_model_states[min_loss_idx]
                     epochs_no_improve = 0
+                    if verbose:
+                        print(f"  New best loss from recent {window_size} epochs: {best_loss:.4f} (improved by {improvement:.4f})")
                 else:
                     epochs_no_improve += 1
+                    if verbose:
+                        improvement_needed = best_loss - current_best_loss
+                        print(f"  No improvement: current best in window={current_best_loss:.4f}, overall best={best_loss:.4f}, need >{min_delta:.4f}, got {improvement_needed:.4f}, patience={epochs_no_improve}/{patience}")
+                
                 if epochs_no_improve >= patience:
-                    print(f"Early stopping triggered at epoch {epoch+1}. Best loss: {best_loss:.4f}")
+                    print(f"Early stopping triggered at epoch {epoch+1}. Best loss from recent {window_size} epochs: {best_loss:.4f}")
+                    # Restore the best model state
+                    if best_model_state is not None:
+                        self.model.load_state_dict(best_model_state)
+                        print(f"Restored model to best state (loss: {best_loss:.4f})")
                     stop_epoch = epoch + 1
                     break
+            elif early_stopping:
+                # Not enough epochs yet, just track without early stopping
+                if verbose:
+                    print(f"  Building up recent loss window ({len(recent_losses)}/{window_size} epochs)")
         if stop_epoch is not None:
             print(f"Training stopped early at epoch {stop_epoch}.")
+        else:
+            # If training completed without early stopping, restore best model if we have one
+            if best_model_state is not None:
+                self.model.load_state_dict(best_model_state)
+                print(f"Training completed. Restored model to best state from recent {window_size} epochs (loss: {best_loss:.4f})")
         print(f"=== TRAINING COMPLETE ===\n")
         return self
     
@@ -276,8 +315,8 @@ class BaseProbe:
         self.model.eval()
         
         # Convert to tensors on CPU and transfer batches to GPU as needed
-        # Convert activations to float32 to match model parameters
-        X_tensor = torch.tensor(X, dtype=torch.float32, device="cpu")
+        # Use bfloat16 for GPU operations, convert to float32 only for numpy
+        X_tensor = torch.tensor(X, dtype=torch.bfloat16, device="cpu")
         if mask is not None:
             mask_tensor = torch.tensor(mask, dtype=torch.bool, device="cpu")
         else:
@@ -302,6 +341,7 @@ class BaseProbe:
                 
                 # Binary classification only
                 probs = torch.sigmoid(logits)
+                # Convert bfloat16 to float32 before numpy conversion to avoid BFloat16 unsupported error
                 preds = (probs > 0.5).long().cpu().numpy()
                 
                 if i == 0:
@@ -323,8 +363,8 @@ class BaseProbe:
         self.model.eval()
         
         # Convert to tensors on CPU and transfer batches to GPU as needed
-        # Convert activations to float32 to match model parameters
-        X_tensor = torch.tensor(X, dtype=torch.float32, device="cpu")
+        # Use bfloat16 for GPU operations, convert to float32 only for numpy
+        X_tensor = torch.tensor(X, dtype=torch.bfloat16, device="cpu")
         if mask is not None:
             mask_tensor = torch.tensor(mask, dtype=torch.bool, device="cpu")
         else:
@@ -348,7 +388,8 @@ class BaseProbe:
                     print(f"First batch - logits shape: {logits.shape}")
                 
                 # Binary classification only
-                probs = torch.sigmoid(logits).cpu().numpy()
+                # Convert bfloat16 to float32 before numpy conversion to avoid BFloat16 unsupported error
+                probs = torch.sigmoid(logits).float().cpu().numpy()
                 
                 if i == 0:
                     print(f"First batch - probs shape: {probs.shape}")
@@ -367,8 +408,8 @@ class BaseProbe:
         self.model.eval()
         
         # Convert to tensors on CPU and transfer batches to GPU as needed
-        # Convert activations to float32 to match model parameters
-        X_tensor = torch.tensor(X, dtype=torch.float32, device="cpu")
+        # Convert activations to bfloat16 to match model parameters
+        X_tensor = torch.tensor(X, dtype=torch.bfloat16, device="cpu")
         if mask is not None:
             mask_tensor = torch.tensor(mask, dtype=torch.bool, device="cpu")
         else:
@@ -383,7 +424,8 @@ class BaseProbe:
                 logits = self.model(batch_X, batch_mask)
                 if logits.ndim == 1:
                     logits = logits[:, None]  # shape (batch, 1)
-                all_logits.append(logits.cpu().numpy())
+                # Convert bfloat16 to float32 before numpy conversion to avoid BFloat16 unsupported error
+                all_logits.append(logits.float().cpu().numpy())
         result = np.concatenate(all_logits, axis=0)
         return result
 

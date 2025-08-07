@@ -12,7 +12,7 @@ class PytorchLinearProbeConfig(ProbeConfig):
     aggregation: str = "mean"  # mean, max, last, softmax
     lr: float = 5e-4
     epochs: int = 100
-    batch_size: int = 50 # H100: 2048, H200: 800, A6000: 32
+    batch_size: int = 1280 # H100: 2048, H200: 800, A6000: 32
     weight_decay: float = 0.0
     weighting_method: str = 'weighted_sampler'  # 'weighted_loss', 'weighted_sampler', or 'pcngd'
     # Add more as needed
@@ -22,7 +22,7 @@ class PytorchAttentionProbeConfig(ProbeConfig):
     """Hyperparameters for the PyTorch AttentionProbe."""
     lr: float = 5e-4
     epochs: int = 100
-    batch_size: int = 50 # H100: 2560, H200: 1024, A6000: 32
+    batch_size: int = 1280 # H100: 2560, H200: 1024, A6000: 32
     weight_decay: float = 0.0
     weighting_method: str = 'weighted_sampler'  # 'weighted_loss', 'weighted_sampler', or 'pcngd'
     # Add more as needed
@@ -37,8 +37,8 @@ class SAEProbeConfig(ProbeConfig):
     top_k_features: int = 128
     lr: float = 5e-4
     epochs: int = 100
-    encoding_batch_size: int = 200  # Batch size for SAE encoding (memory intensive) - H100: 100
-    training_batch_size: int = 50   # Batch size for probe training - H100: 512
+    encoding_batch_size: int = 1280  # Batch size for SAE encoding (memory intensive) - H100: 100
+    training_batch_size: int = 512   # Batch size for probe training - H100: 512
     weight_decay: float = 0.0
     weighting_method: str = 'weighted_sampler'  # 'weighted_loss', 'weighted_sampler', or 'pcngd'
 
@@ -46,14 +46,14 @@ class SAEProbeConfig(ProbeConfig):
 class MassMeanProbeConfig(ProbeConfig):
     """Configuration for the Mass Mean probe (no training needed)."""
     use_iid: bool = False  # Whether to use IID version (Fisher's LDA)
-    batch_size: int = 1024  # Batch size for processing - H100: 1024
+    batch_size: int = 1280  # Batch size for processing - H100: 1024
     # No other parameters needed since mass-mean is computed analytically
 
 @dataclass
 class ActivationSimilarityProbeConfig(ProbeConfig):
     """Configuration for the Activation Similarity probe (no training needed)."""
     aggregation: str = "mean"  # mean, max, last, softmax
-    batch_size: int = 1024  # Batch size for processing - H100: 1024
+    batch_size: int = 1280  # Batch size for processing - H100: 1024
     # No other parameters needed since activation similarity is computed analytically
 
 # A dictionary to easily access configs by name. Configs are updated by -ht flag (Optuna tuning).
