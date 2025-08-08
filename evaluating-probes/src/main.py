@@ -195,7 +195,7 @@ def main():
             effective_seed = get_effective_seed_for_rebuild_config(dataset_job['seed'], dataset_job['rebuild_params'])
             
             # Process all architectures for this dataset job
-            logger.log(f"  🔄 Processing {len(dataset_job['architectures'])} architectures for dataset '{dataset_job['train_dataset']}'")
+            logger.log(f"  🥰 Processing {len(dataset_job['architectures'])} architectures for dataset '{dataset_job['train_dataset']}'")
             
             all_eval_results = {}
             
@@ -203,13 +203,13 @@ def main():
                 architecture_name = arch_config['name']
                 config_name = arch_config.get('config_name')
                 
-                logger.log(f"    🏗️  Processing architecture: {architecture_name}")
+                logger.log(f"    🤠 Processing architecture: {architecture_name}, {config_name}")
                 
                 # Check if this is a non-trainable probe
                 if (architecture_name.startswith('act_sim') or 
                     architecture_name in ['mass_mean', 'mass_mean_iid']):
                     
-                    logger.log(f"      😋 Running non-trainable probe: {architecture_name}")
+                    logger.log(f"      😋 Running non-trainable probe: {architecture_name}, {config_name}")
                     
                     # Run non-trainable probe
                     run_non_trainable_probe(

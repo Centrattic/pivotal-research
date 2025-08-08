@@ -6,9 +6,10 @@ This script implements the LLM upsampling procedure:
 1. Extract parameters (seeds, num_real_samples, upsampling_factors) from config file
 2. Extract positive samples using the same seed-based sampling as build_imbalanced_train_balanced_eval
 3. For each seed, create llm_samples folder in seed_*/ directory
-4. For each num_real_samples, generate cumulative upsampling (2x, 3x, 4x, 5x)
+4. For each num_real_samples, generate cumulative upsampling (2x, 3x, 4x, 5x, etc.)
 5. Save final datasets as samples_{n_real_samples}.csv in each seed's llm_samples folder
 6. Include safety checks and state machine for handling insufficient samples
+7. Support incremental upsampling - if existing files are found, continue from where left off
 
 Usage:
     python -m src.llm_upsampling.llm_upsampling_script -c spam_exp --api-key YOUR_API_KEY
@@ -512,18 +513,49 @@ def run_llm_upsampling(config_path: Path, api_key: str):
             output_filename = f"samples_{n_real_samples}.csv"
             output_path = seed_output_dir / output_filename
             
+            # Load existing data if available
+            existing_df = None
             if output_path.exists():
-                print(f"✅ Samples file already exists: {output_path}")
-                print(f"   Skipping LLM generation for n_real_samples = {n_real_samples}")
-                continue
+                print(f"📁 Loading existing samples file: {output_path}")
+                existing_df = pd.read_csv(output_path)
+                print(f"   Found {len(existing_df)} existing samples")
+                
+                # Check what upsampling factors we already have
+                existing_samples = len(existing_df)
+                original_samples = n_real_samples
+                current_upsampling_factor = existing_samples // original_samples
+                
+                print(f"   Current upsampling factor: {current_upsampling_factor}x")
+                
+                # Check if we need to generate more samples
+                max_needed_factor = max(upsampling_factors)
+                max_needed_samples = max_needed_factor * n_real_samples
+                
+                if existing_samples >= max_needed_samples:
+                    print(f"✅ Already have enough samples for {max_needed_factor}x upsampling")
+                    print(f"   Skipping LLM generation for n_real_samples = {n_real_samples}")
+                    continue
+                else:
+                    print(f"🔄 Need to generate {max_needed_samples - existing_samples} more samples")
+                    print(f"   Current: {existing_samples}, Target: {max_needed_samples}")
+            else:
+                print(f"🆕 No existing samples file found, starting from scratch")
+                current_upsampling_factor = 0
             
             original_df = extracted_samples[n_real_samples]
             
+            # Initialize current dataset - use existing if available, otherwise start with original
+            if existing_df is not None:
+                current_upsampled_df = existing_df.copy()
+                print(f"   Starting with existing {len(current_upsampled_df)} samples")
+            else:
+                current_upsampled_df = original_df.copy()
+                print(f"   Starting with original {len(current_upsampled_df)} samples")
+            
             # Track all generated samples for this n_real_samples
             all_generated_samples = {}
-            current_upsampled_df = original_df.copy()  # Start with original samples
             
-            # Apply upsampling factors consecutively
+            # Apply upsampling factors consecutively, starting from where we left off
             for upsampling_factor in upsampling_factors:
                 print(f"\n--- {upsampling_factor}x upsampling ---")
                 
@@ -531,7 +563,11 @@ def run_llm_upsampling(config_path: Path, api_key: str):
                 target_samples = upsampling_factor * n_real_samples
                 print(f"Target: {target_samples} samples total")
                 
-                if upsampling_factor == 1:
+                # Check if we already have enough samples for this upsampling factor
+                if len(current_upsampled_df) >= target_samples:
+                    print(f"✅ Already have {len(current_upsampled_df)} samples, enough for {upsampling_factor}x upsampling")
+                    upsampled_df = current_upsampled_df.copy()
+                elif upsampling_factor == 1:
                     # 1x upsampling: just use original samples
                     upsampled_df = original_df.copy()
                     print(f"✅ Using original {len(upsampled_df)} samples for 1x upsampling")
@@ -576,6 +612,13 @@ def run_llm_upsampling(config_path: Path, api_key: str):
                 
                 print(f"✅ Saved complete dataset with {len(final_df)} samples to: {output_path}")
                 print(f"   (Includes {len(original_df)} original + {len(final_df) - len(original_df)} generated samples)")
+                
+                # Check if we reached the maximum upsampling factor
+                max_needed_factor = max(upsampling_factors)
+                if max_factor >= max_needed_factor:
+                    print(f"🎉 Successfully completed all upsampling factors up to {max_factor}x")
+                else:
+                    print(f"⚠️  Only completed up to {max_factor}x, but {max_needed_factor}x was requested")
             else:
                 print(f"❌ No samples generated for n_real_samples={n_real_samples}")
         
@@ -584,6 +627,7 @@ def run_llm_upsampling(config_path: Path, api_key: str):
     print(f"\n{'='*80}")
     print(f"LLM upsampling complete for all seeds!")
     print(f"Results saved to: results/{run_name}/seed_*/llm_samples/")
+    print(f"Upsampling factors processed: {upsampling_factors}")
     print(f"{'='*80}")
 
 def main():
