@@ -38,7 +38,7 @@ class SAEProbeConfig(ProbeConfig):
     lr: float = 5e-4
     epochs: int = 100
     encoding_batch_size: int = 1280  # Batch size for SAE encoding (memory intensive) - H100: 100
-    training_batch_size: int = 512   # Batch size for probe training - H100: 512
+    training_batch_size: int = 2560   # Batch size for probe training - H100: 512
     weight_decay: float = 0.0
     weighting_method: str = 'weighted_sampler'  # 'weighted_loss', 'weighted_sampler', or 'pcngd'
 

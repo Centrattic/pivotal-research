@@ -220,7 +220,7 @@ class BaseProbe:
                 yb = yb.to(self.device, non_blocking=True)
                 mb = mb.to(self.device, non_blocking=True)
                 yb = yb.bfloat16()  # Keep as bfloat16 for mixed precision training
-                continue
+                # continue
 
                 optimizer.zero_grad(set_to_none=True)  # More efficient than zero_grad()
                 

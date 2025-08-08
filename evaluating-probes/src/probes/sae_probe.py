@@ -114,6 +114,9 @@ class SAEProbe(BaseProbe):
         
         # Call parent constructor
         super().__init__(d_model, device, task_type)
+        
+        # Flag to track if preprocessing has been done
+        self._preprocessing_done = False
 
     def _init_model(self):
         """Initialize the neural network model."""
@@ -121,8 +124,11 @@ class SAEProbe(BaseProbe):
         if self.sae_feature_dim is not None:
             self.model = SAEProbeNet(self.sae_feature_dim, aggregation=self.aggregation, device=self.device)
         else:
-            # Placeholder - will be set in fit method
-            self.model = None
+            # For GroupedProbe compatibility, create a temporary model with top_k_features
+            # This will be replaced in fit() method with the actual selected features
+            print(f"Creating temporary SAE model with {self.top_k_features} features for GroupedProbe compatibility")
+            self.sae_feature_dim = self.top_k_features
+            self.model = SAEProbeNet(self.sae_feature_dim, aggregation=self.aggregation, device=self.device)
 
     def _load_sae(self) -> SAE:
         """Load the SAE model."""
@@ -231,6 +237,8 @@ class SAEProbe(BaseProbe):
         
         return top_k_indices
 
+
+
     def fit(self, X: np.ndarray, y: np.ndarray, mask: Optional[np.ndarray] = None, 
             epochs: int = 20, lr: float = 1e-3, batch_size: int = None, weight_decay: float = 0.0, 
             verbose: bool = True, early_stopping: bool = True, patience: int = 20, min_delta: float = 0.005,
@@ -266,13 +274,19 @@ class SAEProbe(BaseProbe):
         print("Selecting top features...")
         print(f"[DEBUG] Before feature selection. Memory: {get_memory_usage()}")
         self.feature_indices = self._select_top_features(X_encoded, y)
-        X_selected = X_encoded[:, :, self.feature_indices]
-        print(f"Selected X shape: {X_selected.shape}")
+        print(f"Selected {len(self.feature_indices)} features")
         print(f"[DEBUG] After feature selection. Memory: {get_memory_usage()}")
         
-        # Step 3: Initialize model with correct feature dimension
-        self.sae_feature_dim = self.top_k_features
-        self._init_model()
+        # Step 3: Initialize/reinitialize model with correct feature dimension
+        actual_feature_dim = self.top_k_features
+        if self.sae_feature_dim != actual_feature_dim or self.model is None:
+            print(f"Reinitializing SAE model with {actual_feature_dim} actual selected features")
+            self.sae_feature_dim = actual_feature_dim
+            self._init_model()
+        
+        # Select features from encoded activations
+        X_selected = X_encoded[:, :, self.feature_indices]
+        print(f"Selected X shape: {X_selected.shape}")
         
         # Step 4: Call parent fit method with selected features
         # Use provided batch_size or fall back to self.training_batch_size

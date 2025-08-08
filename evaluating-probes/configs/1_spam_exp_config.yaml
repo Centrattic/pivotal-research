@@ -1,7 +1,8 @@
 run_name: "spam_experiment_gemma"
 model_name: "gemma-2-9b" # 1.2 B multilignual model, 512 seq length
 d_model: 3584 # 3584 for gemma-2-9b
-device: "cpu"
+device: "cuda:0"
+use_grouped_training: True
 cache_activations: True
 log_file: "logs/spam_experiment_gemma_seeds_42_46.log"  # Custom log file path
 # seed: 42  # Old single seed format (still supported for backward compatibility)

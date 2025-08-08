@@ -10,6 +10,7 @@ from src.utils import (
     get_probe_filename_prefix,
     rebuild_suffix
 )
+from src.probes import GroupedProbe
 import numpy as np
 import torch
 import copy
@@ -197,6 +198,208 @@ def train_probe(
     logger.log(f"  - 🔥 Probe state saved to {probe_state_path.name}")
     # if return_probe_and_test:
     #     return probe, test_acts, y_test
+
+
+def train_grouped_probe(
+    model, d_model: int, train_dataset_name: str, layer: int, component: str,
+    architecture_configs: list, device: str, use_cache: bool,
+    seed: int, results_dir: Path, cache_dir: Path, logger: Logger, retrain: bool,
+    train_size: float = 0.75, val_size: float = 0.10, test_size: float = 0.15,
+    rebuild_config: dict = None,
+    metric: str = 'acc',
+    contrast_fn: Any = None,
+):
+    """
+    Train multiple probes simultaneously using GroupedProbe to reduce GPU memory transfers.
+    Each probe is saved individually with its own filename for compatibility with evaluation code.
+    
+    Args:
+        architecture_configs: List of dicts with 'name' and 'config_name' keys
+    """
+    logger.log(f"  - Training {len(architecture_configs)} probes using grouped training for efficiency...")
+
+    # Check if all individual probes already exist (for cache checking)
+    probe_save_dir = results_dir / f"train_{train_dataset_name}"
+    if rebuild_config is not None:
+        probe_save_dir = results_dir / f"dataclass_exps_{train_dataset_name}"
+    
+    all_probes_exist = True
+    for arch_config in architecture_configs:
+        architecture_name = arch_config['name']
+        config_name = arch_config.get('config_name')
+        
+        individual_probe_filename_base = get_probe_filename_prefix(train_dataset_name, architecture_name, layer, component, config_name, contrast_fn)
+        
+        if rebuild_config is not None:
+            suffix = rebuild_suffix(rebuild_config)
+            individual_probe_state_path = probe_save_dir / f"{individual_probe_filename_base}_{suffix}_state.npz"
+        else:
+            individual_probe_state_path = probe_save_dir / f"{individual_probe_filename_base}_state.npz"
+        
+        if not individual_probe_state_path.exists():
+            all_probes_exist = False
+            break
+    
+    if use_cache and all_probes_exist and not retrain:
+        logger.log(f"  - [SKIP] All {len(architecture_configs)} probes already trained. Skipping grouped training.")
+        return
+
+    # Prepare dataset (same logic as train_probe)
+    if rebuild_config is not None:
+        orig_ds = Dataset(train_dataset_name, model=model, device=device, seed=seed)
+        
+        # Check if this is LLM upsampling with new method
+        if 'llm_upsampling' in rebuild_config and rebuild_config['llm_upsampling']:
+            n_real_neg = rebuild_config.get('n_real_neg')
+            n_real_pos = rebuild_config.get('n_real_pos')
+            upsampling_factor = rebuild_config.get('upsampling_factor')
+            
+            run_name = str(results_dir).split('/')[-3]
+            llm_csv_base_path = rebuild_config.get('llm_csv_base_path', f'results/{run_name}')
+            
+            if n_real_neg is None or n_real_pos is None or upsampling_factor is None:
+                raise ValueError("For LLM upsampling, 'n_real_neg', 'n_real_pos', and 'upsampling_factor' must be specified")
+            
+            train_ds = Dataset.build_llm_upsampled_dataset(
+                orig_ds,
+                seed=seed,
+                n_real_neg=n_real_neg,
+                n_real_pos=n_real_pos,
+                upsampling_factor=upsampling_factor,
+                val_size=val_size,
+                test_size=test_size,
+                llm_csv_base_path=llm_csv_base_path,
+                only_test=False,
+            )
+        else:
+            # Original rebuild_config logic
+            train_class_counts = rebuild_config.get('class_counts')
+            train_class_percents = rebuild_config.get('class_percents')
+            train_total_samples = rebuild_config.get('total_samples')
+            train_ds = Dataset.build_imbalanced_train_balanced_eval(
+                orig_ds,
+                train_class_counts=train_class_counts,
+                train_class_percents=train_class_percents,
+                train_total_samples=train_total_samples,
+                val_size=val_size,
+                test_size=test_size,
+                seed=seed,
+                only_test=False,
+            )
+    else:
+        train_ds = Dataset(train_dataset_name, model=model, device=device, seed=seed)
+        train_ds.split_data(train_size=train_size, val_size=val_size, test_size=test_size, seed=seed)
+
+    # Use contrast activations if contrast_fn is provided
+    if contrast_fn is not None:
+        train_acts, y_train = train_ds.get_contrast_activations(contrast_fn, layer, component, split='train')
+        val_acts, y_val = train_ds.get_contrast_activations(contrast_fn, layer, component, split='val')
+    else:
+        train_acts, y_train = train_ds.get_train_set_activations(layer, component)
+        val_acts, y_val = train_ds.get_val_set_activations(layer, component)
+
+    # Create grouped probe
+    grouped_probe = GroupedProbe(d_model=d_model, device=device)
+    
+    # Add each probe to the group
+    for i, arch_config in enumerate(architecture_configs):
+        architecture_name = arch_config['name']
+        config_name = arch_config.get('config_name')
+        
+        # Create a unique name for this probe within the group
+        probe_name = f"{architecture_name}_{config_name}_{i}"
+        
+        # Skip non-trainable probes and SAE probes (they train faster individually)
+        if (architecture_name.startswith('act_sim') or 
+            architecture_name in ['mass_mean', 'mass_mean_iid'] or
+            architecture_name.startswith('sae')):
+            logger.log(f"    - Skipping probe (non-trainable or SAE): {architecture_name}, {config_name}")
+            continue
+            
+        grouped_probe.add_probe(probe_name, architecture_name, config_name)
+    
+    if not grouped_probe.probes:
+        logger.log("  - No trainable probes to group. Skipping grouped training.")
+        return
+    
+    # Get fit parameters from the first probe's config (they should be similar)
+    first_probe_name = list(grouped_probe.probes.keys())[0]
+    all_params = grouped_probe.probe_configs[first_probe_name]
+    fit_params = {}
+    
+    # Parameters that should be passed to fit() method
+    fit_param_names = ['lr', 'epochs', 'batch_size', 'weight_decay', 'verbose', 'early_stopping', 'patience', 'min_delta']
+    for key, value in all_params.items():
+        if key in fit_param_names:
+            fit_params[key] = value
+    
+    # Handle weighting method
+    weighting_method = all_params.get("weighting_method", "weighted_sampler")
+    
+    if weighting_method == "weighted_loss":
+        fit_params["use_weighted_loss"] = True
+        fit_params["use_weighted_sampler"] = False
+    elif weighting_method == "weighted_sampler":
+        fit_params["use_weighted_loss"] = False
+        fit_params["use_weighted_sampler"] = True
+    else:
+        fit_params["use_weighted_loss"] = False
+        fit_params["use_weighted_sampler"] = False
+    
+    # Train the grouped probe
+    logger.log(f"  - Training {len(grouped_probe.probes)} probes simultaneously...")
+    grouped_probe.fit(train_acts, y_train, **fit_params)
+    
+    # Save each probe individually with its own filename (for compatibility with evaluation)
+    probe_save_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Use the enhanced save_state method to save each probe with proper individual filenames
+    grouped_probe.save_state(
+        path=probe_save_dir / "grouped_probe_state.json",  # Dummy path, not actually used
+        architecture_configs=architecture_configs,
+        train_dataset_name=train_dataset_name,
+        layer=layer,
+        component=component,
+        rebuild_config=rebuild_config,
+        contrast_fn=contrast_fn
+    )
+    
+    # Save metadata files for each probe (same as train_probe would create)
+    for arch_config in architecture_configs:
+        architecture_name = arch_config['name']
+        config_name = arch_config.get('config_name')
+        
+        # Create individual probe filename (same as train_probe would use)
+        individual_probe_filename_base = get_probe_filename_prefix(train_dataset_name, architecture_name, layer, component, config_name, contrast_fn)
+        
+        if rebuild_config is not None:
+            suffix = rebuild_suffix(rebuild_config)
+            individual_probe_state_path = probe_save_dir / f"{individual_probe_filename_base}_{suffix}_state.npz"
+            individual_probe_json_path = probe_save_dir / f"{individual_probe_filename_base}_{suffix}_meta.json"
+        else:
+            individual_probe_state_path = probe_save_dir / f"{individual_probe_filename_base}_state.npz"
+            individual_probe_json_path = probe_save_dir / f"{individual_probe_filename_base}_meta.json"
+        
+        # Save metadata/config (same as train_probe would save)
+        meta = {
+            'train_dataset_name': train_dataset_name,
+            'layer': layer,
+            'component': component,
+            'architecture_name': architecture_name,
+            'aggregation': extract_aggregation_from_config(config_name, architecture_name),
+            'config_name': config_name,
+            'rebuild_config': copy.deepcopy(rebuild_config),
+            'probe_state_path': str(individual_probe_state_path),
+        }
+        
+        with open(individual_probe_json_path, 'w') as f:
+            json.dump(meta, f, indent=2)
+        
+        logger.log(f"  - 🔥 Saved individual probe: {individual_probe_state_path.name}")
+    
+    logger.log(f"  - ✅ All {len(grouped_probe.probes)} probes trained and saved individually")
+    
+    return grouped_probe
 
 
 def evaluate_probe(

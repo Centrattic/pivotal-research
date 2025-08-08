@@ -38,7 +38,7 @@ except Exception as e:
     print(f"Warning: Could not set CUDA device early: {e}")
 
 # Now import transformer_lens after setting CUDA device
-from src.runner import train_probe, evaluate_probe, get_probe_filename_prefix, run_non_trainable_probe
+from src.runner import train_probe, evaluate_probe, get_probe_filename_prefix, run_non_trainable_probe, train_grouped_probe
 from src.data import Dataset, get_available_datasets
 from src.logger import Logger
 from src.utils import should_skip_dataset, resample_params_to_str, get_dataset, get_effective_seeds, get_effective_seed_for_rebuild_config, generate_llm_upsampling_configs
@@ -199,31 +199,93 @@ def main():
             
             all_eval_results = {}
             
+            # Separate trainable, non-trainable, and SAE probes
+            trainable_architectures = []
+            non_trainable_architectures = []
+            sae_architectures = []
+            
             for arch_config in dataset_job['architectures']:
                 architecture_name = arch_config['name']
                 config_name = arch_config.get('config_name')
                 
-                logger.log(f"    🤠 Processing architecture: {architecture_name}, {config_name}")
-                
                 # Check if this is a non-trainable probe
                 if (architecture_name.startswith('act_sim') or 
                     architecture_name in ['mass_mean', 'mass_mean_iid']):
-                    
-                    logger.log(f"      😋 Running non-trainable probe: {architecture_name}, {config_name}")
-                    
-                    # Run non-trainable probe
-                    run_non_trainable_probe(
-                        model=model, d_model=d_model, train_dataset_name=dataset_job['train_dataset'],
-                        layer=dataset_job['layer'], component=dataset_job['component'], 
-                        architecture_name=architecture_name, 
-                        config_name=config_name,
-                        device=config['device'], use_cache=config['cache_activations'], 
-                        seed=effective_seed,
-                        results_dir=experiment_dir, cache_dir=cache_dir, logger=logger, 
-                        retrain=retrain,
-                        rebuild_config=dataset_job['rebuild_params'], metric=metric, contrast_fn=dataset_job['contrast_fn']
-                    )
+                    non_trainable_architectures.append(arch_config)
+                # Check if this is an SAE probe (train individually for efficiency)
+                elif architecture_name.startswith('sae'):
+                    sae_architectures.append(arch_config)
                 else:
+                    trainable_architectures.append(arch_config)
+            
+            # Process non-trainable probes first
+            for arch_config in non_trainable_architectures:
+                architecture_name = arch_config['name']
+                config_name = arch_config.get('config_name')
+                
+                logger.log(f"    😋 Running non-trainable probe: {architecture_name}, {config_name}")
+                
+                # Run non-trainable probe
+                run_non_trainable_probe(
+                    model=model, d_model=d_model, train_dataset_name=dataset_job['train_dataset'],
+                    layer=dataset_job['layer'], component=dataset_job['component'], 
+                    architecture_name=architecture_name, 
+                    config_name=config_name,
+                    device=config['device'], use_cache=config['cache_activations'], 
+                    seed=effective_seed,
+                    results_dir=experiment_dir, cache_dir=cache_dir, logger=logger, 
+                    retrain=retrain,
+                    rebuild_config=dataset_job['rebuild_params'], metric=metric, contrast_fn=dataset_job['contrast_fn']
+                )
+            
+            # Process SAE probes individually (they train faster with smaller feature dimensions)
+            for arch_config in sae_architectures:
+                architecture_name = arch_config['name']
+                config_name = arch_config.get('config_name')
+                
+                logger.log(f"    🧠 Training SAE probe individually: {architecture_name}, {config_name}")
+                
+                # Train SAE probe individually
+                train_probe(
+                    model=model, d_model=d_model, train_dataset_name=dataset_job['train_dataset'],
+                    layer=dataset_job['layer'], component=dataset_job['component'], 
+                    architecture_name=architecture_name, 
+                    config_name=config_name,
+                    device=config['device'], use_cache=config['cache_activations'], 
+                    seed=effective_seed,
+                    results_dir=experiment_dir, cache_dir=cache_dir, logger=logger, 
+                    retrain=retrain,
+                    hyperparameter_tuning=hyperparameter_tuning, 
+                    rebuild_config=dataset_job['rebuild_params'], metric=metric,
+                    retrain_with_best_hparams=retrain_with_best_hparams,
+                    contrast_fn=dataset_job['contrast_fn']
+                )
+            
+            # Process trainable probes using grouped training if there are multiple and enabled
+            use_grouped_training = config.get('use_grouped_training', False)
+            
+            if len(trainable_architectures) > 1 and use_grouped_training:
+                logger.log(f"     Training {len(trainable_architectures)} probes using grouped training for efficiency")
+                
+                # Train all trainable probes together
+                train_grouped_probe(
+                    model=model, d_model=d_model, train_dataset_name=dataset_job['train_dataset'],
+                    layer=dataset_job['layer'], component=dataset_job['component'], 
+                    architecture_configs=trainable_architectures,
+                    device=config['device'], use_cache=config['cache_activations'], 
+                    seed=effective_seed,
+                    results_dir=experiment_dir, cache_dir=cache_dir, logger=logger, 
+                    retrain=retrain,
+                    rebuild_config=dataset_job['rebuild_params'], metric=metric, contrast_fn=dataset_job['contrast_fn']
+                )
+            elif not use_grouped_training:
+                logger.log(f"    🚀 Training {len(trainable_architectures)} probes individually (grouped training disabled)")
+                
+                # Train each probe individually
+                for arch_config in trainable_architectures:
+                    architecture_name = arch_config['name']
+                    config_name = arch_config.get('config_name')
+                    
                     logger.log(f"      💅 Training probe: {architecture_name}")
                     
                     # Train the probe
@@ -242,32 +304,42 @@ def main():
                         contrast_fn=dataset_job['contrast_fn']
                     )
                 
-                # Evaluate this probe on all evaluation datasets
-                logger.log(f"      🤔 Evaluating {config_name} probe on {len(dataset_job['eval_datasets'])} datasets...")
+            
+            # Evaluate all probes (both individual and grouped) on all evaluation datasets
+            logger.log(f"    🤔 Evaluating all probes on {len(dataset_job['eval_datasets'])} datasets...")
+            
+            # Collect all architectures to evaluate (including non-trainable and SAE ones)
+            all_architectures_to_evaluate = non_trainable_architectures + sae_architectures + trainable_architectures
+            
+            for eval_dataset in dataset_job['eval_datasets']:
+                try:
+                    # Validate eval dataset for this specific seed
+                    logger.log(f"      Validating eval dataset '{eval_dataset}' with seed {dataset_job['seed']}")
+                    if should_skip_dataset(eval_dataset, data=None, logger=logger):
+                        logger.log(f"        - Skipping evaluation due to eval dataset validation failure")
+                        continue
+                        
+                except Exception as e:
+                    logger.log(f"        - 💀 ERROR validating eval dataset '{eval_dataset}' with seed {dataset_job['seed']}: {e}")
+                    continue
                 
-                for eval_dataset in dataset_job['eval_datasets']:
-                    try:
-                        # Validate eval dataset for this specific seed
-                        logger.log(f"        Validating eval dataset '{eval_dataset}' with seed {dataset_job['seed']}")
-                        if should_skip_dataset(eval_dataset, data=None, logger=logger):
-                            logger.log(f"          - Skipping evaluation due to eval dataset validation failure")
-                            continue
-                            
-                    except Exception as e:
-                        logger.log(f"          - 💀 ERROR validating eval dataset '{eval_dataset}' with seed {dataset_job['seed']}: {e}")
-                        continue
+                # Check if probe directory exists
+                if dataset_job['rebuild_params'] is not None:
+                    probe_save_dir = experiment_dir / f"dataclass_exps_{dataset_job['train_dataset']}"
+                else:
+                    probe_save_dir = experiment_dir / f"train_{dataset_job['train_dataset']}"
+                
+                if not probe_save_dir.exists():
+                    logger.log(f"        - [SKIP] Probe dir does not exist: {probe_save_dir}")
+                    continue
+                
+                # Evaluate each probe
+                for arch_config in all_architectures_to_evaluate:
+                    architecture_name = arch_config['name']
+                    config_name = arch_config.get('config_name')
                     
-                    # Check if probe directory exists
-                    if dataset_job['rebuild_params'] is not None:
-                        probe_save_dir = experiment_dir / f"dataclass_exps_{dataset_job['train_dataset']}"
-                    else:
-                        probe_save_dir = experiment_dir / f"train_{dataset_job['train_dataset']}"
+                    logger.log(f"🤔 Evaluation of {architecture_name} ({config_name}) on {eval_dataset}")
                     
-                    if not probe_save_dir.exists():
-                        logger.log(f"          - [SKIP] Probe dir does not exist: {probe_save_dir}")
-                        continue
-                    
-                    # Evaluate the probe
                     try:
                         metrics = evaluate_probe(
                             train_dataset_name=dataset_job['train_dataset'], 
@@ -293,7 +365,7 @@ def main():
                         # Store results by architecture
                         all_eval_results[rebuild_key][eval_dataset][architecture_name] = metrics
                         
-                        logger.log(f"          🤩 Evaluation complete for {eval_dataset} with {architecture_name}")
+                        # logger.log(f"          🤩 Evaluation complete for {eval_dataset} with {architecture_name}")
                         
                     except Exception as e:
                         logger.log(f"          - 💀 ERROR evaluating probe on '{eval_dataset}': {e}")

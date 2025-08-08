@@ -5,7 +5,6 @@ from typing import List, Any
 from src.logger import Logger
 from pathlib import Path
 from dataclasses import asdict
-from src.probes import LinearProbe, AttentionProbe, MassMeanProbe, ActivationSimilarityProbe, SAEProbe, BaseProbeNonTrainable
 from configs.probes import PROBE_CONFIGS
 from src.data import Dataset
 import pandas as pd
@@ -71,6 +70,9 @@ def dump_loss_history(losses: List[float], out_path: Path, logger: Logger | None
 
 def extract_aggregation_from_config(config_name: str, architecture_name: str) -> str:
     """Extract aggregation from config for backward compatibility."""
+    # Handle grouped probe case - it doesn't have a real config
+    if config_name == "grouped" or architecture_name == "grouped":
+        return "grouped"
     config = PROBE_CONFIGS[config_name]
     if hasattr(config, 'aggregation'): # act sim and linear have aggregation in config
         return config.aggregation
@@ -84,6 +86,9 @@ def extract_aggregation_from_config(config_name: str, architecture_name: str) ->
 
 def get_probe_architecture(architecture_name: str, d_model: int, device, config: dict):
     """Create probe architecture with filtered config parameters."""
+    # Import probes inside function to avoid circular imports
+    from src.probes import LinearProbe, AttentionProbe, MassMeanProbe, ActivationSimilarityProbe, SAEProbe, GroupedProbe
+    
     if architecture_name == "linear":
         return LinearProbe(d_model=d_model, device=device, **config)
     if architecture_name == "attention":
@@ -97,7 +102,10 @@ def get_probe_architecture(architecture_name: str, d_model: int, device, config:
         # Activation similarity probes - filter out batch_size from constructor args
         filtered_config = {k: v for k, v in config.items() if k != 'batch_size'}
         return ActivationSimilarityProbe(d_model=d_model, device=device, **filtered_config)
+    if architecture_name == "grouped":
+        return GroupedProbe(d_model=d_model, device=device, **config)
     raise ValueError(f"Unknown architecture: {architecture_name}")
+
 
 
 def get_probe_filename_prefix(train_ds, arch_name, layer, component, config_name, contrast_fn=None):
