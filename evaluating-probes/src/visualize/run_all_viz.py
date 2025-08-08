@@ -9,11 +9,7 @@ from src.visualize.utils_viz import (
     plot_multi_folder_recall_at_fpr,
     plot_multi_folder_auc_vs_n_class1,
     plot_all_probe_loss_curves_in_folder,
-    plot_experiment_3_upsampling_lineplot,
-    plot_experiment_3_upsampling_lineplot_recall,
-    plot_experiment_3_upsampling_lineplot_per_architecture,
-    plot_experiment_3_upsampling_lineplot_grid,
-    plot_experiment_3_per_seed,
+    plot_experiment_3_per_probe,
     get_best_probes_by_type,
     plot_experiment_2_unified,
 )
@@ -26,6 +22,7 @@ def main():
     parser.add_argument('--all', dest='filtered', action='store_false', help='Use all scores (not filtered)')
     parser.set_defaults(filtered=True)
     parser.add_argument('--seeds', nargs='+', default=['42'], help='List of seeds to use (default: 42)')
+    parser.add_argument('--force', action='store_true', help='Overwrite existing visualizations (default: skip if they exist)')
     args = parser.parse_args()
     
     config_path = Path('configs') / f'{args.config}_config.yaml'
@@ -46,7 +43,10 @@ def main():
                 if file.endswith('.csv'):
                     csv_path = runthrough_dir / file
                     save_path = viz_root / f'logit_diff_hist_{sub}.png'
-                    plot_logit_diffs_from_csv(csv_path, class_names, save_path=save_path)
+                    if not save_path.exists() or args.force:
+                        plot_logit_diffs_from_csv(csv_path, class_names, save_path=save_path)
+                    else:
+                        print(f"Skipping {save_path} (already exists, use --force to overwrite)")
 
     # 2. Find experiment folders 2-, 3-, 4- for multi-folder plots
     # Now we need to look inside seed folders
@@ -85,7 +85,7 @@ def main():
         colors = [f"C{i}" for i in range(len(dataclass_folders))]
         # Note: Individual architecture plots removed as requested
 
-    # 3. For each of the experiment folders 1-, 2-, 3-, 4-, plot all probe loss curves
+    # 3. Plot probe loss curves (aggregated across seeds)
     for k in ['1', '2', '3', '4']:
         # Check in the first seed directory
         if seed_dir.exists():
@@ -103,9 +103,12 @@ def main():
                     else:
                         continue
                     save_path = viz_root / f'loss_curves_{sub}.png'
-                    plot_all_probe_loss_curves_in_folder(str(loss_folder), save_path=save_path, seeds=args.seeds)
+                    if not save_path.exists() or args.force:
+                        plot_all_probe_loss_curves_in_folder(str(loss_folder), save_path=save_path, seeds=args.seeds)
+                    else:
+                        print(f"Skipping {save_path} (already exists, use --force to overwrite)")
 
-    # 4. New experiment-specific visualizations
+    # 4. Experiment-specific visualizations (aggregated across seeds)
     # Check for experiments once, outside the architecture loop
     exp2_exists = False
     exp3_exists = False
@@ -116,9 +119,9 @@ def main():
             elif sub.startswith('3-'):
                 exp3_exists = True
     
-    # Create experiment 2 visualizations
+    # Create experiment 2 visualizations (aggregated across seeds)
     if exp2_exists:
-        print(f"Creating experiment 2 visualizations")
+        print(f"Creating experiment 2 visualizations (aggregated across seeds)")
         
         # Get evaluation datasets from experiment 2 config
         eval_datasets = []
@@ -165,26 +168,30 @@ def main():
                     filename = f'experiment_2_{group_name}_comparison_{metric}_{eval_dataset}.png'
                     save_path = viz_root / filename
                     
-                    print(f"Creating {group_name} comparison plot for {metric} on {eval_dataset}")
-                    
-                    # Create the plot
-                    plot_experiment_2_unified(
-                        results_dir, probe_names, save_path=save_path, 
-                        metric=metric, fpr_target=0.01, filtered=args.filtered, seeds=args.seeds,
-                        plot_title=title, eval_dataset=eval_dataset
-                    )
+                    if not save_path.exists() or args.force:
+                        print(f"Creating {group_name} comparison plot for {metric} on {eval_dataset}")
+                        
+                        # Create the plot
+                        plot_experiment_2_unified(
+                            results_dir, probe_names, save_path=save_path, 
+                            metric=metric, fpr_target=0.01, filtered=args.filtered, seeds=args.seeds,
+                            plot_title=title, eval_dataset=eval_dataset
+                        )
+                    else:
+                        print(f"Skipping {save_path} (already exists, use --force to overwrite)")
         
     else:
         print(f"Experiment 2 not found")
     
-    # Create experiment 3 visualizations for each seed
+    # Create experiment 3 visualizations for each individual probe (aggregated across seeds)
     if exp3_exists:
-        print(f"Creating experiment 3 visualizations for each seed")
-        save_path = viz_root / f'experiment_3_per_seed.png'
-        plot_experiment_3_per_seed(
-            results_dir, architectures, save_path=save_path, filtered=args.filtered, 
-            seeds=args.seeds, config_name=args.config
-        )
+        save_path_base = viz_root / f'experiment_3_per_probe.png'
+        if not save_path_base.exists() or args.force:
+            print(f"Creating experiment 3 visualizations for each individual probe (aggregated across seeds)")
+            plot_experiment_3_per_probe(
+                results_dir, save_path_base=save_path_base, filtered=args.filtered, 
+                seeds=args.seeds, fpr_target=0.01
+            )
     else:
         print(f"Experiment 3 not found")
 

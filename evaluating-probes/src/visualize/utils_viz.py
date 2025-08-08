@@ -22,7 +22,6 @@ def extract_probe_info_from_filename(filename):
     class1 = class1_match.group(1) if class1_match else '?'
     return f"{arch}_L{layer}_c0_{class0}_c1_{class1}"
 
-
 def _get_scores_and_labels_from_result_file(result_path, filtered=True):
     with open(result_path, 'r') as f:
         d = json.load(f)
@@ -314,621 +313,6 @@ def plot_multi_folder_auc_vs_n_class1(folders, folder_labels, architecture, clas
         plt.show()
 
 
-# Removed: plot_experiment_2_all_probes_with_eval - replaced by plot_experiment_2_unified
-
-
-def plot_experiment_3_upsampling_lineplot(base_results_dir: Path, architectures: List[str], save_path=None, 
-                                         filtered: bool = True, seeds: List[str] = None):
-    """Plot experiment 3 as a multi-layer line plot showing upsampling factors vs true samples for all architectures."""
-    from scipy.special import expit
-    from sklearn.metrics import roc_auc_score
-    
-    if seeds is None:
-        seeds = ['42']
-    
-    experiment_folder = "3-spam-pred-auc-llm-upsampling"
-    
-    # Collect data for all architectures
-    all_data = {}
-    
-    for architecture in architectures:
-        # Get all result files across seeds for this architecture
-        seed_files = _get_result_files_for_seeds(base_results_dir, seeds, experiment_folder, 
-                                                architecture, 'dataclass_exps_94_better_spam')
-        
-        if not seed_files:
-            print(f"No result files found for experiment 3, architecture {architecture}")
-            continue
-        
-        # Parse filenames to extract true samples and upsampling ratio
-        for seed, files in seed_files.items():
-            for file in files:
-                # Extract true samples (n_real_pos) and upsampling ratio from rebuild suffix
-                llm_match = re.search(r'llm_neg(\d+)_pos(\d+)_(\d+)x', file)
-                
-                if llm_match:
-                    n_real_neg = int(llm_match.group(1))
-                    n_real_pos = int(llm_match.group(2))  # This is the true number of positive samples
-                    upsampling_factor = int(llm_match.group(3))
-                    
-                    key = (architecture, n_real_pos, upsampling_factor)
-                    if key not in all_data:
-                        all_data[key] = []
-                    
-                    try:
-                        scores, labels = _get_scores_and_labels_from_result_file(file, filtered=filtered)
-                        scores = expit(scores)
-                        auc = roc_auc_score(labels, scores)
-                        all_data[key].append(auc)
-                    except Exception as e:
-                        print(f"Error processing file {file}: {e}")
-                        continue
-    
-    if not all_data:
-        print("No valid data points found for experiment 3")
-        return
-    
-    # Get unique values for plotting
-    true_samples_list = sorted(list(set([k[1] for k in all_data.keys()])))
-    upsampling_factors = sorted(list(set([k[2] for k in all_data.keys()])))
-    
-    # Create the multi-layer plot (1x at bottom, 5x at top)
-    fig, axes = plt.subplots(len(upsampling_factors), 1, figsize=(12, 3*len(upsampling_factors)), 
-                            sharex=True, sharey=False)
-    if len(upsampling_factors) == 1:
-        axes = [axes]
-    
-    colors = [f"C{i}" for i in range(len(architectures))]
-    
-    # Collect all AUC values for setting y-axis limits
-    all_aucs = []
-    
-    # Plot each upsampling factor as a separate subplot
-    for i, factor in enumerate(upsampling_factors):
-        ax = axes[i]
-        
-        # Plot each architecture
-        for arch_idx, architecture in enumerate(architectures):
-            x_values = []
-            y_values = []
-            y_stds = []
-            
-            for samples in true_samples_list:
-                key = (architecture, samples, factor)
-                if key in all_data and all_data[key]:
-                    x_values.append(samples)
-                    if len(seeds) > 1:
-                        y_values.append(np.mean(all_data[key]))
-                        y_stds.append(np.std(all_data[key]))
-                    else:
-                        y_values.append(all_data[key][0])
-                        y_stds.append(0)
-            
-            if x_values:
-                color = colors[arch_idx]
-                all_aucs.extend(y_values)
-                if len(seeds) > 1 and any(y_stds):
-                    ax.errorbar(x_values, y_values, yerr=y_stds, fmt='o-', 
-                              label=architecture, color=color, linewidth=2, capsize=5, capthick=2)
-                else:
-                    ax.plot(x_values, y_values, 'o-', label=architecture, color=color, linewidth=2)
-        
-        # Set subtle label on the left side
-        ax.text(-0.1, 0.5, f'{factor}x', transform=ax.transAxes, fontsize=14, 
-                va='center', ha='center', rotation=90, alpha=0.7)
-        ax.set_ylabel('AUC', fontsize=14)
-        ax.grid(True, alpha=0.3)
-        
-        # Only show legend on the top subplot (5x)
-        if i == len(upsampling_factors) - 1:
-            ax.legend(fontsize=12)
-        
-        # Set y-axis limits based on data range for this subplot
-        if all_aucs:
-            min_auc = min(all_aucs)
-            y_min = max(0.0, min_auc - 0.05)  # Start slightly below minimum
-            y_max = 1.0
-            ax.set_ylim(y_min, y_max)
-        
-        # Set larger font sizes for tick labels
-        ax.tick_params(axis='both', which='major', labelsize=12)
-    
-    # Set x-axis properties for the bottom subplot (1x)
-    axes[0].set_xlabel('Number of True Positive Samples', fontsize=14)
-    axes[0].set_xscale('log')
-    axes[0].set_xticks(true_samples_list)
-    axes[0].set_xticklabels(true_samples_list)
-    
-    plt.tight_layout()
-    
-    if save_path:
-        plt.savefig(save_path, dpi=150, bbox_inches='tight')
-        print(f"Saved experiment 3 line plot to {save_path}")
-        plt.close()
-    else:
-        plt.show()
-
-
-# Removed: plot_experiment_2_recall_at_fpr - replaced by plot_experiment_2_unified
-
-
-def plot_experiment_3_upsampling_lineplot_per_architecture(base_results_dir: Path, architectures: List[str], save_path=None, 
-                                                          metric='auc', fpr_target: float = 0.01, filtered: bool = True, seeds: List[str] = None):
-    """Plot experiment 3 as separate plots per architecture, each showing upsampling factors vs true samples."""
-    from scipy.special import expit
-    from sklearn.metrics import roc_auc_score
-    
-    if seeds is None:
-        seeds = ['42']
-    
-    experiment_folder = "3-spam-pred-auc-llm-upsampling"
-    
-    def recall_at_fpr_func(scores, labels):
-        scores = expit(scores)
-        thresholds = np.unique(scores)[::-1]
-        best_recall = 0.0
-        for thresh in thresholds:
-            preds = (scores >= thresh).astype(int)
-            tp = np.sum((preds == 1) & (labels == 1))
-            fn = np.sum((preds == 0) & (labels == 1))
-            fp = np.sum((preds == 1) & (labels == 0))
-            tn = np.sum((preds == 0) & (labels == 0))
-            fpr = fp / (fp + tn) if (fp + tn) > 0 else 0.0
-            recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
-            if fpr <= fpr_target and recall > best_recall:
-                best_recall = recall
-        return best_recall
-    
-    # Collect data for all architectures
-    all_data = {}
-    
-    for architecture in architectures:
-        # Get all result files across seeds for this architecture
-        seed_files = _get_result_files_for_seeds(base_results_dir, seeds, experiment_folder, 
-                                                architecture, 'dataclass_exps_94_better_spam')
-        
-        if not seed_files:
-            print(f"No result files found for experiment 3, architecture {architecture}")
-            continue
-        
-        # Parse filenames to extract true samples and upsampling ratio
-        for seed, files in seed_files.items():
-            for file in files:
-                # Extract true samples (n_real_pos) and upsampling ratio from rebuild suffix
-                llm_match = re.search(r'llm_neg(\d+)_pos(\d+)_(\d+)x', file)
-                
-                if llm_match:
-                    n_real_neg = int(llm_match.group(1))
-                    n_real_pos = int(llm_match.group(2))  # This is the true number of positive samples
-                    upsampling_factor = int(llm_match.group(3))
-                    
-                    key = (architecture, n_real_pos, upsampling_factor)
-                    if key not in all_data:
-                        all_data[key] = []
-                    
-                    try:
-                        scores, labels = _get_scores_and_labels_from_result_file(file, filtered=filtered)
-                        if metric == 'auc':
-                            scores = expit(scores)
-                            value = roc_auc_score(labels, scores)
-                        else:  # recall at fpr
-                            value = recall_at_fpr_func(scores, labels)
-                        all_data[key].append(value)
-                    except Exception as e:
-                        print(f"Error processing file {file}: {e}")
-                        continue
-    
-    if not all_data:
-        print("No valid data points found for experiment 3")
-        return
-    
-    # Get unique values for plotting
-    true_samples_list = sorted(list(set([k[1] for k in all_data.keys()])))
-    upsampling_factors = sorted(list(set([k[2] for k in all_data.keys()])))
-    
-    # Define markers for different upsampling factors
-    markers = ['o', 's', '^', 'D', '*']  # circle, square, triangle, diamond, star
-    colors = ['C0', 'C1', 'C2', 'C3', 'C4']  # Different colors for each upsampling factor
-    
-    # Create one plot per architecture
-    for architecture in architectures:
-        plt.figure(figsize=(10, 6))
-        
-        # Plot each upsampling factor as a separate line
-        for i, factor in enumerate(upsampling_factors):
-            x_values = []
-            y_values = []
-            y_stds = []
-            
-            for samples in true_samples_list:
-                key = (architecture, samples, factor)
-                if key in all_data and all_data[key]:
-                    x_values.append(samples)
-                    if len(seeds) > 1:
-                        y_values.append(np.mean(all_data[key]))
-                        y_stds.append(np.std(all_data[key]))
-                    else:
-                        y_values.append(all_data[key][0])
-                        y_stds.append(0)
-            
-            if x_values:
-                color = colors[i]
-                marker = markers[i]
-                if len(seeds) > 1 and any(y_stds):
-                    plt.errorbar(x_values, y_values, yerr=y_stds, fmt=f'{marker}-', 
-                              label=f'{factor}x', color=color, linewidth=2, capsize=5, capthick=2, markersize=8)
-                else:
-                    plt.plot(x_values, y_values, f'{marker}-', label=f'{factor}x', color=color, linewidth=2, markersize=8)
-        
-        # Set plot properties
-        plt.xlabel('Number of True Positive Samples', fontsize=14)
-        if metric == 'auc':
-            plt.ylabel('AUC', fontsize=14)
-            title = f"Experiment 3: {architecture.capitalize()} Probe Performance vs Upsampling"
-        else:
-            plt.ylabel(f'Recall at {fpr_target*100}% FPR', fontsize=14)
-            title = f"Experiment 3: {architecture.capitalize()} Probe Performance vs Upsampling (Recall at {fpr_target*100}% FPR)"
-        
-        plt.title(title + (" (filtered)" if filtered else " (all)") + 
-                 (f" (seeds: {', '.join(seeds)})" if len(seeds) > 1 else ""), fontsize=16)
-        
-        plt.xscale('log')
-        plt.xticks(true_samples_list, true_samples_list)
-        plt.grid(True, alpha=0.3)
-        plt.legend(fontsize=12)
-        
-        # Set larger font sizes for tick labels
-        plt.tick_params(axis='both', which='major', labelsize=12)
-        
-        # Set y-axis limits for better readability
-        all_values = []
-        for factor in upsampling_factors:
-            for samples in true_samples_list:
-                key = (architecture, samples, factor)
-                if key in all_data and all_data[key]:
-                    all_values.extend(all_data[key])
-        
-        if all_values:
-            min_val = min(all_values)
-            y_min = max(0.0, min_val - 0.05)
-            y_max = 1.0
-            plt.ylim(y_min, y_max)
-        
-        plt.tight_layout()
-        
-        # Save individual plot for this architecture
-        if save_path:
-            # Create filename with architecture name
-            base_path = Path(save_path)
-            arch_save_path = base_path.parent / f"{base_path.stem}_{architecture}{base_path.suffix}"
-            plt.savefig(arch_save_path, dpi=150, bbox_inches='tight')
-            print(f"Saved experiment 3 {metric} plot for {architecture} to {arch_save_path}")
-            plt.close()
-        else:
-            plt.show()
-
-
-def plot_experiment_3_upsampling_lineplot_grid(base_results_dir: Path, architectures: List[str], save_path=None, 
-                                              metric='auc', fpr_target: float = 0.01, filtered: bool = True, seeds: List[str] = None):
-    """Plot experiment 3 as a grid of subplots, one per architecture, each showing upsampling factors vs true samples."""
-    from scipy.special import expit
-    from sklearn.metrics import roc_auc_score
-    
-    if seeds is None:
-        seeds = ['42']
-    
-    experiment_folder = "3-spam-pred-auc-llm-upsampling"
-    
-    def recall_at_fpr_func(scores, labels):
-        scores = expit(scores)
-        thresholds = np.unique(scores)[::-1]
-        best_recall = 0.0
-        for thresh in thresholds:
-            preds = (scores >= thresh).astype(int)
-            tp = np.sum((preds == 1) & (labels == 1))
-            fn = np.sum((preds == 0) & (labels == 1))
-            fp = np.sum((preds == 1) & (labels == 0))
-            tn = np.sum((preds == 0) & (labels == 0))
-            fpr = fp / (fp + tn) if (fp + tn) > 0 else 0.0
-            recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
-            if fpr <= fpr_target and recall > best_recall:
-                best_recall = recall
-        return best_recall
-    
-    # Collect data for all architectures
-    all_data = {}
-    
-    for architecture in architectures:
-        # Get all result files across seeds for this architecture
-        seed_files = _get_result_files_for_seeds(base_results_dir, seeds, experiment_folder, 
-                                                architecture, 'dataclass_exps_94_better_spam')
-        
-        if not seed_files:
-            print(f"No result files found for experiment 3, architecture {architecture}")
-            continue
-        
-        # Parse filenames to extract true samples and upsampling ratio
-        for seed, files in seed_files.items():
-            for file in files:
-                # Extract true samples (n_real_pos) and upsampling ratio from rebuild suffix
-                llm_match = re.search(r'llm_neg(\d+)_pos(\d+)_(\d+)x', file)
-                
-                if llm_match:
-                    n_real_neg = int(llm_match.group(1))
-                    n_real_pos = int(llm_match.group(2))  # This is the true number of positive samples
-                    upsampling_factor = int(llm_match.group(3))
-                    
-                    key = (architecture, n_real_pos, upsampling_factor)
-                    if key not in all_data:
-                        all_data[key] = []
-                    
-                    try:
-                        scores, labels = _get_scores_and_labels_from_result_file(file, filtered=filtered)
-                        if metric == 'auc':
-                            scores = expit(scores)
-                            value = roc_auc_score(labels, scores)
-                        else:  # recall at fpr
-                            value = recall_at_fpr_func(scores, labels)
-                        all_data[key].append(value)
-                    except Exception as e:
-                        print(f"Error processing file {file}: {e}")
-                        continue
-    
-    if not all_data:
-        print("No valid data points found for experiment 3")
-        return
-    
-    # Get unique values for plotting
-    true_samples_list = sorted(list(set([k[1] for k in all_data.keys()])))
-    upsampling_factors = sorted(list(set([k[2] for k in all_data.keys()])))
-    
-    # Define markers for different upsampling factors
-    markers = ['o', 's', '^', 'D', '*']  # circle, square, triangle, diamond, star
-    colors = ['C0', 'C1', 'C2', 'C3', 'C4']  # Different colors for each upsampling factor
-    
-    # Create grid layout
-    n_architectures = len(architectures)
-    n_cols = 2  # 2 columns
-    n_rows = (n_architectures + 1) // 2  # Calculate rows needed
-    
-    fig, axes = plt.subplots(n_rows, n_cols, figsize=(15, 5*n_rows))
-    if n_rows == 1:
-        axes = axes.reshape(1, -1)
-    
-    # Flatten axes for easier indexing
-    axes_flat = axes.flatten()
-    
-    # Plot each architecture
-    for arch_idx, architecture in enumerate(architectures):
-        ax = axes_flat[arch_idx]
-        
-        # Plot each upsampling factor as a separate line
-        for i, factor in enumerate(upsampling_factors):
-            x_values = []
-            y_values = []
-            y_stds = []
-            
-            for samples in true_samples_list:
-                key = (architecture, samples, factor)
-                if key in all_data and all_data[key]:
-                    x_values.append(samples)
-                    if len(seeds) > 1:
-                        y_values.append(np.mean(all_data[key]))
-                        y_stds.append(np.std(all_data[key]))
-                    else:
-                        y_values.append(all_data[key][0])
-                        y_stds.append(0)
-            
-            if x_values:
-                color = colors[i]
-                marker = markers[i]
-                if len(seeds) > 1 and any(y_stds):
-                    ax.errorbar(x_values, y_values, yerr=y_stds, fmt=f'{marker}-', 
-                              label=f'{factor}x', color=color, linewidth=2, capsize=5, capthick=2, markersize=8)
-                else:
-                    ax.plot(x_values, y_values, f'{marker}-', label=f'{factor}x', color=color, linewidth=2, markersize=8)
-        
-        # Set subplot properties
-        ax.set_xlabel('Number of True Positive Samples', fontsize=12)
-        if metric == 'auc':
-            ax.set_ylabel('AUC', fontsize=12)
-        else:
-            ax.set_ylabel(f'Recall at {fpr_target*100}% FPR', fontsize=12)
-        
-        ax.set_title(f'{architecture.capitalize()}', fontsize=14, fontweight='bold')
-        ax.set_xscale('log')
-        ax.set_xticks(true_samples_list)
-        ax.set_xticklabels(true_samples_list)
-        ax.grid(True, alpha=0.3)
-        ax.legend(fontsize=10)
-        
-        # Set larger font sizes for tick labels
-        ax.tick_params(axis='both', which='major', labelsize=10)
-        
-        # Set y-axis limits for better readability
-        all_values = []
-        for factor in upsampling_factors:
-            for samples in true_samples_list:
-                key = (architecture, samples, factor)
-                if key in all_data and all_data[key]:
-                    all_values.extend(all_data[key])
-        
-        if all_values:
-            min_val = min(all_values)
-            y_min = max(0.0, min_val - 0.05)
-            y_max = 1.0
-            ax.set_ylim(y_min, y_max)
-    
-    # Hide unused subplots
-    for i in range(n_architectures, len(axes_flat)):
-        axes_flat[i].set_visible(False)
-    
-    # Add overall title
-    if metric == 'auc':
-        title = "Experiment 3: All Architecture Probe Performance vs Upsampling (AUC)"
-    else:
-        title = f"Experiment 3: All Architecture Probe Performance vs Upsampling (Recall at {fpr_target*100}% FPR)"
-    
-    plt.suptitle(title + (" (filtered)" if filtered else " (all)") + 
-                 (f" (seeds: {', '.join(seeds)})" if len(seeds) > 1 else ""), 
-                 fontsize=16, fontweight='bold')
-    
-    plt.tight_layout()
-    
-    if save_path:
-        plt.savefig(save_path, dpi=150, bbox_inches='tight')
-        print(f"Saved experiment 3 {metric} grid plot to {save_path}")
-        plt.close()
-    else:
-        plt.show()
-
-
-def plot_experiment_3_upsampling_lineplot_recall(base_results_dir: Path, architectures: List[str], save_path=None, 
-                                                fpr_target: float = 0.01, filtered: bool = True, seeds: List[str] = None):
-    """Plot experiment 3 as a multi-layer line plot showing Recall at 1% FPR vs upsampling factors for all architectures."""
-    from scipy.special import expit
-    
-    if seeds is None:
-        seeds = ['42']
-    
-    experiment_folder = "3-spam-pred-auc-llm-upsampling"
-    
-    def recall_at_fpr_func(scores, labels):
-        scores = expit(scores)
-        thresholds = np.unique(scores)[::-1]
-        best_recall = 0.0
-        for thresh in thresholds:
-            preds = (scores >= thresh).astype(int)
-            tp = np.sum((preds == 1) & (labels == 1))
-            fn = np.sum((preds == 0) & (labels == 1))
-            fp = np.sum((preds == 1) & (labels == 0))
-            tn = np.sum((preds == 0) & (labels == 0))
-            fpr = fp / (fp + tn) if (fp + tn) > 0 else 0.0
-            recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
-            if fpr <= fpr_target and recall > best_recall:
-                best_recall = recall
-        return best_recall
-    
-    # Collect data for all architectures
-    all_data = {}
-    
-    for architecture in architectures:
-        # Get all result files across seeds for this architecture
-        seed_files = _get_result_files_for_seeds(base_results_dir, seeds, experiment_folder, 
-                                                architecture, 'dataclass_exps_94_better_spam')
-        
-        if not seed_files:
-            print(f"No result files found for experiment 3, architecture {architecture}")
-            continue
-        
-        # Parse filenames to extract true samples and upsampling ratio
-        for seed, files in seed_files.items():
-            for file in files:
-                # Extract true samples (n_real_pos) and upsampling ratio from rebuild suffix
-                llm_match = re.search(r'llm_neg(\d+)_pos(\d+)_(\d+)x', file)
-                
-                if llm_match:
-                    n_real_neg = int(llm_match.group(1))
-                    n_real_pos = int(llm_match.group(2))  # This is the true number of positive samples
-                    upsampling_factor = int(llm_match.group(3))
-                    
-                    key = (architecture, n_real_pos, upsampling_factor)
-                    if key not in all_data:
-                        all_data[key] = []
-                    
-                    try:
-                        scores, labels = _get_scores_and_labels_from_result_file(file, filtered=filtered)
-                        recall = recall_at_fpr_func(scores, labels)
-                        all_data[key].append(recall)
-                    except Exception as e:
-                        print(f"Error processing file {file}: {e}")
-                        continue
-    
-    if not all_data:
-        print("No valid data points found for experiment 3")
-        return
-    
-    # Get unique values for plotting
-    true_samples_list = sorted(list(set([k[1] for k in all_data.keys()])))
-    upsampling_factors = sorted(list(set([k[2] for k in all_data.keys()])))
-    
-    # Create the multi-layer plot (1x at bottom, 5x at top)
-    fig, axes = plt.subplots(len(upsampling_factors), 1, figsize=(12, 3*len(upsampling_factors)), 
-                            sharex=True, sharey=False)
-    if len(upsampling_factors) == 1:
-        axes = [axes]
-    
-    colors = [f"C{i}" for i in range(len(architectures))]
-    
-    # Collect all recall values for setting y-axis limits
-    all_recalls = []
-    
-    # Plot each upsampling factor as a separate subplot
-    for i, factor in enumerate(upsampling_factors):
-        ax = axes[i]
-        
-        # Plot each architecture
-        for arch_idx, architecture in enumerate(architectures):
-            x_values = []
-            y_values = []
-            y_stds = []
-            
-            for samples in true_samples_list:
-                key = (architecture, samples, factor)
-                if key in all_data and all_data[key]:
-                    x_values.append(samples)
-                    if len(seeds) > 1:
-                        y_values.append(np.mean(all_data[key]))
-                        y_stds.append(np.std(all_data[key]))
-                    else:
-                        y_values.append(all_data[key][0])
-                        y_stds.append(0)
-            
-            if x_values:
-                color = colors[arch_idx]
-                all_recalls.extend(y_values)
-                if len(seeds) > 1 and any(y_stds):
-                    ax.errorbar(x_values, y_values, yerr=y_stds, fmt='o-', 
-                              label=architecture, color=color, linewidth=2, capsize=5, capthick=2)
-                else:
-                    ax.plot(x_values, y_values, 'o-', label=architecture, color=color, linewidth=2)
-        
-        # Set subtle label on the left side
-        ax.text(-0.1, 0.5, f'{factor}x', transform=ax.transAxes, fontsize=14, 
-                va='center', ha='center', rotation=90, alpha=0.7)
-        ax.set_ylabel(f'Recall at {fpr_target*100}% FPR', fontsize=14)
-        ax.grid(True, alpha=0.3)
-        
-        # Only show legend on the top subplot (5x)
-        if i == len(upsampling_factors) - 1:
-            ax.legend(fontsize=12)
-        
-        # Set y-axis limits based on data range for this subplot
-        if all_recalls:
-            min_recall = min(all_recalls)
-            y_min = max(0.0, min_recall - 0.05)  # Start slightly below minimum
-            y_max = 1.0
-            ax.set_ylim(y_min, y_max)
-        
-        # Set larger font sizes for tick labels
-        ax.tick_params(axis='both', which='major', labelsize=12)
-    
-    # Set x-axis properties for the bottom subplot (1x)
-    axes[0].set_xlabel('Number of True Positive Samples', fontsize=14)
-    axes[0].set_xscale('log')
-    axes[0].set_xticks(true_samples_list)
-    axes[0].set_xticklabels(true_samples_list)
-    
-    plt.tight_layout()
-    
-    if save_path:
-        plt.savefig(save_path, dpi=150, bbox_inches='tight')
-        print(f"Saved experiment 3 recall@FPR line plot to {save_path}")
-        plt.close()
-    else:
-        plt.show()
-
-
 def plot_all_probe_loss_curves_in_folder(folder, save_path=None, max_probes=40, seeds: List[str] = None):
     import math
     
@@ -973,9 +357,9 @@ def plot_all_probe_loss_curves_in_folder(folder, save_path=None, max_probes=40, 
 # Removed: plot_experiment_2_per_seed - replaced by plot_experiment_2_unified
 
 
-def plot_experiment_3_per_seed(base_results_dir: Path, architectures: List[str], save_path=None, 
-                              filtered: bool = True, seeds: List[str] = None, config_name: str = None):
-    """Plot experiment 3 for each seed separately with gradient colors and different line styles."""
+def plot_experiment_3_per_probe(base_results_dir: Path, save_path_base=None, 
+                                filtered: bool = True, seeds: List[str] = None, fpr_target: float = 0.01):
+    """Plot experiment 3 with separate plots for each individual probe, showing upsampling factors as different lines for both AUC and Recall at FPR."""
     from scipy.special import expit
     from sklearn.metrics import roc_auc_score
     
@@ -984,93 +368,251 @@ def plot_experiment_3_per_seed(base_results_dir: Path, architectures: List[str],
     
     experiment_folder = "3-spam-pred-auc-llm-upsampling"
     
-    # Create one plot per seed
+    # Collect data for all probes and seeds
+    all_data_auc = {}
+    all_data_recall = {}
+    probe_names = set()
+    
+    def recall_at_fpr_func(scores, labels):
+        scores = expit(scores)
+        thresholds = np.unique(scores)[::-1]
+        best_recall = 0.0
+        for thresh in thresholds:
+            preds = (scores >= thresh).astype(int)
+            tp = np.sum((preds == 1) & (labels == 1))
+            fn = np.sum((preds == 0) & (labels == 1))
+            fp = np.sum((preds == 1) & (labels == 0))
+            tn = np.sum((preds == 0) & (labels == 0))
+            fpr = fp / (fp + tn) if (fp + tn) > 0 else 0.0
+            recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
+            if fpr <= fpr_target and recall > best_recall:
+                best_recall = recall
+        return best_recall
+    
+    # Get all result files across all seeds
     for seed in seeds:
-        seed_dir = base_results_dir / f"seed_{seed}"
+        seed_dir = base_results_dir / f"seed_{seed}" / experiment_folder / 'dataclass_exps_94_better_spam'
         if not seed_dir.exists():
             continue
-            
-        # Check if experiment 3 exists for this seed
-        exp3_exists = False
-        for sub in os.listdir(seed_dir):
-            if sub.startswith('3-'):
-                exp3_exists = True
-                break
         
-        if not exp3_exists:
-            continue
-            
-        plt.figure(figsize=(12, 8))
+        # Find all result files
+        result_files = list(seed_dir.glob("*_results.json"))
         
-        # Define line styles for different architectures
-        line_styles = ['-', '--', '-.', ':', '-']
-        
-        for arch_idx, architecture in enumerate(architectures):
-            # Get result files for this seed and architecture
-            seed_files = _get_result_files_for_seeds(base_results_dir, [seed], experiment_folder, 
-                                                    architecture, 'dataclass_exps_94_better_spam')
+        for file in result_files:
+            # Extract probe name, true samples and upsampling ratio from filename
+            # Example filename: eval_on_94_better_spam__train_on_94_better_spam_linear_max_L20_resid_post_llm_neg3000_pos10_4x_seed42_max_results.json
+            llm_match = re.search(r'llm_neg(\d+)_pos(\d+)_(\d+)x', str(file))
+            probe_match = re.search(r'train_on_94_better_spam_(.*?)_L\d+_resid_post_llm', str(file))
             
-            if not seed_files or seed not in seed_files:
-                continue
-            
-            files = seed_files[seed]
-            
-            # Parse filenames to extract true samples and upsampling ratio
-            data_points = {}
-            for file in files:
-                llm_match = re.search(r'llm_neg(\d+)_pos(\d+)_(\d+)x', file)
-                if llm_match:
-                    n_real_pos = int(llm_match.group(2))
-                    upsampling_factor = int(llm_match.group(3))
+            if llm_match and probe_match:
+                n_real_pos = int(llm_match.group(2))
+                upsampling_factor = int(llm_match.group(3))
+                probe_name = probe_match.group(1)
+                
+                probe_names.add(probe_name)
+                key = (probe_name, n_real_pos, upsampling_factor)
+                
+                # Initialize data structures
+                if key not in all_data_auc:
+                    all_data_auc[key] = []
+                if key not in all_data_recall:
+                    all_data_recall[key] = []
+                
+                try:
+                    scores, labels = _get_scores_and_labels_from_result_file(str(file), filtered=filtered)
                     
-                    try:
-                        scores, labels = _get_scores_and_labels_from_result_file(file, filtered=filtered)
-                        scores = expit(scores)
-                        auc = roc_auc_score(labels, scores)
-                        
-                        key = (n_real_pos, upsampling_factor)
-                        if key not in data_points:
-                            data_points[key] = []
-                        data_points[key].append(auc)
-                    except Exception as e:
-                        print(f"Error processing file {file}: {e}")
-                        continue
-            
-            # Plot each upsampling factor with gradient colors
-            upsampling_factors = sorted(list(set([k[1] for k in data_points.keys()])))
-            colors = plt.cm.Reds(np.linspace(0.3, 0.9, len(upsampling_factors)))
-            
-            for i, factor in enumerate(upsampling_factors):
-                x_values = []
-                y_values = []
-                
-                for samples in sorted(set([k[0] for k in data_points.keys() if k[1] == factor])):
-                    key = (samples, factor)
-                    if key in data_points and data_points[key]:
-                        x_values.append(samples)
-                        y_values.append(np.mean(data_points[key]))
-                
-                if x_values:
-                    label = f"{config_name}_{architecture}_{factor}x" if config_name else f"{architecture}_{factor}x"
-                    plt.plot(x_values, y_values, 'o' + line_styles[arch_idx], 
-                            label=label, color=colors[i], linewidth=2, markersize=6)
+                    # Calculate AUC
+                    scores_auc = expit(scores)
+                    auc = roc_auc_score(labels, scores_auc)
+                    all_data_auc[key].append(auc)
+                    
+                    # Calculate Recall at FPR
+                    recall = recall_at_fpr_func(scores, labels)
+                    all_data_recall[key].append(recall)
+                    
+                except Exception as e:
+                    continue
+    
+    if not all_data_auc:
+        print("No valid data points found for experiment 3")
+        return
+    
+    # Get unique values for plotting
+    true_samples_list = sorted(list(set([k[1] for k in all_data_auc.keys()])))
+    upsampling_factors = sorted(list(set([k[2] for k in all_data_auc.keys()])))
+    
+    # Create gradient red colors for upsampling factors (light red to dark red)
+    red_colors = plt.cm.Reds(np.linspace(0.3, 0.9, len(upsampling_factors)))
+    
+    # Define markers for different upsampling factors
+    markers = ['o', 's', '^', 'D', '*']  # circle, square, triangle, diamond, star
+    
+    # Create separate plots for each probe (AUC and Recall)
+    for probe_name in sorted(probe_names):
+        # Create AUC plot
+        plt.figure(figsize=(10, 6))
         
-        plt.title(f"Experiment 3: Seed {seed} - All Architecture Probe Performance vs Upsampling" + 
-                  (" (filtered)" if filtered else " (all)"))
-        plt.ylabel("AUC")
-        plt.xlabel("Number of True Positive Samples")
-        plt.xscale('log')
-        plt.ylim(0.4, 1)
-        plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+        # Plot each upsampling factor as a separate line
+        for i, factor in enumerate(upsampling_factors):
+            x_values = []
+            medians = []
+            lower_bounds = []
+            upper_bounds = []
+            
+            for samples in true_samples_list:
+                key = (probe_name, samples, factor)
+                if key in all_data_auc and all_data_auc[key]:
+                    x_values.append(samples)
+                    
+                    # Calculate median and percentiles for error bands
+                    values = all_data_auc[key]
+                    medians.append(np.median(values))
+                    
+                    # Calculate 25th and 75th percentiles for shaded region
+                    if len(values) > 1:
+                        # Use numpy percentile for more accurate calculation
+                        lower_bounds.append(np.percentile(values, 25))
+                        upper_bounds.append(np.percentile(values, 75))
+                    else:
+                        # If only one value, use the same value for bounds (no shading)
+                        lower_bounds.append(values[0])
+                        upper_bounds.append(values[0])
+            
+            if x_values:
+                color = red_colors[i]  # Use gradient red color based on upsampling factor
+                marker = markers[i] if i < len(markers) else 'o'  # Use different marker for each upsampling factor
+                
+                # Plot median line
+                plt.plot(x_values, medians, f'{marker}-', label=f'{factor}x', color=color, linewidth=2, markersize=8)
+                
+                # Add shaded confidence band (25th to 75th percentile)
+                if len(x_values) > 0 and lower_bounds and upper_bounds:
+                    # Only show shading if there's actual variation (not all bounds are the same)
+                    has_variation = any(lower_bounds[j] != upper_bounds[j] for j in range(len(lower_bounds)))
+                    if has_variation:
+                        plt.fill_between(x_values, lower_bounds, upper_bounds, alpha=0.2, color=color)
+        
+        # Set plot properties for AUC
+        plt.xlabel('Number of True Positive Samples', fontsize=14)
+        plt.ylabel('AUC', fontsize=14)
+        plt.title(f"Experiment 3: {probe_name} Probe Performance vs Upsampling (AUC)" + 
+                 (" (filtered)" if filtered else " (all)") + 
+                 (f" (seeds: {', '.join(seeds)})" if len(seeds) > 1 else ""), fontsize=16)
+        
+        plt.xticks(true_samples_list, true_samples_list)
         plt.grid(True, alpha=0.3)
+        plt.legend(fontsize=12)
+        
+        # Set larger font sizes for tick labels
+        plt.tick_params(axis='both', which='major', labelsize=12)
+        
+        # Set y-axis limits for better readability
+        all_values = []
+        for factor in upsampling_factors:
+            for samples in true_samples_list:
+                key = (probe_name, samples, factor)
+                if key in all_data_auc and all_data_auc[key]:
+                    all_values.extend(all_data_auc[key])
+        
+        if all_values:
+            min_val = min(all_values)
+            y_min = max(0.0, min_val - 0.05)
+            y_max = 1.0
+            plt.ylim(y_min, y_max)
+        
         plt.tight_layout()
         
-        # Save with seed in filename
-        if save_path:
-            base_path = Path(save_path)
-            seed_save_path = base_path.parent / f"{base_path.stem}_seed_{seed}{base_path.suffix}"
-            plt.savefig(seed_save_path, dpi=150, bbox_inches='tight')
-            print(f"Saved experiment 3 plot for seed {seed} to {seed_save_path}")
+        # Save AUC plot
+        if save_path_base:
+            # Create filename with probe name and metric
+            base_path = Path(save_path_base)
+            probe_save_path = base_path.parent / f"{base_path.stem}_{probe_name}_auc{base_path.suffix}"
+            plt.savefig(probe_save_path, dpi=150, bbox_inches='tight')
+            print(f"Saved experiment 3 AUC plot for {probe_name} to {probe_save_path}")
+            plt.close()
+        else:
+            plt.show()
+        
+        # Create Recall at FPR plot
+        plt.figure(figsize=(10, 6))
+        
+        # Plot each upsampling factor as a separate line
+        for i, factor in enumerate(upsampling_factors):
+            x_values = []
+            medians = []
+            lower_bounds = []
+            upper_bounds = []
+            
+            for samples in true_samples_list:
+                key = (probe_name, samples, factor)
+                if key in all_data_recall and all_data_recall[key]:
+                    x_values.append(samples)
+                    
+                    # Calculate median and percentiles for error bands
+                    values = all_data_recall[key]
+                    medians.append(np.median(values))
+                    
+                    # Calculate 25th and 75th percentiles for shaded region
+                    if len(values) > 1:
+                        # Use numpy percentile for more accurate calculation
+                        lower_bounds.append(np.percentile(values, 25))
+                        upper_bounds.append(np.percentile(values, 75))
+                    else:
+                        # If only one value, use the same value for bounds (no shading)
+                        lower_bounds.append(values[0])
+                        upper_bounds.append(values[0])
+            
+            if x_values:
+                color = red_colors[i]  # Use gradient red color based on upsampling factor
+                marker = markers[i] if i < len(markers) else 'o'  # Use different marker for each upsampling factor
+                
+                # Plot median line
+                plt.plot(x_values, medians, f'{marker}-', label=f'{factor}x', color=color, linewidth=2, markersize=8)
+                
+                # Add shaded confidence band (25th to 75th percentile)
+                if len(x_values) > 0 and lower_bounds and upper_bounds:
+                    # Only show shading if there's actual variation (not all bounds are the same)
+                    has_variation = any(lower_bounds[j] != upper_bounds[j] for j in range(len(lower_bounds)))
+                    if has_variation:
+                        plt.fill_between(x_values, lower_bounds, upper_bounds, alpha=0.2, color=color)
+        
+        # Set plot properties for Recall
+        plt.xlabel('Number of True Positive Samples', fontsize=14)
+        plt.ylabel(f'Recall at {fpr_target*100}% FPR', fontsize=14)
+        plt.title(f"Experiment 3: {probe_name} Probe Performance vs Upsampling (Recall at {fpr_target*100}% FPR)" + 
+                 (" (filtered)" if filtered else " (all)") + 
+                 (f" (seeds: {', '.join(seeds)})" if len(seeds) > 1 else ""), fontsize=16)
+        
+        plt.xticks(true_samples_list, true_samples_list)
+        plt.grid(True, alpha=0.3)
+        plt.legend(fontsize=12)
+        
+        # Set larger font sizes for tick labels
+        plt.tick_params(axis='both', which='major', labelsize=12)
+        
+        # Set y-axis limits for better readability
+        all_values = []
+        for factor in upsampling_factors:
+            for samples in true_samples_list:
+                key = (probe_name, samples, factor)
+                if key in all_data_recall and all_data_recall[key]:
+                    all_values.extend(all_data_recall[key])
+        
+        if all_values:
+            min_val = min(all_values)
+            y_min = max(0.0, min_val - 0.05)
+            y_max = 1.0
+            plt.ylim(y_min, y_max)
+        
+        plt.tight_layout()
+        
+        # Save Recall plot
+        if save_path_base:
+            # Create filename with probe name and metric
+            base_path = Path(save_path_base)
+            probe_save_path = base_path.parent / f"{base_path.stem}_{probe_name}_recall{base_path.suffix}"
+            plt.savefig(probe_save_path, dpi=150, bbox_inches='tight')
+            print(f"Saved experiment 3 Recall plot for {probe_name} to {probe_save_path}")
             plt.close()
         else:
             plt.show()
@@ -1246,22 +788,26 @@ def plot_experiment_2_unified(base_results_dir: Path, probe_names: List[str], sa
                 medians.append(np.median(all_data[class1_count]))
                 
                 # Calculate confidence interval (25th and 75th percentiles for interquartile range)
-                sorted_values = np.sort(all_data[class1_count])
-                n = len(sorted_values)
-                q25_idx = max(0, int(0.25 * n))
-                q75_idx = min(n - 1, int(0.75 * n))
-                lower_bounds.append(sorted_values[q25_idx])
-                upper_bounds.append(sorted_values[q75_idx])
+                if len(all_data[class1_count]) > 1:
+                    # Use numpy percentile for more accurate calculation
+                    lower_bounds.append(np.percentile(all_data[class1_count], 25))
+                    upper_bounds.append(np.percentile(all_data[class1_count], 75))
+                else:
+                    # If only one value, use the same value for bounds (no shading)
+                    value = all_data[class1_count][0]
+                    lower_bounds.append(value)
+                    upper_bounds.append(value)
         
         if x_values:
             color = colors[probe_idx]
-            if len(seeds) > 1:
-                # Plot median line
-                plt.plot(x_values, medians, 'o-', label=probe_name, linewidth=2, color=color, markersize=6)
-                # Add shaded confidence band
-                plt.fill_between(x_values, lower_bounds, upper_bounds, alpha=0.2, color=color)
-            else:
-                plt.plot(x_values, medians, 'o-', label=probe_name, linewidth=2, color=color, markersize=6)
+            # Plot median line
+            plt.plot(x_values, medians, 'o-', label=probe_name, linewidth=2, color=color, markersize=6)
+            # Add shaded confidence band (25th to 75th percentile)
+            if lower_bounds and upper_bounds:
+                # Only show shading if there's actual variation (not all bounds are the same)
+                has_variation = any(lower_bounds[j] != upper_bounds[j] for j in range(len(lower_bounds)))
+                if has_variation:
+                    plt.fill_between(x_values, lower_bounds, upper_bounds, alpha=0.2, color=color)
     
     # Set plot properties
     if plot_title:
@@ -1343,7 +889,6 @@ def plot_experiment_2_unified(base_results_dir: Path, probe_names: List[str], sa
         plt.ylabel(f"Recall at {fpr_target*100}% FPR")
     
     plt.xlabel("Number of class 1 (positive) samples in train set")
-    plt.xscale('log')
     plt.legend()
     plt.grid(True, alpha=0.3)
     plt.tight_layout()
