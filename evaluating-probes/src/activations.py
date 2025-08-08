@@ -262,7 +262,9 @@ class ActivationManager:
             row_slice = slice(old_rows + s, old_rows + s + len(batch_prompts))
             act_mm[row_slice] = acts
             hash_mm[row_slice] = np.array(list(new_hashes[s : s + len(batch_prompts)]), dtype=self.hash_dtype)
-            del cache; torch.cuda.empty_cache()
+            del cache
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
 
         # flush & close
         act_mm.flush(); hash_mm.flush()

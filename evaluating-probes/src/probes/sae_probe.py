@@ -20,9 +20,12 @@ def get_memory_usage():
     process = psutil.Process()
     ram_usage = process.memory_info().rss / 1024**3  # GB
     if torch.cuda.is_available():
-        gpu_allocated = torch.cuda.memory_allocated() / 1024**3  # GB
-        gpu_reserved = torch.cuda.memory_reserved() / 1024**3  # GB
-        return f"RAM: {ram_usage:.2f}GB, GPU_allocated: {gpu_allocated:.2f}GB, GPU_reserved: {gpu_reserved:.2f}GB"
+        try:
+            gpu_allocated = torch.cuda.memory_allocated() / 1024**3  # GB
+            gpu_reserved = torch.cuda.memory_reserved() / 1024**3  # GB
+            return f"RAM: {ram_usage:.2f}GB, GPU_allocated: {gpu_allocated:.2f}GB, GPU_reserved: {gpu_reserved:.2f}GB"
+        except:
+            return f"RAM: {ram_usage:.2f}GB, GPU: unavailable"
     else:
         return f"RAM: {ram_usage:.2f}GB"
 

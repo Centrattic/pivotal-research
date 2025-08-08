@@ -150,7 +150,7 @@ class BaseProbe:
         print(f"Batch size: {batch_size}")
  
         # Print memory usage info
-        if torch.cuda.is_available():
+        if torch.cuda.is_available() and "cuda" in self.device:
             print(f"GPU memory allocated: {torch.cuda.memory_allocated(self.device) / 1024**3:.2f} GB")
             print(f"GPU memory cached: {torch.cuda.memory_reserved(self.device) / 1024**3:.2f} GB")
 
@@ -193,13 +193,13 @@ class BaseProbe:
             
             # Clear cache periodically to prevent memory buildup
             # if epoch % 5 == 0:  # More frequent cache clearing
-            #     if torch.cuda.is_available():
+            #     if torch.cuda.is_available() and "cuda" in self.device:
             #         torch.cuda.empty_cache()
             #     gc.collect()  # Force CPU garbage collection
                 
             # Print memory usage every 5 epochs
             if epoch % 5 == 0:
-                if torch.cuda.is_available():
+                if torch.cuda.is_available() and "cuda" in self.device:
                     print(f"Epoch {epoch}: GPU memory allocated: {torch.cuda.memory_allocated(self.device) / 1024**3:.2f} GB")
                     # Try to get GPU utilization (if available)
                     try:
@@ -219,6 +219,8 @@ class BaseProbe:
                 xb = xb.to(self.device, non_blocking=True)
                 yb = yb.to(self.device, non_blocking=True)
                 mb = mb.to(self.device, non_blocking=True)
+                yb = yb.bfloat16()  # Keep as bfloat16 for mixed precision training
+                continue
 
                 optimizer.zero_grad(set_to_none=True)  # More efficient than zero_grad()
                 
@@ -229,7 +231,6 @@ class BaseProbe:
                     print(f"First batch - logits shape: {logits.shape}")
                 
                 # Binary classification only
-                yb = yb.bfloat16()  # Keep as bfloat16 for mixed precision training
                 loss = criterion(logits, yb)
                 
                 if batch_count == 0 and epoch == 0:

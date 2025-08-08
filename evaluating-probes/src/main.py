@@ -47,8 +47,8 @@ from transformer_lens import HookedTransformer
 
 def main():
     # Clear GPU memory and set device
-    torch.cuda.empty_cache()
     if torch.cuda.is_available():
+        torch.cuda.empty_cache()
         torch.cuda.synchronize()  # Wait for all CUDA operations to complete
     
     global config_yaml, retrain, reevaluate, hyperparameter_tuning, retrain_with_best_hparams
@@ -323,7 +323,8 @@ def main():
     finally:
         if 'model' in locals():
             del model
-        torch.cuda.empty_cache()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
         logger.log("=" * 80)
         logger.log("\U0001f979 Run finished. Closing log file.")
         logger.close()
