@@ -94,11 +94,22 @@ def main():
         run_name = config.get('run_name', 'default_run')
         all_checks_done = True
         for check in config['model_check']:
-            ds_name = check['check_on']
-            runthrough_dir = Path(f"results/{run_name}/runthrough_{ds_name}")
-            if not runthrough_dir.exists():
-                all_checks_done = False
+            check_on = check['check_on']
+            # Support both single dataset and list of datasets
+            if isinstance(check_on, list):
+                datasets_to_check = check_on
+            else:
+                datasets_to_check = [check_on] if check_on else []
+            
+            # Check if all datasets have runthrough directories
+            for ds_name in datasets_to_check:
+                runthrough_dir = Path(f"results/{run_name}/runthrough_{ds_name}")
+                if not runthrough_dir.exists():
+                    all_checks_done = False
+                    break
+            if not all_checks_done:
                 break
+        
         if not all_checks_done:
             logger.log("\n=== Running model_check before main pipeline ===")
             run_model_check(config)
@@ -340,7 +351,14 @@ def main():
                     
                     logger.log(f"🤔 Evaluation of {architecture_name} ({config_name}) on {eval_dataset}")
                     
-                    try:
+                    try:                        
+                        # Check eval_dataset_configs first
+                        eval_dataset_configs = config.get('eval_dataset_configs', {})
+                        if eval_dataset in eval_dataset_configs:
+                            dataset_config = eval_dataset_configs[eval_dataset]
+                            threshold_class_0 = dataset_config.get('threshold_class_0', threshold_class_0)
+                            threshold_class_1 = dataset_config.get('threshold_class_1', threshold_class_1)
+                        
                         metrics = evaluate_probe(
                             train_dataset_name=dataset_job['train_dataset'], 
                             eval_dataset_name=eval_dataset,
@@ -350,7 +368,8 @@ def main():
                             model=model, d_model=d_model, device=config['device'],
                             use_cache=config['cache_activations'], cache_dir=cache_dir, 
                             reevaluate=reevaluate,
-                            score_options=score_options, rebuild_config=dataset_job['rebuild_params'], 
+                            score_options=score_options, threshold_class_0=threshold_class_0, 
+                            threshold_class_1=threshold_class_1, rebuild_config=dataset_job['rebuild_params'], 
                             return_metrics=True,
                             contrast_fn=dataset_job['contrast_fn']
                         )

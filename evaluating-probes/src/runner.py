@@ -16,6 +16,7 @@ import torch
 import copy
 import json
 import pandas as pd
+import numpy as np
 
 def train_probe(
     model, d_model: int, train_dataset_name: str, layer: int, component: str,
@@ -417,7 +418,7 @@ def evaluate_probe(
     architecture_config: dict, results_dir: Path, logger: Logger,
     seed: int, model, d_model: int, device: str, use_cache: bool, cache_dir: Path, reevaluate: bool,
     train_size: float = 0.75, val_size: float = 0.10, test_size: float = 0.15, 
-    logit_diff_threshold: float = 4, score_options: list = None,
+    score_options: list = None, threshold_class_0: float = 2.0, threshold_class_1: float = 2.0,
     rebuild_config: dict = None,
     return_metrics: bool = False,
     contrast_fn: Any = None,  # NEW
@@ -522,10 +523,10 @@ def evaluate_probe(
         combined_metrics["all_examples"] = all_metrics
     
     if 'filtered' in score_options:
-        logger.log(f"  - 🤗 Calculating filtered metrics (threshold={logit_diff_threshold})...")
+        logger.log(f"  - 🤗 Calculating filtered metrics (class_0_threshold={threshold_class_0}, class_1_threshold={threshold_class_1})...")
         filtered_metrics = probe.score_filtered(test_acts, y_test, eval_dataset_name, results_dir, 
-                                              seed=seed, logit_diff_threshold=logit_diff_threshold, 
-                                              test_size=test_size)
+                                              seed=seed, threshold_class_0=threshold_class_0, 
+                                              threshold_class_1=threshold_class_1, test_size=test_size)
         combined_metrics["filtered_examples"] = filtered_metrics
     
     # Save metrics and per-datapoint scores/labels
@@ -560,7 +561,19 @@ def evaluate_probe(
             if csv_files:
                 df = pd.read_csv(csv_files[0])
                 if 'logit_diff' in df.columns:
-                    mask_filter = np.abs(df['logit_diff'].values) > logit_diff_threshold
+                    # Apply class-specific thresholds like in score_filtered
+                    logit_diff_values = df['logit_diff'].values
+                    mask_filter = np.zeros(len(logit_diff_values), dtype=bool)
+                    
+                    for i, (logit_diff, true_label) in enumerate(zip(logit_diff_values, test_labels)):
+                        if true_label == 0:
+                            threshold = threshold_class_0
+                        elif true_label == 1:
+                            threshold = threshold_class_1
+                        else:
+                            threshold = max(threshold_class_0, threshold_class_1)  # fallback
+                        mask_filter[i] = np.abs(logit_diff) > threshold
+                    
                     filtered_indices = np.where(mask_filter)[0]
                     
                     if len(filtered_indices) > 0:
@@ -568,7 +581,8 @@ def evaluate_probe(
                             "scores": [test_scores[i] for i in filtered_indices],
                             "labels": [test_labels[i] for i in filtered_indices],
                             "filtered": True,
-                            "logit_diff_threshold": logit_diff_threshold,
+                            "threshold_class_0": threshold_class_0,
+                            "threshold_class_1": threshold_class_1,
                             "original_size": len(test_scores),
                             "filtered_size": len(filtered_indices),
                             "removed_count": len(test_scores) - len(filtered_indices)
@@ -585,7 +599,7 @@ def evaluate_probe(
     if 'filtered' in score_options:
         filtered_metrics = combined_metrics.get("filtered_examples", {})
         if filtered_metrics.get("filtered", False):
-            logger.log(f"  - 🙃 Filtered examples metrics (threshold={logit_diff_threshold}): {filtered_metrics}")
+            logger.log(f"  - 🙃 Filtered examples metrics (class_0_threshold={threshold_class_0}, class_1_threshold={threshold_class_1}): {filtered_metrics}")
         else:
             logger.log(f"  - 😵‍💫 Filtered scoring failed, using all examples")
     if return_metrics:

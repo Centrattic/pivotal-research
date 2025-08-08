@@ -278,10 +278,11 @@ class GroupedProbe:
                 print(f"Epoch {epoch+1}/{epochs} - Losses: {loss_str}")
             
             # Early stopping logic using individual hyperparameters
-            any_probe_should_stop = False
+            all_probes_should_stop = True
             for probe_name in self.probes:
                 probe_hyperparams = self.probe_hyperparams[probe_name]
                 if not probe_hyperparams['early_stopping']:
+                    all_probes_should_stop = False  # If any probe doesn't use early stopping, keep training
                     continue
                     
                 probe_patience = probe_hyperparams['patience']
@@ -304,15 +305,15 @@ class GroupedProbe:
                         if verbose:
                             print(f"  {probe_name}: No improvement for {epochs_no_improve[probe_name]}/{probe_patience} epochs")
                     
-                    # Check if this probe has reached its individual patience threshold
-                    if epochs_no_improve[probe_name] >= probe_patience:
-                        any_probe_should_stop = True
-                        if verbose:
-                            print(f"  {probe_name}: Reached patience threshold ({probe_patience} epochs)")
+                    # Check if this probe has NOT reached its individual patience threshold
+                    if epochs_no_improve[probe_name] < probe_patience:
+                        all_probes_should_stop = False
+                else:
+                    all_probes_should_stop = False  # Still in warmup period
             
-            # Global early stopping: stop all probes when any probe reaches its patience
-            if any_probe_should_stop:
-                print(f"Global early stopping triggered at epoch {epoch+1} (at least one probe reached its patience threshold).")
+            # Global early stopping: only stop when ALL probes have reached their patience thresholds
+            if all_probes_should_stop:
+                print(f"Global early stopping triggered at epoch {epoch+1} (all probes reached their patience thresholds).")
                 # Restore best model states for all probes
                 for probe_name in self.probes:
                     if best_model_states[probe_name] is not None:

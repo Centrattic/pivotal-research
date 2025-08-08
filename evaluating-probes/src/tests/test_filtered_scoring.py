@@ -45,7 +45,7 @@ def test_filtered_scoring():
         print(f"\n--- Threshold: {threshold} ---")
         filtered_metrics = probe.score_filtered(
             X, y, "test_dataset", Path("results"), 
-            seed=42, logit_diff_threshold=threshold, test_size=0.15, mask=mask
+            seed=42, threshold_class_0=threshold, threshold_class_1=threshold, test_size=0.15, mask=mask
         )
         print(f"Filtered metrics: {filtered_metrics}")
         

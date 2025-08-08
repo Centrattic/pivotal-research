@@ -485,7 +485,7 @@ class BaseProbe:
         print(f"Class 1 threshold: {threshold_class_1}")
         
         # Read the CSV file to get logit_diff values
-        # Runthrough directory is always in the parent directory (results/{experiment_name}/)
+        # Look for CSV files with dataset name and logit_diff in filename
         parent_dir = results_dir.parent
         runthrough_dir = parent_dir / f"runthrough_{dataset_name}"
         
@@ -493,10 +493,16 @@ class BaseProbe:
             print(f"Warning: No runthrough directory found at {runthrough_dir}. Using unfiltered scoring.")
             return self.score(X, y, mask)
         
-        csv_files = list(runthrough_dir.glob("*logit_diff*.csv"))
+        # Look for CSV files with the new naming pattern: logit_diff_{check_name}_{dataset_name}_model_check.csv
+        csv_files = list(runthrough_dir.glob(f"logit_diff_*_{dataset_name}_model_check.csv"))
         if not csv_files:
-            print(f"Warning: No logit_diff*.csv file found in {runthrough_dir}. Using unfiltered scoring.")
-            return self.score(X, y, mask)
+            # Fallback to old pattern or any logit_diff file
+            csv_files = list(runthrough_dir.glob(f"*logit_diff*{dataset_name}*.csv"))
+            if not csv_files:
+                csv_files = list(runthrough_dir.glob("*logit_diff*.csv"))
+                if not csv_files:
+                    print(f"Warning: No logit_diff*.csv file found in {runthrough_dir}. Using unfiltered scoring.")
+                    return self.score(X, y, mask)
         
         csv_path = csv_files[0]  # Use the first matching file
         print(f"Using logit_diff file: {csv_path}")
@@ -579,30 +585,7 @@ class BaseProbe:
             print(f"Error in filtered scoring: {e}. Using unfiltered scoring.")
             return self.score(X, y, mask)
 
-    def score_with_filtered(self, X: np.ndarray, y: np.ndarray, dataset_name: str, results_dir: Path,
-                           seed: int, threshold_class_0: float = 2.0, threshold_class_1: float = 2.0, 
-                           test_size: float = 0.15, mask: Optional[np.ndarray] = None) -> dict[str, dict]:
-        """
-        Calculate both regular and filtered metrics, returning them in a combined dictionary.
-        """
-        print(f"\n=== COMBINED SCORING START ===")
-        
-        # Get regular metrics
-        regular_metrics = self.score(X, y, mask)
-        regular_metrics["filtered"] = False
-        
-        # Get filtered metrics
-        filtered_metrics = self.score_filtered(X, y, dataset_name, results_dir, seed, threshold_class_0, 
-                                             threshold_class_1, test_size, mask)
-        
-        # Combine results
-        combined_results = {
-            "all_examples": regular_metrics,
-            "filtered_examples": filtered_metrics
-        }
-        
-        print(f"=== COMBINED SCORING COMPLETE ===\n")
-        return combined_results
+
 
     def save_state(self, path: Path):
         save_dict = {
@@ -862,15 +845,22 @@ class BaseProbeNonTrainable:
         Calculate metrics only on examples where the model's logit_diff is above threshold.
         """
         # Read the CSV file to get logit_diff values
+        # Look for CSV files with dataset name and logit_diff in filename
         parent_dir = results_dir.parent
         runthrough_dir = parent_dir / f"runthrough_{dataset_name}"
         
         if not runthrough_dir.exists():
             return self.score(X, y, mask)
         
-        csv_files = list(runthrough_dir.glob("*logit_diff*.csv"))
+        # Look for CSV files with the new naming pattern: logit_diff_{check_name}_{dataset_name}_model_check.csv
+        csv_files = list(runthrough_dir.glob(f"logit_diff_*_{dataset_name}_model_check.csv"))
         if not csv_files:
-            return self.score(X, y, mask)
+            # Fallback to old pattern or any logit_diff file
+            csv_files = list(runthrough_dir.glob(f"*logit_diff*{dataset_name}*.csv"))
+            if not csv_files:
+                csv_files = list(runthrough_dir.glob("*logit_diff*.csv"))
+                if not csv_files:
+                    return self.score(X, y, mask)
         
         csv_path = csv_files[0]
         try:
@@ -931,27 +921,7 @@ class BaseProbeNonTrainable:
         except Exception as e:
             return self.score(X, y, mask)
 
-    def score_with_filtered(self, X: np.ndarray, y: np.ndarray, dataset_name: str, results_dir: Path,
-                           seed: int, threshold_class_0: float = 2.0, threshold_class_1: float = 2.0, 
-                           test_size: float = 0.15, mask: Optional[np.ndarray] = None) -> dict[str, dict]:
-        """
-        Calculate both regular and filtered metrics, returning them in a combined dictionary.
-        """
-        # Get regular metrics
-        regular_metrics = self.score(X, y, mask)
-        regular_metrics["filtered"] = False
-        
-        # Get filtered metrics
-        filtered_metrics = self.score_filtered(X, y, dataset_name, results_dir, seed, threshold_class_0, 
-                                             threshold_class_1, test_size, mask)
-        
-        # Combine results
-        combined_results = {
-            "all_examples": regular_metrics,
-            "filtered_examples": filtered_metrics
-        }
-        
-        return combined_results
+
 
     def save_state(self, path: Path):
         """

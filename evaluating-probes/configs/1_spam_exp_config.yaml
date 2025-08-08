@@ -12,6 +12,15 @@ layers: [20] # Where SAE probes found layers peform the bests
 components:
   - "resid_post"
 
+# Evaluation dataset configurations with thresholds for filtered scoring
+eval_dataset_configs:
+  94_better_spam:
+    threshold_class_0: 2.0  # Threshold for class 0 (Ham) examples - only include if |logit_diff| > 2.0
+    threshold_class_1: 2.0  # Threshold for class 1 (Spam) examples - only include if |logit_diff| > 2.0
+  87_is_spam:
+    threshold_class_0: 1.5  # Different thresholds for this dataset
+    threshold_class_1: 1.5  # Lower thresholds = more examples included in filtered scoring
+
 architectures:
   - name: "linear"
     config_name: "linear_mean"
@@ -48,7 +57,7 @@ experiments:
       - 94_better_spam
       - 87_is_spam
     score:
-      - all
+      - filtered
   - name: 2-spam-pred-auc-increasing-spam-fixed-total
     metric: auc
     class_names: {0: "Ham", 1: "Spam"}
@@ -57,7 +66,7 @@ experiments:
       - 94_better_spam
       - 87_is_spam
     score:
-      - all
+      - filtered
     rebuild_config:
       increasing_spam_fixed_total:
         - {class_counts: {0: 3000, 1: 1}} # we should use all of our examples
@@ -83,6 +92,7 @@ experiments:
       - 94_better_spam
     score:
       - all
+      - filtered
     rebuild_config:
       llm_upsampling_experiments:
         # Fixed 3000 real negative samples, variable real positive samples (1, 2, 3, 4, 5, 10)
@@ -130,11 +140,10 @@ experiments:
         - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 5, upsampling_factor: 3}
         - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 5, upsampling_factor: 4}
         
-        
 
 model_check:
   - name: spam-pred
     hf_model_name: "google/gemma-2-9b-it"
-    check_on: "94_better_spam"
+    check_on: ["94_better_spam", "87_is_spam"]
     check_prompt: "Is this email spam? Answer with either Yes or No. \n {prompt}"
     class_names: {0: ["Yes", "yes", " Yes", " yes"], 1: ["No", "no", " No", " no"]}

@@ -12,7 +12,7 @@ class PytorchLinearProbeConfig(ProbeConfig):
     aggregation: str = "mean"  # mean, max, last, softmax
     lr: float = 5e-4
     epochs: int = 100
-    batch_size: int = 1280 # H100: 2048, H200: 800, A6000: 32
+    batch_size: int = 1024 # H100: 2048, H200: 800, A6000: 32
     weight_decay: float = 0.0
     weighting_method: str = 'weighted_sampler'  # 'weighted_loss', 'weighted_sampler', or 'pcngd'
     # Add more as needed
@@ -22,7 +22,7 @@ class PytorchAttentionProbeConfig(ProbeConfig):
     """Hyperparameters for the PyTorch AttentionProbe."""
     lr: float = 5e-4
     epochs: int = 100
-    batch_size: int = 1280 # H100: 2560, H200: 1024, A6000: 32
+    batch_size: int = 1024 # H100: 2560, H200: 1024, A6000: 32
     weight_decay: float = 0.0
     weighting_method: str = 'weighted_sampler'  # 'weighted_loss', 'weighted_sampler', or 'pcngd'
     # Add more as needed
