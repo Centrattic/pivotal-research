@@ -115,9 +115,9 @@ def main():
 
         available_datasets = get_available_datasets()
 
-        # Step 1: Pre-flight check and gather all jobs (training + evaluation)
-        logger.log("\n Performing Pre-flight Checks and Gathering Jobs")
-        all_jobs = []
+        # Step 1: Pre-flight check and gather all dataset jobs
+        logger.log("\n Performing Pre-flight Checks and Gathering Dataset Jobs")
+        all_dataset_jobs = []
         all_dataset_names_to_check = set()
 
         for experiment in config['experiments']:
@@ -128,59 +128,10 @@ def main():
             all_dataset_names_to_check.update(d for d in train_sets if d in available_datasets)
             all_dataset_names_to_check.update(d for d in eval_sets if d in available_datasets)
             
-            for train_dataset in train_sets:
-                for arch_config in config.get('architectures', []):
-                    architecture_name = arch_config['name']
-                    for layer in config['layers']:
-                        for component in config['components']:
-                            for seed in all_seeds:
-                                config_name = arch_config.get('config_name')
-                                # Create a job tuple that includes all necessary info for both training and evaluation
-                                job = {
-                                    'experiment_name': experiment_name,
-                                    'train_dataset': train_dataset,
-                                    'layer': layer,
-                                    'component': component,
-                                    'architecture_name': architecture_name,
-                                    'config_name': config_name,
-                                    'seed': seed,
-                                    'experiment': experiment,
-                                    'arch_config': arch_config,
-                                    'eval_datasets': eval_sets
-                                }
-                                all_jobs.append(job)
-
-        # Step 2: Combined Training and Evaluation Phase
-        logger.log("\n" + "="*25 + " TRAINING & EVALUATION PHASE " + "="*25)
-        
-        for i, job in enumerate(all_jobs):
-            logger.log("-" * 80)
-            logger.log(f"🫠 Job {i+1}/{len(all_jobs)}: {job['experiment_name']}, {job['train_dataset']}, {job['architecture_name']}, L{job['layer']}, {job['component']}, seed={job['seed']}")
-            
-            # Validate train dataset for this specific seed
-            try:
-                logger.log(f"Validating train dataset '{job['train_dataset']}' with seed {job['seed']}")
-                # train_data = get_dataset(job['train_dataset'], model, device, job['seed'])
-                # train_data.split_data(test_size=0.15, seed=job['seed'])
-                if should_skip_dataset(job['train_dataset'], data=None, logger=logger):
-                    logger.log(f"  - Skipping job due to train dataset validation failure")
-                    continue
-            except Exception as e:
-                logger.log(f"  - 💀 ERROR validating train dataset '{job['train_dataset']}' with seed {job['seed']}: {e}")
-                continue
-            
-            # Create seed-specific directory structure
-            seed_dir = results_dir / f"seed_{job['seed']}"
-            experiment_dir = seed_dir / job['experiment_name']
-            experiment_dir.mkdir(parents=True, exist_ok=True)
-            
-            metric = job['experiment'].get('metric', 'acc')
-            score_options = job['experiment'].get('score', ['all'])
-            
-            # Handle rebuild configs
+            # Handle rebuild configs for this experiment
             rebuild_configs = []
-            if job['experiment'] and 'rebuild_config' in job['experiment']:
-                rc = job['experiment']['rebuild_config']
+            if experiment and 'rebuild_config' in experiment:
+                rc = experiment['rebuild_config']
                 if isinstance(rc, dict):
                     for group in rc.values():
                         rebuild_configs.extend(group)
@@ -191,134 +142,183 @@ def main():
             
             # Handle contrast function
             contrast_fn = None
-            if job['experiment'] and 'contrast_fn' in job['experiment']:
-                contrast_fn = Dataset.load_contrast_fn(job['experiment']['contrast_fn'])
+            if experiment and 'contrast_fn' in experiment:
+                contrast_fn = Dataset.load_contrast_fn(experiment['contrast_fn'])
             
-            # Process each rebuild config
-            for rebuild_params in rebuild_configs:
-                # Get effective seed for this rebuild_config
-                effective_seed = get_effective_seed_for_rebuild_config(job['seed'], rebuild_params)
+            for train_dataset in train_sets:
+                for rebuild_params in rebuild_configs:
+                    for layer in config['layers']:
+                        for component in config['components']:
+                            for seed in all_seeds:
+                                # Create a dataset job that will process all architectures for this dataset/rebuild/seed combination
+                                dataset_job = {
+                                    'experiment_name': experiment_name,
+                                    'train_dataset': train_dataset,
+                                    'layer': layer,
+                                    'component': component,
+                                    'seed': seed,
+                                    'rebuild_params': rebuild_params,
+                                    'experiment': experiment,
+                                    'eval_datasets': eval_sets,
+                                    'contrast_fn': contrast_fn,
+                                    'architectures': config.get('architectures', [])
+                                }
+                                all_dataset_jobs.append(dataset_job)
+
+        # Step 2: Process each dataset job (train and evaluate all probes on one dataset)
+        logger.log("\n" + "="*25 + " DATASET PROCESSING PHASE " + "="*25)
+        
+        for i, dataset_job in enumerate(all_dataset_jobs):
+            logger.log("-" * 80)
+            rebuild_str = resample_params_to_str(dataset_job['rebuild_params']) if dataset_job['rebuild_params'] else "default"
+            logger.log(f"🫠 Dataset Job {i+1}/{len(all_dataset_jobs)}: {dataset_job['experiment_name']}, {dataset_job['train_dataset']}, L{dataset_job['layer']}, {dataset_job['component']}, rebuild={rebuild_str}, seed={dataset_job['seed']}")
+            
+            # Validate train dataset for this specific seed
+            try:
+                logger.log(f"Validating train dataset '{dataset_job['train_dataset']}' with seed {dataset_job['seed']}")
+                if should_skip_dataset(dataset_job['train_dataset'], data=None, logger=logger):
+                    logger.log(f"  - Skipping dataset job due to train dataset validation failure")
+                    continue
+            except Exception as e:
+                logger.log(f"  - 💀 ERROR validating train dataset '{dataset_job['train_dataset']}' with seed {dataset_job['seed']}: {e}")
+                continue
+            
+            # Create seed-specific directory structure
+            seed_dir = results_dir / f"seed_{dataset_job['seed']}"
+            experiment_dir = seed_dir / dataset_job['experiment_name']
+            experiment_dir.mkdir(parents=True, exist_ok=True)
+            
+            metric = dataset_job['experiment'].get('metric', 'acc')
+            score_options = dataset_job['experiment'].get('score', ['all'])
+            
+            # Get effective seed for this rebuild_config
+            effective_seed = get_effective_seed_for_rebuild_config(dataset_job['seed'], dataset_job['rebuild_params'])
+            
+            # Process all architectures for this dataset job
+            logger.log(f"  🔄 Processing {len(dataset_job['architectures'])} architectures for dataset '{dataset_job['train_dataset']}'")
+            
+            all_eval_results = {}
+            
+            for arch_config in dataset_job['architectures']:
+                architecture_name = arch_config['name']
+                config_name = arch_config.get('config_name')
+                
+                logger.log(f"    🏗️  Processing architecture: {architecture_name}")
                 
                 # Check if this is a non-trainable probe
-                if (job['architecture_name'].startswith('act_sim') or 
-                    job['architecture_name'] in ['mass_mean', 'mass_mean_iid']):
+                if (architecture_name.startswith('act_sim') or 
+                    architecture_name in ['mass_mean', 'mass_mean_iid']):
                     
-                    logger.log(f"  😋 Running non-trainable probe: {job['architecture_name']}")
+                    logger.log(f"      😋 Running non-trainable probe: {architecture_name}")
                     
                     # Run non-trainable probe
                     run_non_trainable_probe(
-                        model=model, d_model=d_model, train_dataset_name=job['train_dataset'],
-                        layer=job['layer'], component=job['component'], 
-                        architecture_name=job['architecture_name'], 
-                        config_name=job['config_name'],
+                        model=model, d_model=d_model, train_dataset_name=dataset_job['train_dataset'],
+                        layer=dataset_job['layer'], component=dataset_job['component'], 
+                        architecture_name=architecture_name, 
+                        config_name=config_name,
                         device=config['device'], use_cache=config['cache_activations'], 
                         seed=effective_seed,
                         results_dir=experiment_dir, cache_dir=cache_dir, logger=logger, 
                         retrain=retrain,
-                        rebuild_config=rebuild_params, metric=metric, contrast_fn=contrast_fn
+                        rebuild_config=dataset_job['rebuild_params'], metric=metric, contrast_fn=dataset_job['contrast_fn']
                     )
                 else:
-                    logger.log(f"  💅 Training probe: {job['architecture_name']}")
+                    logger.log(f"      💅 Training probe: {architecture_name}")
                     
                     # Train the probe
                     train_probe(
-                        model=model, d_model=d_model, train_dataset_name=job['train_dataset'],
-                        layer=job['layer'], component=job['component'], 
-                        architecture_name=job['architecture_name'], 
-                        config_name=job['config_name'],
+                        model=model, d_model=d_model, train_dataset_name=dataset_job['train_dataset'],
+                        layer=dataset_job['layer'], component=dataset_job['component'], 
+                        architecture_name=architecture_name, 
+                        config_name=config_name,
                         device=config['device'], use_cache=config['cache_activations'], 
                         seed=effective_seed,
                         results_dir=experiment_dir, cache_dir=cache_dir, logger=logger, 
                         retrain=retrain,
                         hyperparameter_tuning=hyperparameter_tuning, 
-                        rebuild_config=rebuild_params, metric=metric,
+                        rebuild_config=dataset_job['rebuild_params'], metric=metric,
                         retrain_with_best_hparams=retrain_with_best_hparams,
-                        contrast_fn=contrast_fn
+                        contrast_fn=dataset_job['contrast_fn']
                     )
                 
-                # Immediately evaluate the probe on all evaluation datasets
-                logger.log(f"  🤔 Evaluating {job['config_name']} probe on {len(job['eval_datasets'])} datasets...")
+                # Evaluate this probe on all evaluation datasets
+                logger.log(f"      🤔 Evaluating {config_name} probe on {len(dataset_job['eval_datasets'])} datasets...")
                 
-                all_eval_results = {}
-                for eval_dataset in job['eval_datasets']:
+                for eval_dataset in dataset_job['eval_datasets']:
                     try:
                         # Validate eval dataset for this specific seed
-                        logger.log(f"    Validating eval dataset '{eval_dataset}' with seed {job['seed']}")
-                        # eval_data = get_dataset(eval_dataset, model, device, job['seed'])
-                        # eval_data.split_data(test_size=0.15, seed=job['seed'])
+                        logger.log(f"        Validating eval dataset '{eval_dataset}' with seed {dataset_job['seed']}")
                         if should_skip_dataset(eval_dataset, data=None, logger=logger):
-                            logger.log(f"      - Skipping evaluation due to eval dataset validation failure")
+                            logger.log(f"          - Skipping evaluation due to eval dataset validation failure")
                             continue
-                        
-                        # # Check task compatibility (binary classification only)
-                        # train_n_classes = getattr(train_data, 'n_classes', None)
-                        # eval_n_classes = getattr(eval_data, 'n_classes', None)
-                        # if train_n_classes != eval_n_classes:
-                        #     logger.log(f"      - 🫡 Skipping evaluation of probe from '{job['train_dataset']}' on '{eval_dataset}' due to class count mismatch.")
-                        #     continue
                             
                     except Exception as e:
-                        logger.log(f"      - 💀 ERROR validating eval dataset '{eval_dataset}' with seed {job['seed']}: {e}")
+                        logger.log(f"          - 💀 ERROR validating eval dataset '{eval_dataset}' with seed {dataset_job['seed']}: {e}")
                         continue
                     
                     # Check if probe directory exists
-                    if rebuild_params is not None:
-                        probe_save_dir = experiment_dir / f"dataclass_exps_{job['train_dataset']}"
+                    if dataset_job['rebuild_params'] is not None:
+                        probe_save_dir = experiment_dir / f"dataclass_exps_{dataset_job['train_dataset']}"
                     else:
-                        probe_save_dir = experiment_dir / f"train_{job['train_dataset']}"
+                        probe_save_dir = experiment_dir / f"train_{dataset_job['train_dataset']}"
                     
                     if not probe_save_dir.exists():
-                        logger.log(f"      - [SKIP] Probe dir does not exist: {probe_save_dir}")
+                        logger.log(f"          - [SKIP] Probe dir does not exist: {probe_save_dir}")
                         continue
                     
                     # Evaluate the probe
                     try:
                         metrics = evaluate_probe(
-                            train_dataset_name=job['train_dataset'], 
+                            train_dataset_name=dataset_job['train_dataset'], 
                             eval_dataset_name=eval_dataset,
-                            layer=job['layer'], component=job['component'], 
-                            architecture_config=job['arch_config'],
+                            layer=dataset_job['layer'], component=dataset_job['component'], 
+                            architecture_config=arch_config,
                             results_dir=experiment_dir, logger=logger, seed=effective_seed,
                             model=model, d_model=d_model, device=config['device'],
                             use_cache=config['cache_activations'], cache_dir=cache_dir, 
                             reevaluate=reevaluate,
-                            score_options=score_options, rebuild_config=rebuild_params, 
+                            score_options=score_options, rebuild_config=dataset_job['rebuild_params'], 
                             return_metrics=True,
-                            contrast_fn=contrast_fn
+                            contrast_fn=dataset_job['contrast_fn']
                         )
                         
-                        key = resample_params_to_str(rebuild_params)
-                        if key not in all_eval_results:
-                            all_eval_results[key] = {}
-                        all_eval_results[key][eval_dataset] = metrics
+                        # Store results by rebuild config and eval dataset
+                        rebuild_key = resample_params_to_str(dataset_job['rebuild_params'])
+                        if rebuild_key not in all_eval_results:
+                            all_eval_results[rebuild_key] = {}
+                        if eval_dataset not in all_eval_results[rebuild_key]:
+                            all_eval_results[rebuild_key][eval_dataset] = {}
                         
-                        logger.log(f"      🤩 Evaluation complete for {eval_dataset}")
+                        # Store results by architecture
+                        all_eval_results[rebuild_key][eval_dataset][architecture_name] = metrics
+                        
+                        logger.log(f"          🤩 Evaluation complete for {eval_dataset} with {architecture_name}")
                         
                     except Exception as e:
-                        logger.log(f"      - 💀 ERROR evaluating probe on '{eval_dataset}': {e}")
+                        logger.log(f"          - 💀 ERROR evaluating probe on '{eval_dataset}': {e}")
                         continue
+            
+            # Save evaluation results for this dataset job
+            if all_eval_results:
+                # Create a comprehensive filename that includes all architectures
+                arch_names = [arch['name'] for arch in dataset_job['architectures']]
+                arch_str = "_".join(arch_names[:3]) + ("_and_more" if len(arch_names) > 3 else "")
                 
-                # Save evaluation results for this rebuild config
-                if all_eval_results:
-                    probe_filename_base = get_probe_filename_prefix(
-                        job['train_dataset'], job['architecture_name'], 
-                        job['layer'], job['component'], job['config_name'], contrast_fn
-                    )
-                    
-                    # Determine the correct directory to save results
-                    if rebuild_params is not None:
-                        eval_results_path = experiment_dir / f"dataclass_exps_{job['train_dataset']}" / f"eval_on_all__{probe_filename_base}_allres.json"
-                        eval_results_path.parent.mkdir(parents=True, exist_ok=True)
-                    else:
-                        eval_results_path = experiment_dir / f"train_{job['train_dataset']}" / f"eval_on_all__{probe_filename_base}_allres.json"
-                        eval_results_path.parent.mkdir(parents=True, exist_ok=True)
-                    
-                    with open(eval_results_path, "w") as f:
-                        json.dump(all_eval_results, f, indent=2)
-                    
-                    logger.log(f"  🤗 Saved evaluation results to {eval_results_path}")
+                # Determine the correct directory to save results
+                if dataset_job['rebuild_params'] is not None:
+                    eval_results_path = experiment_dir / f"dataclass_exps_{dataset_job['train_dataset']}" / f"eval_on_all__{dataset_job['train_dataset']}_L{dataset_job['layer']}_{dataset_job['component']}_{arch_str}_allres.json"
+                    eval_results_path.parent.mkdir(parents=True, exist_ok=True)
+                else:
+                    eval_results_path = experiment_dir / f"train_{dataset_job['train_dataset']}" / f"eval_on_all__{dataset_job['train_dataset']}_L{dataset_job['layer']}_{dataset_job['component']}_{arch_str}_allres.json"
+                    eval_results_path.parent.mkdir(parents=True, exist_ok=True)
                 
-                logger.log(f"  😜 Completed job {i+1}/{len(all_jobs)}")
+                with open(eval_results_path, "w") as f:
+                    json.dump(all_eval_results, f, indent=2)
+                
+                logger.log(f"  🤗 Saved evaluation results to {eval_results_path}")
+            
+            logger.log(f"  😜 Completed dataset job {i+1}/{len(all_dataset_jobs)}")
                 
     finally:
         if 'model' in locals():

@@ -20,7 +20,7 @@ architectures:
     config_name: "linear_last"
   - name: "linear"
     config_name: "linear_softmax"
-  # - name: "linear" # use linear max or something, and overwrite 2-exp results later wiht linear_mean normal
+  # - name: "linear" # use linear max or something, and overwrite 2-exp results later wiht linear_mean normal, those are linear_mean high_reg right now I think
   #   config_name: "linear_mean_high_reg"
   - name: "attention"
     config_name: "default_attention"
