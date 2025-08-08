@@ -218,12 +218,14 @@ def train_grouped_probe(
     """
     logger.log(f"  - Training {len(architecture_configs)} probes using grouped training for efficiency...")
 
-    # Check if all individual probes already exist (for cache checking)
+    # Check which individual probes already exist and skip them
     probe_save_dir = results_dir / f"train_{train_dataset_name}"
     if rebuild_config is not None:
         probe_save_dir = results_dir / f"dataclass_exps_{train_dataset_name}"
     
-    all_probes_exist = True
+    probes_to_train = []
+    existing_probes = []
+    
     for arch_config in architecture_configs:
         architecture_name = arch_config['name']
         config_name = arch_config.get('config_name')
@@ -236,13 +238,21 @@ def train_grouped_probe(
         else:
             individual_probe_state_path = probe_save_dir / f"{individual_probe_filename_base}_state.npz"
         
-        if not individual_probe_state_path.exists():
-            all_probes_exist = False
-            break
+        if use_cache and individual_probe_state_path.exists() and not retrain:
+            existing_probes.append(arch_config)
+            logger.log(f"    - [SKIP] Probe already exists: {architecture_name} ({config_name})")
+        else:
+            probes_to_train.append(arch_config)
     
-    if use_cache and all_probes_exist and not retrain:
+    if not probes_to_train:
         logger.log(f"  - [SKIP] All {len(architecture_configs)} probes already trained. Skipping grouped training.")
         return
+        
+    logger.log(f"  - Training {len(probes_to_train)} probes (skipping {len(existing_probes)} existing probes)")
+    
+    # Keep original list for metadata saving, update working list for training
+    original_architecture_configs = architecture_configs
+    architecture_configs = probes_to_train
 
     # Prepare dataset (same logic as train_probe)
     if rebuild_config is not None:
@@ -364,8 +374,8 @@ def train_grouped_probe(
         contrast_fn=contrast_fn
     )
     
-    # Save metadata files for each probe (same as train_probe would create)
-    for arch_config in architecture_configs:
+    # Save metadata files for each probe (both trained and existing ones)
+    for arch_config in original_architecture_configs:
         architecture_name = arch_config['name']
         config_name = arch_config.get('config_name')
         
@@ -397,7 +407,7 @@ def train_grouped_probe(
         
         logger.log(f"  - 🔥 Saved individual probe: {individual_probe_state_path.name}")
     
-    logger.log(f"  - ✅ All {len(grouped_probe.probes)} probes trained and saved individually")
+    logger.log(f"  - ✅ Trained {len(grouped_probe.probes)} probes, metadata saved for all {len(original_architecture_configs)} probes")
     
     return grouped_probe
 

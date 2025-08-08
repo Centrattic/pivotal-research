@@ -26,6 +26,7 @@ class GroupedProbe:
         self.task_type = task_type
         self.probes: Dict[str, BaseProbe] = {}
         self.probe_configs: Dict[str, Dict] = {}
+        self.probe_hyperparams: Dict[str, Dict] = {}
         self.probe_optimizers: Dict[str, torch.optim.Optimizer] = {}
         self.probe_criterions: Dict[str, nn.Module] = {}
         self.probe_class_weights: Dict[str, Optional[torch.Tensor]] = {}
@@ -51,6 +52,15 @@ class GroupedProbe:
         config = asdict(PROBE_CONFIGS[config_name])
         self.probe_configs[probe_name] = config
         
+        # Store individual hyperparameters for this probe
+        self.probe_hyperparams[probe_name] = {
+            'lr': config.get('lr', 1e-3),
+            'weight_decay': config.get('weight_decay', 0.0),
+            'patience': config.get('patience', 20),
+            'min_delta': config.get('min_delta', 0.005),
+            'early_stopping': config.get('early_stopping', True)
+        }
+        
         # Create the probe
         probe = get_probe_architecture(architecture_name, d_model=self.d_model, device=self.device, config=config)
         self.probes[probe_name] = probe
@@ -63,8 +73,8 @@ class GroupedProbe:
         else:
             # Initialize optimizer for probes with available models
             optimizer = torch.optim.Adam(probe.model.parameters(), 
-                                       lr=config.get('lr', 1e-3), 
-                                       weight_decay=config.get('weight_decay', 0.0))
+                                       lr=self.probe_hyperparams[probe_name]['lr'], 
+                                       weight_decay=self.probe_hyperparams[probe_name]['weight_decay'])
             self.probe_optimizers[probe_name] = optimizer
         
         # Initialize loss function
@@ -73,7 +83,7 @@ class GroupedProbe:
         # Initialize loss history
         self.probe_loss_histories[probe_name] = []
         
-        print(f"Added probe '{probe_name}' ({architecture_name}) with config '{config_name}'")
+        print(f"Added probe '{probe_name}' ({architecture_name}) with config '{config_name}' - lr={self.probe_hyperparams[probe_name]['lr']}, patience={self.probe_hyperparams[probe_name]['patience']}")
         
     def fit(self, X: np.ndarray, y: np.ndarray, mask: Optional[np.ndarray] = None, 
             epochs: int = 20, lr: float = 1e-3, batch_size: int = 1, weight_decay: float = 0.0, 
@@ -183,10 +193,10 @@ class GroupedProbe:
         for probe_name, probe in self.probes.items():
             if probe.model is not None:
                 # Always recreate optimizer in case model was reinitialized (like SAE probes)
-                config = self.probe_configs[probe_name]
+                probe_hyperparams = self.probe_hyperparams[probe_name]
                 optimizer = torch.optim.Adam(probe.model.parameters(), 
-                                           lr=config.get('lr', 1e-3), 
-                                           weight_decay=config.get('weight_decay', 0.0))
+                                           lr=probe_hyperparams['lr'], 
+                                           weight_decay=probe_hyperparams['weight_decay'])
                 self.probe_optimizers[probe_name] = optimizer
                 print(f"Created/recreated optimizer for {probe_name}")
                 
@@ -250,8 +260,10 @@ class GroupedProbe:
                 batch_count += 1
             
             # Compute average losses and update histories
+            avg_losses = {}
             for probe_name in self.probes:
                 avg_loss = epoch_losses[probe_name] / len(dataset)
+                avg_losses[probe_name] = avg_loss
                 self.probe_loss_histories[probe_name].append(avg_loss)
                 recent_losses[probe_name].append(avg_loss)
                 recent_model_states[probe_name].append({key: value.clone() for key, value in self.probes[probe_name].model.state_dict().items()})
@@ -262,44 +274,52 @@ class GroupedProbe:
                     recent_model_states[probe_name].pop(0)
             
             if verbose:
-                loss_str = ", ".join([f"{name}: {loss:.4f}" for name, loss in epoch_losses.items()])
+                loss_str = ", ".join([f"{name}: {loss:.4f}" for name, loss in avg_losses.items()])
                 print(f"Epoch {epoch+1}/{epochs} - Losses: {loss_str}")
             
-            # Early stopping logic for each probe
-            if early_stopping:
-                all_stopped = True
-                for probe_name in self.probes:
-                    if len(recent_losses[probe_name]) >= window_size:
-                        # Find best loss in the recent window
-                        min_loss_idx = np.argmin(recent_losses[probe_name])
-                        current_best_loss = recent_losses[probe_name][min_loss_idx]
-                        
-                        if current_best_loss < best_losses[probe_name] - min_delta:
-                            improvement = best_losses[probe_name] - current_best_loss
-                            best_losses[probe_name] = current_best_loss
-                            best_model_states[probe_name] = recent_model_states[probe_name][min_loss_idx]
-                            epochs_no_improve[probe_name] = 0
-                            if verbose:
-                                print(f"  {probe_name}: New best loss: {best_losses[probe_name]:.4f} (improved by {improvement:.4f})")
-                        else:
-                            epochs_no_improve[probe_name] += 1
-                            if verbose:
-                                print(f"  {probe_name}: No improvement for {epochs_no_improve[probe_name]}/{patience} epochs")
-                        
-                        if epochs_no_improve[probe_name] < patience:
-                            all_stopped = False
-                    else:
-                        all_stopped = False
+            # Early stopping logic using individual hyperparameters
+            any_probe_should_stop = False
+            for probe_name in self.probes:
+                probe_hyperparams = self.probe_hyperparams[probe_name]
+                if not probe_hyperparams['early_stopping']:
+                    continue
+                    
+                probe_patience = probe_hyperparams['patience']
+                probe_min_delta = probe_hyperparams['min_delta']
                 
-                if all_stopped:
-                    print(f"Early stopping triggered at epoch {epoch+1}.")
-                    # Restore best model states
-                    for probe_name in self.probes:
-                        if best_model_states[probe_name] is not None:
-                            self.probes[probe_name].model.load_state_dict(best_model_states[probe_name])
-                            print(f"Restored {probe_name} to best state (loss: {best_losses[probe_name]:.4f})")
-                    stop_epoch = epoch + 1
-                    break
+                if len(recent_losses[probe_name]) >= window_size:
+                    # Find best loss in the recent window
+                    min_loss_idx = np.argmin(recent_losses[probe_name])
+                    current_best_loss = recent_losses[probe_name][min_loss_idx]
+                    
+                    if current_best_loss < best_losses[probe_name] - probe_min_delta:
+                        improvement = best_losses[probe_name] - current_best_loss
+                        best_losses[probe_name] = current_best_loss
+                        best_model_states[probe_name] = recent_model_states[probe_name][min_loss_idx]
+                        epochs_no_improve[probe_name] = 0
+                        if verbose:
+                            print(f"  {probe_name}: New best loss: {best_losses[probe_name]:.4f} (improved by {improvement:.4f})")
+                    else:
+                        epochs_no_improve[probe_name] += 1
+                        if verbose:
+                            print(f"  {probe_name}: No improvement for {epochs_no_improve[probe_name]}/{probe_patience} epochs")
+                    
+                    # Check if this probe has reached its individual patience threshold
+                    if epochs_no_improve[probe_name] >= probe_patience:
+                        any_probe_should_stop = True
+                        if verbose:
+                            print(f"  {probe_name}: Reached patience threshold ({probe_patience} epochs)")
+            
+            # Global early stopping: stop all probes when any probe reaches its patience
+            if any_probe_should_stop:
+                print(f"Global early stopping triggered at epoch {epoch+1} (at least one probe reached its patience threshold).")
+                # Restore best model states for all probes
+                for probe_name in self.probes:
+                    if best_model_states[probe_name] is not None:
+                        self.probes[probe_name].model.load_state_dict(best_model_states[probe_name])
+                        print(f"Restored {probe_name} to best state (loss: {best_losses[probe_name]:.4f})")
+                stop_epoch = epoch + 1
+                break
         
         print(f"=== GROUPED TRAINING COMPLETE ===")
         if stop_epoch is not None:
