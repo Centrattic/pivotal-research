@@ -128,7 +128,7 @@ def _calculate_metric_with_error_bars(seed_files: Dict[str, List[str]], metric_f
 
 def plot_logit_diffs_from_csv(csv_path, class_names, save_path=None, bins=50, x_range=(-10, 10)):
     df = pd.read_csv(csv_path)
-    plt.figure(figsize=(8, 5))
+    plt.figure(figsize=(6, 4))  # Larger figure size to accommodate longer titles
     color_cycle = plt.rcParams['axes.prop_cycle'].by_key()['color']
     for i, (idx, name) in enumerate(class_names.items()):
         mask = df['label'] == idx
@@ -141,11 +141,11 @@ def plot_logit_diffs_from_csv(csv_path, class_names, save_path=None, bins=50, x_
             color=color_cycle[i % len(color_cycle)],
             edgecolor="black"
         )
-    plt.xlabel("Logit difference")
-    plt.ylabel("Count")
-    plt.title("Logit difference histogram from CSV")
+    plt.xlabel("Logit difference", fontsize=12)
+    plt.ylabel("Count", fontsize=12)
+    plt.title("Logit difference histogram from CSV", fontsize=14)
     plt.yscale("log")
-    plt.legend()
+    plt.legend(fontsize=10)
     plt.tight_layout()
     if save_path:
         plt.savefig(save_path, dpi=150)
@@ -166,7 +166,7 @@ def plot_multi_folder_recall_at_fpr(folders, folder_labels, architecture, class_
     if colors is None:
         colors = [f"C{i}" for i in range(len(folders))]
     
-    plt.figure(figsize=(7, 5))
+    plt.figure(figsize=(6, 4))  # Larger figure size to accommodate longer titles
     all_recalls = []  # Collect all recall values across all folders
     
     for i, (folder, label) in enumerate(zip(folders, folder_labels)):
@@ -213,11 +213,9 @@ def plot_multi_folder_recall_at_fpr(folders, folder_labels, architecture, class_
             for x, y in zip(x_values, means):
                 plt.text(x, y + 0.01, f"{y:.2f}", ha='center', va='bottom', fontsize=8, color=colors[i])
     
-    plt.title(f"{architecture.capitalize()} Probes: Recall at FPR={fpr_target}" + 
-              (" (filtered)" if filtered else " (all)") + 
-              (f" (seeds: {', '.join(seeds)})" if len(seeds) > 1 else ""))
-    plt.ylabel("Recall")
-    plt.xlabel("Number of class 1 (positive) samples in train set")
+    plt.title("Varying number of positive training examples\nwith 3000 negative examples", fontsize=14)
+    plt.ylabel("Recall", fontsize=12)
+    plt.xlabel("Number of positive examples in the train set", fontsize=12)
     plt.xscale('log')
     
     # Set y-axis to start at a reasonable nonzero value based on the data
@@ -228,7 +226,7 @@ def plot_multi_folder_recall_at_fpr(folders, folder_labels, architecture, class_
     else:
         plt.ylim(0, 1)
     
-    plt.legend()
+    plt.legend(fontsize=10)
     plt.tight_layout()
     if save_path:
         plt.savefig(save_path, dpi=150)
@@ -249,7 +247,7 @@ def plot_multi_folder_auc_vs_n_class1(folders, folder_labels, architecture, clas
     if colors is None:
         colors = [f"C{i}" for i in range(len(folders))]
     
-    plt.figure(figsize=(7, 5))
+    plt.figure(figsize=(6, 4))  # Larger figure size to accommodate longer titles
     all_aucs = []  # Collect all AUC values across all folders
     
     for i, (folder, label) in enumerate(zip(folders, folder_labels)):
@@ -288,11 +286,9 @@ def plot_multi_folder_auc_vs_n_class1(folders, folder_labels, architecture, clas
             for x, y in zip(x_values, means):
                 plt.text(x, y + 0.01, f"{y:.2f}", ha='center', va='bottom', fontsize=8, color=colors[i])
     
-    plt.title(f"{architecture.capitalize()} Probes: AUC vs. #class1" + 
-              (" (filtered)" if filtered else " (all)") + 
-              (f" (seeds: {', '.join(seeds)})" if len(seeds) > 1 else ""))
-    plt.ylabel("AUC")
-    plt.xlabel("Number of class 1 (positive) samples in train set")
+    plt.title("Varying number of positive training examples\nwith 3000 negative examples", fontsize=14)
+    plt.ylabel("AUC", fontsize=12)
+    plt.xlabel("Number of positive examples in the train set", fontsize=12)
     plt.xscale('log')
     
     # Set y-axis to start at a reasonable nonzero value based on the data
@@ -303,7 +299,7 @@ def plot_multi_folder_auc_vs_n_class1(folders, folder_labels, architecture, clas
     else:
         plt.ylim(0, 1)
     
-    plt.legend()
+    plt.legend(fontsize=10)
     plt.tight_layout()
     if save_path:
         plt.savefig(save_path, dpi=150)
@@ -326,7 +322,7 @@ def plot_all_probe_loss_curves_in_folder(folder, save_path=None, max_probes=40, 
     n = min(len(log_files), max_probes)
     ncols = min(4, n)
     nrows = math.ceil(n / ncols)
-    fig, axs = plt.subplots(nrows, ncols, figsize=(5*ncols, 3*nrows), squeeze=False)
+    fig, axs = plt.subplots(nrows, ncols, figsize=(4*ncols, 2.5*nrows), squeeze=False)  # Smaller figure size for bigger text
     
     for idx, log_path in enumerate(log_files[:max_probes]):
         row, col = divmod(idx, ncols)
@@ -336,9 +332,9 @@ def plot_all_probe_loss_curves_in_folder(folder, save_path=None, max_probes=40, 
         loss_history = d.get('loss_history', [])
         ax.plot(loss_history)
         label = extract_probe_info_from_filename(log_path)
-        ax.set_title(label, fontsize=8)
-        ax.set_xlabel('Epoch')
-        ax.set_ylabel('Loss')
+        ax.set_title(label, fontsize=10)  # Bigger font size
+        ax.set_xlabel('Epoch', fontsize=9)
+        ax.set_ylabel('Loss', fontsize=9)
     
     # Hide unused subplots
     for idx in range(n, nrows*ncols):
@@ -358,7 +354,8 @@ def plot_all_probe_loss_curves_in_folder(folder, save_path=None, max_probes=40, 
 
 
 def plot_experiment_3_per_probe(base_results_dir: Path, save_path_base=None, 
-                                filtered: bool = True, seeds: List[str] = None, fpr_target: float = 0.01):
+                                filtered: bool = True, seeds: List[str] = None, fpr_target: float = 0.01,
+                                train_dataset: str = None):
     """Plot experiment 3 with separate plots for each individual probe, showing upsampling factors as different lines for both AUC and Recall at FPR."""
     from scipy.special import expit
     from sklearn.metrics import roc_auc_score
@@ -372,6 +369,7 @@ def plot_experiment_3_per_probe(base_results_dir: Path, save_path_base=None,
     all_data_auc = {}
     all_data_recall = {}
     probe_names = set()
+    eval_datasets = set()
     
     def recall_at_fpr_func(scores, labels):
         scores = expit(scores)
@@ -404,12 +402,17 @@ def plot_experiment_3_per_probe(base_results_dir: Path, save_path_base=None,
             llm_match = re.search(r'llm_neg(\d+)_pos(\d+)_(\d+)x', str(file))
             probe_match = re.search(r'train_on_94_better_spam_(.*?)_L\d+_resid_post_llm', str(file))
             
-            if llm_match and probe_match:
+            # Extract evaluation dataset from filename
+            eval_match = re.search(r'eval_on_([^_]+(?:_[^_]+)*?)__', str(file))
+            
+            if llm_match and probe_match and eval_match:
                 n_real_pos = int(llm_match.group(2))
                 upsampling_factor = int(llm_match.group(3))
                 probe_name = probe_match.group(1)
+                eval_dataset = eval_match.group(1)
                 
                 probe_names.add(probe_name)
+                eval_datasets.add(eval_dataset)
                 key = (probe_name, n_real_pos, upsampling_factor)
                 
                 # Initialize data structures
@@ -441,6 +444,17 @@ def plot_experiment_3_per_probe(base_results_dir: Path, save_path_base=None,
     true_samples_list = sorted(list(set([k[1] for k in all_data_auc.keys()])))
     upsampling_factors = sorted(list(set([k[2] for k in all_data_auc.keys()])))
     
+    # Filter out 10x upsampling for now
+    upsampling_factors = [f for f in upsampling_factors if f != 10]
+    
+    # Determine if any evaluation is out-of-distribution
+    is_ood = False
+    if train_dataset is not None:
+        for eval_dataset in eval_datasets:
+            if eval_dataset != train_dataset:
+                is_ood = True
+                break
+    
     # Create gradient red colors for upsampling factors (light red to dark red)
     red_colors = plt.cm.Reds(np.linspace(0.3, 0.9, len(upsampling_factors)))
     
@@ -450,7 +464,7 @@ def plot_experiment_3_per_probe(base_results_dir: Path, save_path_base=None,
     # Create separate plots for each probe (AUC and Recall)
     for probe_name in sorted(probe_names):
         # Create AUC plot
-        plt.figure(figsize=(10, 6))
+        plt.figure(figsize=(6, 4))  # Larger figure size to accommodate longer titles
         
         # Plot each upsampling factor as a separate line
         for i, factor in enumerate(upsampling_factors):
@@ -493,18 +507,19 @@ def plot_experiment_3_per_probe(base_results_dir: Path, save_path_base=None,
                         plt.fill_between(x_values, lower_bounds, upper_bounds, alpha=0.2, color=color)
         
         # Set plot properties for AUC
-        plt.xlabel('Number of True Positive Samples', fontsize=14)
-        plt.ylabel('AUC', fontsize=14)
-        plt.title(f"Experiment 3: {probe_name} Probe Performance vs Upsampling (AUC)" + 
-                 (" (filtered)" if filtered else " (all)") + 
-                 (f" (seeds: {', '.join(seeds)})" if len(seeds) > 1 else ""), fontsize=16)
+        plt.xlabel('Number of positive real examples in the train set', fontsize=12)
+        plt.ylabel('AUC', fontsize=12)
+        if is_ood:
+            plt.title("LLM Upsampling: Out of Distribution", fontsize=14)
+        else:
+            plt.title("LLM Upsampling", fontsize=14)
         
         plt.xticks(true_samples_list, true_samples_list)
         plt.grid(True, alpha=0.3)
-        plt.legend(fontsize=12)
+        plt.legend(title="LLM Upsampling Factor", fontsize=10)
         
         # Set larger font sizes for tick labels
-        plt.tick_params(axis='both', which='major', labelsize=12)
+        plt.tick_params(axis='both', which='major', labelsize=10)
         
         # Set y-axis limits for better readability
         all_values = []
@@ -534,7 +549,7 @@ def plot_experiment_3_per_probe(base_results_dir: Path, save_path_base=None,
             plt.show()
         
         # Create Recall at FPR plot
-        plt.figure(figsize=(10, 6))
+        plt.figure(figsize=(6, 4))  # Larger figure size to accommodate longer titles
         
         # Plot each upsampling factor as a separate line
         for i, factor in enumerate(upsampling_factors):
@@ -577,18 +592,19 @@ def plot_experiment_3_per_probe(base_results_dir: Path, save_path_base=None,
                         plt.fill_between(x_values, lower_bounds, upper_bounds, alpha=0.2, color=color)
         
         # Set plot properties for Recall
-        plt.xlabel('Number of True Positive Samples', fontsize=14)
-        plt.ylabel(f'Recall at {fpr_target*100}% FPR', fontsize=14)
-        plt.title(f"Experiment 3: {probe_name} Probe Performance vs Upsampling (Recall at {fpr_target*100}% FPR)" + 
-                 (" (filtered)" if filtered else " (all)") + 
-                 (f" (seeds: {', '.join(seeds)})" if len(seeds) > 1 else ""), fontsize=16)
+        plt.xlabel('Number of positive real examples in the train set', fontsize=12)
+        plt.ylabel(f'Recall at {fpr_target*100}% FPR', fontsize=12)
+        if is_ood:
+            plt.title("LLM Upsampling: Out of Distribution", fontsize=14)
+        else:
+            plt.title("LLM Upsampling", fontsize=14)
         
         plt.xticks(true_samples_list, true_samples_list)
         plt.grid(True, alpha=0.3)
-        plt.legend(fontsize=12)
+        plt.legend(title="LLM Upsampling\nFactor", fontsize=10)
         
         # Set larger font sizes for tick labels
-        plt.tick_params(axis='both', which='major', labelsize=12)
+        plt.tick_params(axis='both', which='major', labelsize=10)
         
         # Set y-axis limits for better readability
         all_values = []
@@ -698,7 +714,8 @@ def get_best_probes_by_type(base_results_dir: Path, seeds: List[str], filtered: 
 
 def plot_experiment_2_unified(base_results_dir: Path, probe_names: List[str], save_path=None, 
                              metric='auc', fpr_target: float = 0.01, filtered: bool = True, 
-                             seeds: List[str] = None, plot_title: str = None, eval_dataset: str = None):
+                             seeds: List[str] = None, plot_title: str = None, eval_dataset: str = None,
+                             probe_labels: Dict[str, str] = None):
     """
     Unified experiment 2 plotting function that can handle any selection of probes.
     
@@ -712,6 +729,7 @@ def plot_experiment_2_unified(base_results_dir: Path, probe_names: List[str], sa
         seeds: List of seeds to use
         plot_title: Custom title for the plot
         eval_dataset: Evaluation dataset name (e.g., '87_is_spam', '94_better_spam')
+        probe_labels: Dictionary mapping probe config names to readable labels
     """
     from scipy.special import expit
     from sklearn.metrics import roc_auc_score
@@ -721,6 +739,11 @@ def plot_experiment_2_unified(base_results_dir: Path, probe_names: List[str], sa
     
     experiment_folder = "2-spam-pred-auc-increasing-spam-fixed-total"
     dataclass_folder = "dataclass_exps_94_better_spam"
+    
+    # Determine if this is out-of-distribution evaluation
+    # Training dataset is 94_better_spam (from dataclass_folder name)
+    train_dataset = "94_better_spam"
+    is_ood = (eval_dataset is not None and eval_dataset != train_dataset)
     
     def recall_at_fpr_func(scores, labels):
         scores = expit(scores)
@@ -738,7 +761,7 @@ def plot_experiment_2_unified(base_results_dir: Path, probe_names: List[str], sa
                 best_recall = recall
         return best_recall
     
-    plt.figure(figsize=(12, 8))
+    plt.figure(figsize=(6, 4))  # Larger figure size to accommodate longer titles
     colors = [f"C{i}" for i in range(len(probe_names))]
     
     for probe_idx, probe_name in enumerate(probe_names):
@@ -800,8 +823,10 @@ def plot_experiment_2_unified(base_results_dir: Path, probe_names: List[str], sa
         
         if x_values:
             color = colors[probe_idx]
+            # Use readable label if available, otherwise use original name
+            label = probe_labels.get(probe_name, probe_name)
             # Plot median line
-            plt.plot(x_values, medians, 'o-', label=probe_name, linewidth=2, color=color, markersize=6)
+            plt.plot(x_values, medians, 'o-', label=label, linewidth=2, color=color, markersize=6)
             # Add shaded confidence band (25th to 75th percentile)
             if lower_bounds and upper_bounds:
                 # Only show shading if there's actual variation (not all bounds are the same)
@@ -813,15 +838,9 @@ def plot_experiment_2_unified(base_results_dir: Path, probe_names: List[str], sa
     if plot_title:
         title = plot_title
     else:
-        if metric == 'auc':
-            title = f"Experiment 2: Probe Performance Comparison (AUC)"
-        else:
-            title = f"Experiment 2: Probe Performance Comparison (Recall at {fpr_target*100}% FPR)"
-        
-        title += (" (filtered)" if filtered else " (all)") + \
-                 (f" (seeds: {', '.join(seeds)})" if len(seeds) > 1 else "")
+        title = "Varying number of positive training examples\nwith 3000 negative examples"
     
-    plt.title(title)
+    plt.title(title, fontsize=14)
     
     # Collect all values to determine y-axis limits
     all_lower_bounds = []  # Store the 25th percentile (lower bound of confidence bands)
@@ -884,13 +903,24 @@ def plot_experiment_2_unified(base_results_dir: Path, probe_names: List[str], sa
             plt.ylim(0, 1)
     
     if metric == 'auc':
-        plt.ylabel("AUC")
+        if is_ood:
+            plt.ylabel("AUC on text spam", fontsize=12)
+        else:
+            plt.ylabel("AUC", fontsize=12)
     else:
-        plt.ylabel(f"Recall at {fpr_target*100}% FPR")
+        plt.ylabel(f"Recall at {fpr_target*100}% FPR", fontsize=12)
     
-    plt.xlabel("Number of class 1 (positive) samples in train set")
-    plt.legend()
+    if is_ood:
+        plt.xlabel("Number of positive email spam samples", fontsize=12)
+    else:
+        plt.xlabel("Number of positive examples in the train set", fontsize=12)
+    plt.xscale('log')  # Keep log scale for experiment 2
+    plt.legend(fontsize=10)
     plt.grid(True, alpha=0.3)
+    
+    # Increase tick label sizes
+    plt.tick_params(axis='both', which='major', labelsize=10)
+    
     plt.tight_layout()
     
     if save_path:

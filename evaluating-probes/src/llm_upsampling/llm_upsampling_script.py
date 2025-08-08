@@ -6,10 +6,11 @@ This script implements the LLM upsampling procedure:
 1. Extract parameters (seeds, num_real_samples, upsampling_factors) from config file
 2. Extract positive samples using the same seed-based sampling as build_imbalanced_train_balanced_eval
 3. For each seed, create llm_samples folder in seed_*/ directory
-4. For each num_real_samples, generate cumulative upsampling (2x, 3x, 4x, 5x, etc.)
+4. For each num_real_samples, generate samples in batches of 3 until reaching maximum upsampling factor
 5. Save final datasets as samples_{n_real_samples}.csv in each seed's llm_samples folder
 6. Include safety checks and state machine for handling insufficient samples
 7. Support incremental upsampling - if existing files are found, continue from where left off
+8. Preserve all existing samples and generate new ones in consistent batch sizes
 
 Usage:
     python -m src.llm_upsampling.llm_upsampling_script -c spam_exp --api-key YOUR_API_KEY
@@ -173,7 +174,7 @@ class LLMUpsamplingStateMachine:
         return True, "Validation passed"
     
     def validate_new_samples(self, original_df: pd.DataFrame, new_samples_df: pd.DataFrame, 
-                           upsampling_factor: int) -> Tuple[bool, str]:
+                           batch_size: int) -> Tuple[bool, str]:
         """Validate only the new samples meet requirements."""
         
         # Check that all new samples are class 1 (positive)
@@ -206,9 +207,11 @@ class LLMUpsamplingStateMachine:
         
         return True, "New samples validation passed"
     
-    def generate_upsampling_prompt(self, original_df: pd.DataFrame, upsampling_factor: int, 
-                                 target_samples: int, previous_samples: Optional[pd.DataFrame] = None) -> str:
-        """Generate the upsampling prompt for the LLM."""
+
+    
+    def generate_batch_upsampling_prompt(self, original_df: pd.DataFrame, batch_size: int, 
+                                       previous_samples: Optional[pd.DataFrame] = None) -> str:
+        """Generate the upsampling prompt for a batch of samples."""
         
         # Convert original data to CSV string
         csv_buffer = io.StringIO()
@@ -222,13 +225,7 @@ class LLMUpsamplingStateMachine:
             previous_samples.to_csv(csv_buffer, index=False)
             previous_csv = f"\n\nPreviously generated samples:\n{csv_buffer.getvalue()}"
         
-        # For each upsampling factor > 1, we need to add num_real_samples new samples
-        new_samples_needed = len(original_df)  # Always add the same number as original samples
-        
-        print(f"    DEBUG: original_df length: {len(original_df)}")
-        print(f"    DEBUG: new_samples_needed: {new_samples_needed} (adding {len(original_df)} samples for {upsampling_factor}x)")
-        
-        prompt = f"""You are an expert at creating synthetic data samples for machine learning. I need you to add {new_samples_needed} new unique samples to the existing dataset.
+        prompt = f"""You are an expert at creating synthetic data samples for machine learning. I need you to add {batch_size} new unique samples to the existing dataset.
 
         Here is the original dataset, as well as previous samples generated:
         {original_csv}{previous_csv}
@@ -236,34 +233,35 @@ class LLMUpsamplingStateMachine:
         Requirements:
         - Analyze the existing samples to understand the data and its contents
         - Perform non-trivial upsampling (not just replacement of keywords or simple variations)
-        - Ensure the new samples are realistic, while being completely unique and diverse in structure from the original samples
-        - Generate exactly {new_samples_needed} new samples that are all class 1 (no class 0 samples)
+        - Ensure the new samples are realistic
+        - Ensure the new samples are completely unique and diverse in structure from all existing samples
+        - Generate exactly {batch_size} new samples that are all class 1 (no class 0 samples)
 
         Output format:
         NEW PROMPT
         [your first actual sample text]
         NEW PROMPT
         [your second actual sample text]
-        [continue for exactly {new_samples_needed} samples]
+        [continue for exactly {batch_size} samples]
         
         CRITICAL: Generate REAL sample text based on the existing data. Do NOT use placeholder text."""
 
         return prompt
     
-    def request_upsampling(self, original_df: pd.DataFrame, upsampling_factor: int, 
-                          target_samples: int, previous_samples: Optional[pd.DataFrame] = None) -> Optional[pd.DataFrame]:
-        """Request upsampling from the LLM with retry logic."""
+    def request_upsampling_batch(self, original_df: pd.DataFrame, batch_size: int, 
+                                previous_samples: Optional[pd.DataFrame] = None) -> Optional[pd.DataFrame]:
+        """Request a batch of upsampling from the LLM with retry logic."""
         
-        prompt = self.generate_upsampling_prompt(original_df, upsampling_factor, target_samples, previous_samples)
+        prompt = self.generate_batch_upsampling_prompt(original_df, batch_size, previous_samples)
         
         for attempt in range(self.max_retries):
             try:
-                print(f"  Attempt {attempt + 1}/{self.max_retries} for {upsampling_factor}x upsampling...")
+                print(f"  Attempt {attempt + 1}/{self.max_retries} for batch of {batch_size} samples...")
                 print(f"    Using model: {self.model}")
                 print(f"    Prompt length: {len(prompt)} characters")
                 print(f"    Original samples: {len(original_df)}")
-                print(f"    Target samples: {target_samples}")
-                print(f"    New samples needed: {len(original_df)} (always add {len(original_df)})")
+                print(f"    Batch size: {batch_size}")
+                print(f"    Previous samples: {len(previous_samples) if previous_samples is not None else 0}")
                 # print(f"    Prompt preview: {prompt[:500]}...")
                 
                 response = self.client.chat.completions.create(
@@ -288,16 +286,15 @@ class LLMUpsamplingStateMachine:
                 print(f"    Response preview: {response_text[:200]}...")
                 
                 # Extract new samples from response
-                expected_new_samples = len(original_df)  # Always expect len(original_df) new samples
-                new_samples_df = self.extract_csv_from_response(response_text, expected_new_samples)
+                new_samples_df = self.extract_csv_from_response(response_text, batch_size)
                 if new_samples_df is None:
                     print(f"    Failed to parse response, retrying...")
                     time.sleep(self.retry_delay)
                     continue
                 
                 # Validate that we got the right number of new samples
-                if len(new_samples_df) != expected_new_samples:
-                    print(f"    ❌ Got {len(new_samples_df)} new samples, expected {expected_new_samples}")
+                if len(new_samples_df) != batch_size:
+                    print(f"    ❌ Got {len(new_samples_df)} new samples, expected {batch_size}")
                     if attempt < self.max_retries - 1:
                         print(f"    Retrying...")
                         time.sleep(self.retry_delay)
@@ -311,7 +308,7 @@ class LLMUpsamplingStateMachine:
                 
                 # Validate the new samples (not the combined dataset)
                 is_valid, validation_msg = self.validate_new_samples(
-                    original_df, new_samples_df, upsampling_factor
+                    original_df, new_samples_df, batch_size
                 )
                 
                 if is_valid:
@@ -555,46 +552,61 @@ def run_llm_upsampling(config_path: Path, api_key: str):
             # Track all generated samples for this n_real_samples
             all_generated_samples = {}
             
-            # Apply upsampling factors consecutively, starting from where we left off
-            for upsampling_factor in upsampling_factors:
-                print(f"\n--- {upsampling_factor}x upsampling ---")
+            # Calculate the maximum target samples needed
+            max_target_samples = max(upsampling_factors) * n_real_samples
+            print(f"Maximum target samples needed: {max_target_samples}")
+            
+            # Generate samples in batches of 3 until we reach the maximum target
+            batch_size = 3
+            all_new_samples = []
+            
+            while len(current_upsampled_df) < max_target_samples:
+                samples_needed = max_target_samples - len(current_upsampled_df)
+                current_batch_size = min(batch_size, samples_needed)
                 
-                # Calculate target samples (total samples needed)
-                target_samples = upsampling_factor * n_real_samples
-                print(f"Target: {target_samples} samples total")
+                print(f"\n--- Generating batch of {current_batch_size} samples ---")
+                print(f"Current samples: {len(current_upsampled_df)}")
+                print(f"Target samples: {max_target_samples}")
+                print(f"Samples needed: {samples_needed}")
                 
-                # Check if we already have enough samples for this upsampling factor
-                if len(current_upsampled_df) >= target_samples:
-                    print(f"✅ Already have {len(current_upsampled_df)} samples, enough for {upsampling_factor}x upsampling")
-                    upsampled_df = current_upsampled_df.copy()
-                elif upsampling_factor == 1:
-                    # 1x upsampling: just use original samples
-                    upsampled_df = original_df.copy()
-                    print(f"✅ Using original {len(upsampled_df)} samples for 1x upsampling")
-                else:
-                    # Calculate how many additional samples we need
-                    additional_samples_needed = target_samples - len(current_upsampled_df)
-                    print(f"Need {additional_samples_needed} additional samples from LLM")
-                    
-                    # Request upsampling - pass current upsampled dataset as previous samples
-                    new_samples_df = state_machine.request_upsampling(
-                        original_df, upsampling_factor, target_samples, current_upsampled_df
-                    )
-                    
-                    if new_samples_df is None:
-                        print(f"❌ Failed to generate samples for {upsampling_factor}x upsampling")
-                        break
-                    
-                    # Combine current upsampled samples with new samples
-                    upsampled_df = pd.concat([current_upsampled_df, new_samples_df], ignore_index=True)
+                # Request batch upsampling
+                new_samples_df = state_machine.request_upsampling_batch(
+                    original_df, current_batch_size, current_upsampled_df
+                )
                 
-                all_generated_samples[upsampling_factor] = upsampled_df
-                current_upsampled_df = upsampled_df.copy()  # Update for next iteration
-                print(f"✅ We have {len(upsampled_df)} samples for {upsampling_factor}x upsampling")
+                if new_samples_df is None:
+                    print(f"❌ Failed to generate batch of {current_batch_size} samples")
+                    break
+                
+                # Add new samples to our collection
+                all_new_samples.append(new_samples_df)
+                current_upsampled_df = pd.concat([current_upsampled_df, new_samples_df], ignore_index=True)
+                
+                print(f"✅ Added {len(new_samples_df)} new samples, total: {len(current_upsampled_df)}")
+            
+            # Create the final upsampled dataset
+            if all_new_samples:
+                final_df = current_upsampled_df.copy()
+                
+                # Calculate what upsampling factors we achieved
+                achieved_factors = []
+                for factor in upsampling_factors:
+                    target_for_factor = factor * n_real_samples
+                    if len(final_df) >= target_for_factor:
+                        achieved_factors.append(factor)
+                
+                print(f"✅ Achieved upsampling factors: {achieved_factors}")
+                print(f"✅ Final dataset has {len(final_df)} samples")
+                
+                # Store the final dataset
+                all_generated_samples = {max(achieved_factors): final_df}
+            else:
+                print(f"❌ No new samples generated")
+                all_generated_samples = {}
             
             # Save the final cumulative dataset for this n_real_samples
             if all_generated_samples:
-                # Get the highest upsampling factor that succeeded
+                # Get the final dataset
                 max_factor = max(all_generated_samples.keys())
                 final_df = all_generated_samples[max_factor]
                 

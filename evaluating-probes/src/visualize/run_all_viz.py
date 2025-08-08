@@ -142,12 +142,35 @@ def main():
             'act_sim_probes': ['act_sim_max_max', 'act_sim_last_last']
         }
         
+        # Define probe label mapping for clearer legends
+        probe_labels = {
+            'linear_last': 'Linear (last token)',
+            'linear_max': 'Linear (max)',
+            'linear_mean': 'Linear (mean)',
+            'linear_softmax': 'Linear (softmax)',
+            'sae_16k_l0_408': 'SAE (width=16k, L0=408)',
+            'sae_262k_l0_259': 'SAE (width=262k, L0=259)',
+            'attention_attention': 'Attention',
+            'act_sim_max_max': 'Activation Cosine Similarity (max)',
+            'act_sim_last_last': 'Activation Cosine Similarity (last token)'
+        }
+        
         # Define metrics
         metrics = ['auc', 'recall_at_fpr']
+        
+        # Get the training dataset from experiment 2 config
+        train_dataset = None
+        for exp in config.get('experiments', []):
+            if exp.get('name') == '2-spam-pred-auc-increasing-spam-fixed-total':
+                train_dataset = exp.get('train_on')
+                break
         
         # Iterate over evaluation datasets and metrics
         for eval_dataset in eval_datasets:
             print(f"Processing evaluation dataset: {eval_dataset}")
+            
+            # Check if this is out-of-distribution evaluation
+            is_ood = (train_dataset is not None and eval_dataset != train_dataset)
             
             # Get the best probes of each type for this evaluation dataset
             best_probes = get_best_probes_by_type(results_dir, args.seeds, filtered=args.filtered, eval_dataset=eval_dataset)
@@ -157,12 +180,14 @@ def main():
                 for group_name, probe_names in probe_groups.items():
                     if probe_names is None:
                         continue
+                    if group_name != 'best_probes':
+                        continue
                     
                     # Create plot title
-                    if metric == 'auc':
-                        title = f"Experiment 2: {group_name.replace('_', ' ').title()} Comparison (AUC) - Eval on {eval_dataset}"
+                    if is_ood:
+                        title = "OOD (Email Spam to Text Spam)"
                     else:
-                        title = f"Experiment 2: {group_name.replace('_', ' ').title()} Comparison (Recall at 1% FPR) - Eval on {eval_dataset}"
+                        title = "Varying number of positive training examples\nwith 3000 negative examples"
                     
                     # Create filename
                     filename = f'experiment_2_{group_name}_comparison_{metric}_{eval_dataset}.png'
@@ -175,7 +200,7 @@ def main():
                         plot_experiment_2_unified(
                             results_dir, probe_names, save_path=save_path, 
                             metric=metric, fpr_target=0.01, filtered=args.filtered, seeds=args.seeds,
-                            plot_title=title, eval_dataset=eval_dataset
+                            plot_title=title, eval_dataset=eval_dataset, probe_labels=probe_labels
                         )
                     else:
                         print(f"Skipping {save_path} (already exists, use --force to overwrite)")
@@ -188,9 +213,17 @@ def main():
         save_path_base = viz_root / f'experiment_3_per_probe.png'
         if not save_path_base.exists() or args.force:
             print(f"Creating experiment 3 visualizations for each individual probe (aggregated across seeds)")
+            
+            # Get the training dataset from experiment 3 config
+            train_dataset = None
+            for exp in config.get('experiments', []):
+                if exp.get('name') == '3-spam-pred-auc-llm-upsampling':
+                    train_dataset = exp.get('train_on')
+                    break
+            
             plot_experiment_3_per_probe(
                 results_dir, save_path_base=save_path_base, filtered=args.filtered, 
-                seeds=args.seeds, fpr_target=0.01
+                seeds=args.seeds, fpr_target=0.01, train_dataset=train_dataset
             )
     else:
         print(f"Experiment 3 not found")

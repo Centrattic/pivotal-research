@@ -467,7 +467,7 @@ class BaseProbe:
         return result
 
     def score_filtered(self, X: np.ndarray, y: np.ndarray, dataset_name: str, results_dir: Path, 
-                      seed: int, threshold_class_0: float = 2.0, threshold_class_1: float = 2.0, 
+                      seed: int, threshold_class_0: float = 1.0, threshold_class_1: float = 1, 
                       test_size: float = 0.15, mask: Optional[np.ndarray] = None) -> dict[str, float]:
         """
         Calculate metrics only on examples where the model's logit_diff is above threshold.

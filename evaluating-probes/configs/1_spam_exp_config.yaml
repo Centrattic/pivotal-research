@@ -47,7 +47,8 @@ experiments:
       - 94_better_spam
       - 87_is_spam
     score:
-      - all
+      # - all
+      - filtered
   - name: 2-spam-pred-auc-increasing-spam-fixed-total
     metric: auc
     class_names: {0: "Ham", 1: "Spam"}
@@ -56,7 +57,8 @@ experiments:
       - 94_better_spam
       - 87_is_spam
     score:
-      - all
+      # - all
+      - filtered
     rebuild_config:
       increasing_spam_fixed_total:
         - {class_counts: {0: 3000, 1: 1}} # we should use all of our examples
@@ -81,7 +83,8 @@ experiments:
     evaluate_on:
       - 94_better_spam
     score:
-      - all
+      # - all
+      - filtered
     rebuild_config:
       llm_upsampling_experiments:
         # Fixed 3000 real negative samples, variable real positive samples (1, 2, 3, 4, 5, 10)
