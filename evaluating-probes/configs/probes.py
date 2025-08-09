@@ -60,7 +60,7 @@ class ActivationSimilarityProbeConfig(ProbeConfig):
 # The issue is we'd need separate for each dataset
 PROBE_CONFIGS = {
     # Linear probe configs - now with aggregation as a parameter
-    "linear_mean": PytorchLinearProbeConfig(aggregation="mean", weighting_method='weighted_sampler'),
+    "linear_mean": PytorchLinearProbeConfig(aggregation="mean", weighting_method='weighted_sampler', ),
     "linear_max": PytorchLinearProbeConfig(aggregation="max", weighting_method='weighted_sampler'),
     "linear_last": PytorchLinearProbeConfig(aggregation="last", weighting_method='weighted_sampler'),
     "linear_softmax": PytorchLinearProbeConfig(aggregation="softmax", weighting_method='weighted_sampler'),

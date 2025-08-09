@@ -54,22 +54,22 @@ def run_single_model_check(check, ds_name, model, tokenizer, config):
     num_tokens_to_generate = check.get('num_tokens_to_generate', 1)  # Default to 5 tokens
     
     # Use the same dataset creation method as in evaluation to ensure consistency
-    ds = Dataset(ds_name, model=model, device=device, seed=seed)
-    ds = Dataset.build_imbalanced_train_balanced_eval(ds, val_size=0.10, test_size=0.15, seed=seed)
+    # For model_check, we only need test data, so use only_test=True to avoid split issues
+    ds = Dataset(ds_name, model=model, device=device, seed=seed, only_test=True)
     X_test, y_test = ds.get_test_set() # only need test set
     
     # Add debugging information
-    print(f"Dataset total size: {len(ds.df)}")
-    print(f"Test set size: {len(X_test)}")
-    print(f"Test set shape: {y_test.shape if hasattr(y_test, 'shape') else 'no shape'}")
-    print(f"Test set type: {type(y_test)}")
+    # print(f"Dataset total size: {len(ds.df)}")
+    # print(f"Test set size: {len(X_test)}")
+    # print(f"Test set shape: {y_test.shape if hasattr(y_test, 'shape') else 'no shape'}")
+    # print(f"Test set type: {type(y_test)}")
     
     # Validate that we have the expected test set size and class distribution
     if len(X_test) == 0:
         raise ValueError("Test set is empty! This indicates an issue with the data splitting.")
     
     unique_labels, counts = np.unique(y_test, return_counts=True)
-    print(f"Test set class distribution: {dict(zip(unique_labels, counts))}")
+    # print(f"Test set class distribution: {dict(zip(unique_labels, counts))}")
     
     # Get class names from config
     class_names = check.get('class_names')
@@ -138,7 +138,7 @@ def run_single_model_check(check, ds_name, model, tokenizer, config):
         input_ids = tokenizer.apply_chat_template(messages, return_tensors="pt", return_dict=True, add_generation_prompt=True)
         
         # Print the tokenized prompt after applying chat template
-        print(f"Tokenized prompt after chat template (full): {tokenizer.decode(input_ids['input_ids'][0])}")
+        # print(f"Tokenized prompt after chat template (full): {tokenizer.decode(input_ids['input_ids'][0])}")
         
         if torch.cuda.is_available():
             input_ids = {k: v.cuda() for k, v in input_ids.items()}
@@ -179,7 +179,7 @@ def run_single_model_check(check, ds_name, model, tokenizer, config):
                 next_token = torch.argmax(generated_logits[pos], dim=-1)
                 token_text = tokenizer.decode([next_token])
                 generated_tokens.append(token_text)
-        print(f"First 5 generated tokens: {generated_tokens}")
+        # print(f"First 5 generated tokens: {generated_tokens}")
         
         # Compute log probabilities for all positions
         all_log_probs = torch.log_softmax(all_logits, dim=-1)  # (num_tokens, vocab_size)
@@ -217,34 +217,34 @@ def run_single_model_check(check, ds_name, model, tokenizer, config):
         
         # Debug: Print top 5 tokens in the logit distribution (for the first position)
         values, indices = torch.topk(all_logits[0], 5)
-        print(f"\n=== Prompt {i+1}/{len(messages_list)} ===")
-        print(f"Prompt: {X_test[i][:100]}...")
-        print(f"True label: {y_test[i]}")
+        # print(f"\n=== Prompt {i+1}/{len(messages_list)} ===")
+        # print(f"Prompt: {X_test[i][:100]}...")
+        # print(f"True label: {y_test[i]}")
         
-        print(f"\nTop 5 tokens for position 0:")
+        # print(f"\nTop 5 tokens for position 0:")
         for j, (value, index) in enumerate(zip(values.tolist(), indices.tolist())):
             token = tokenizer.decode([index])
             log_prob = all_log_probs[0, index].item()
-            print(f"  {j+1}. Token '{token}' (ID: {index}): logit={value:.3f}, log_prob={log_prob:.3f}")
+            # print(f"  {j+1}. Token '{token}' (ID: {index}): logit={value:.3f}, log_prob={log_prob:.3f}")
         
         # Show the class token logits specifically
-        print(f"\nClass token analysis (best across all {num_tokens_to_generate} positions):")
+        # print(f"\nClass token analysis (best across all {num_tokens_to_generate} positions):")
         for idx in class_token_ids.keys():
             logit_val = logit_values[idx]
             log_prob_val = log_prob_values[idx]
             chosen_name = chosen_tokens[idx]
             chosen_pos = chosen_positions[idx]
-            print(f"  Class {idx} (chose '{chosen_name}' at position {chosen_pos}): logit={logit_val:.3f}, log_prob={log_prob_val:.3f}")
+            # print(f"  Class {idx} (chose '{chosen_name}' at position {chosen_pos}): logit={logit_val:.3f}, log_prob={log_prob_val:.3f}")
         
         # Show logit difference for binary classification
         if len(logit_values) == 2:
             logit_diff = logit_values[0] - logit_values[1]
-            print(f"  Logit difference (Class 0 - Class 1): {logit_diff:.3f}")
+            # print(f"  Logit difference (Class 0 - Class 1): {logit_diff:.3f}")
             predicted_class = 0 if logit_diff > 0 else 1
             correct = predicted_class == y_test[i]
-            print(f"  Predicted: Class {predicted_class}, Correct: {correct}")
+            # print(f"  Predicted: Class {predicted_class}, Correct: {correct}")
         
-        print("-" * 80)
+        # print("-" * 80)
         
         # Create CSV row
         row = {

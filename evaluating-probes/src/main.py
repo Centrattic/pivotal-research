@@ -356,8 +356,8 @@ def main():
                         eval_dataset_configs = config.get('eval_dataset_configs', {})
                         if eval_dataset in eval_dataset_configs:
                             dataset_config = eval_dataset_configs[eval_dataset]
-                            threshold_class_0 = dataset_config.get('threshold_class_0', threshold_class_0)
-                            threshold_class_1 = dataset_config.get('threshold_class_1', threshold_class_1)
+                            threshold_class_0 = dataset_config.get('threshold_class_0')
+                            threshold_class_1 = dataset_config.get('threshold_class_1')
                         
                         metrics = evaluate_probe(
                             train_dataset_name=dataset_job['train_dataset'], 
