@@ -242,7 +242,7 @@ class SAEProbe(BaseProbe):
     def fit(self, X: np.ndarray, y: np.ndarray, mask: Optional[np.ndarray] = None, 
             epochs: int = 20, lr: float = 1e-3, batch_size: int = None, weight_decay: float = 0.0, 
             verbose: bool = True, early_stopping: bool = True, patience: int = 20, min_delta: float = 0.005,
-            use_weighted_loss: bool = True, use_weighted_sampler: bool = False, **kwargs):
+            use_weighted_sampler: bool = True, **kwargs):
         """
         Train the SAE probe.
         
@@ -294,7 +294,7 @@ class SAEProbe(BaseProbe):
         print(f"Training batch size: {training_batch_size}")
         super().fit(X_selected, y, mask, epochs, lr, training_batch_size, weight_decay, 
                    verbose, early_stopping, patience, min_delta, 
-                   use_weighted_loss, use_weighted_sampler, **kwargs)
+                   use_weighted_sampler, **kwargs)
 
     def predict(self, X: np.ndarray, mask: Optional[np.ndarray] = None, batch_size: int = None) -> np.ndarray:
         """Predict using the SAE probe."""
@@ -388,34 +388,73 @@ class SAEProbe(BaseProbe):
         
         self.loss_history = state['loss_history']
 
-    def find_best_fit(self, X_train: np.ndarray, y_train: np.ndarray, X_val: np.ndarray, y_val: np.ndarray, 
-                     mask_train: Optional[np.ndarray] = None, mask_val: Optional[np.ndarray] = None, 
-                     n_trials: int = 10, direction: str = None, verbose: bool = True, 
-                     metric: str = 'acc', **kwargs):
+    def find_best_fit(self, X_train: List[np.ndarray], y_train: np.ndarray, X_val: List[np.ndarray], y_val: np.ndarray,
+                     epochs: int = 100, n_trials: int = 20, direction: str = None, verbose: bool = True,
+                     probe_save_dir: Path = None, probe_filename_base: str = None) -> dict:
         """
-        Hyperparameter tuning for the SAE probe.
+        Find best hyperparameters by sweeping over weight decay and learning rate values.
+        Chooses the model with the lowest averaged training loss over the last self.fit_patience epochs.
         """
-        def objective(trial):
-            lr = trial.suggest_loguniform('lr', 1e-5, 1e-2)
-            weight_decay = trial.suggest_loguniform('weight_decay', 1e-8, 1e-2)
-            epochs = 50
-            
-            # Re-init probe for each trial
-            config_params = {k: v for k, v in self.__dict__.items() 
-                           if k not in ['d_model', 'device', 'task_type', 'model', 'loss_history', 'sae']}
-            probe = SAEProbe(self.d_model, device=self.device, **config_params)
-            
-            probe.fit(X_train, y_train, mask=mask_train, epochs=epochs, lr=lr, 
-                     weight_decay=weight_decay, verbose=False)
-            metrics = probe.score(X_val, y_val, mask=mask_val)
-            
-            if metric == 'acc':
-                return -metrics.get('accuracy', 0.0)
-            elif metric == 'auc':
-                return -metrics.get('auc', 0.0)
-            else:
-                raise ValueError(f"Unknown metric: {metric}")
+        import optuna
         
+        def objective(trial):
+            # Define hyperparameter search space
+            lr = trial.suggest_float('lr', 1e-5, 1e-2, log=True)
+            weight_decay = trial.suggest_float('weight_decay', 1e-6, 1e-2, log=True)
+            
+            # Create a copy of the current probe with trial hyperparameters
+            config_params = {k: v for k, v in self.__dict__.items() 
+                           if k not in ['d_model', 'device', 'task_type', 'aggregation', 'model', 'loss_history']}
+
+            trial_probe = SAEProbe(
+                self.d_model, 
+                device=self.device, 
+                **config_params
+            )
+            
+            # Train with trial hyperparameters
+            try:
+                trial_probe.fit(
+                    X_train, y_train,
+                    epochs=epochs,  # Use epochs parameter
+                    lr=lr,
+                    weight_decay=weight_decay,
+                    batch_size=1024,  # Fixed batch size
+                    verbose=False,  # Reduce output during hyperparameter search
+                    early_stopping=True,
+                    patience=10,
+                    min_delta=0.005,
+                    use_weighted_sampler=True
+                )
+                
+                # Get the last self.fit_patience epochs of training loss for stability assessment
+                last_losses = trial_probe.loss_history[-self.fit_patience:]
+                avg_loss = np.mean(last_losses)
+                
+                return avg_loss
+                
+            except Exception as e:
+                if verbose:
+                    print(f"Trial failed with lr={lr}, weight_decay={weight_decay}: {e}")
+                return float('inf')
+        
+        # Create study to minimize the average training loss
         study = optuna.create_study(direction='minimize')
-        study.optimize(objective, n_trials=n_trials)
-        return study.best_params
+        study.optimize(objective, n_trials=n_trials, show_progress_bar=verbose)
+        
+        # Get best parameters
+        best_params = study.best_params
+        
+        if verbose:
+            print(f"Best hyperparameters found:")
+            print(f"  Learning rate: {best_params['lr']:.2e}")
+            print(f"  Weight decay: {best_params['weight_decay']:.2e}")
+            print(f"  Best average training loss: {study.best_value:.6f}")
+        
+        # Save best hyperparameters if directory provided
+        if probe_save_dir is not None and probe_filename_base is not None:
+            best_hparams_path = probe_save_dir / f"{probe_filename_base}_best_hparams.json"
+            with open(best_hparams_path, 'w') as f:
+                json.dump(best_params, f, indent=2)
+        
+        return best_params

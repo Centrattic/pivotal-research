@@ -38,12 +38,34 @@ except Exception as e:
     print(f"Warning: Could not set CUDA device early: {e}")
 
 # Now import transformer_lens after setting CUDA device
-from src.runner import train_probe, evaluate_probe, get_probe_filename_prefix, run_non_trainable_probe, train_grouped_probe
+from src.runner import train_probe, evaluate_probe, get_probe_filename_prefix, run_non_trainable_probe
 from src.data import Dataset, get_available_datasets
 from src.logger import Logger
 from src.utils import should_skip_dataset, resample_params_to_str, get_dataset, get_effective_seeds, get_effective_seed_for_rebuild_config, generate_llm_upsampling_configs
 from src.model_check.main import run_model_check
 from transformer_lens import HookedTransformer
+
+def extract_activations_for_dataset(model, dataset_name, layer, component, device, seed, logger):
+    """
+    Extract activations for a dataset to ensure they're available before training.
+    """
+    logger.log(f"  - Extracting activations for {dataset_name}, L{layer}, {component}")
+    
+    try:
+        # Create dataset and extract activations
+        ds = Dataset(dataset_name, model=model, device=device, seed=seed)
+        ds.split_data(seed=seed)
+        
+        # Extract activations for all splits
+        train_acts, train_masks, y_train = ds.get_train_set_activations(layer, component, use_masks=True)
+        val_acts, val_masks, y_val = ds.get_val_set_activations(layer, component, use_masks=True)
+        test_acts, test_masks, y_test = ds.get_test_set_activations(layer, component, use_masks=True)
+        
+        logger.log(f"    - Successfully extracted activations: train={train_acts.shape}, val={val_acts.shape}, test={test_acts.shape}")
+        
+    except Exception as e:
+        logger.log(f"    - Warning: Could not extract activations for {dataset_name}: {e}")
+        logger.log(f"    - Activations will be extracted during training if needed")
 
 def main():
     # Clear GPU memory and set device
@@ -58,7 +80,6 @@ def main():
         with open(f"configs/{config_yaml}", "r") as f:
             config = yaml.safe_load(f)
         # Re-apply device fix if needed
-        # Make them all cuda:0 in config! Or just cuda
         device = config.get("device")
         if device and "cuda" in device and "1" in device:
             # If we're using cuda:1, make sure it's updated to cuda:0 after visible devices cut
@@ -176,7 +197,14 @@ def main():
                                 }
                                 all_dataset_jobs.append(dataset_job)
 
-        # Step 2: Process each dataset job (train and evaluate all probes on one dataset)
+        # Step 2: Extract activations for all datasets (optional but recommended)
+        logger.log("\n" + "="*25 + " ACTIVATION EXTRACTION PHASE " + "="*25)
+        for dataset_name in all_dataset_names_to_check:
+            for layer in config['layers']:
+                for component in config['components']:
+                    extract_activations_for_dataset(model, dataset_name, layer, component, device, all_seeds[0], logger)
+
+        # Step 3: Process each dataset job (train and evaluate all probes on one dataset)
         logger.log("\n" + "="*25 + " DATASET PROCESSING PHASE " + "="*25)
         
         for i, dataset_job in enumerate(all_dataset_jobs):
@@ -210,22 +238,18 @@ def main():
             
             all_eval_results = {}
             
-            # Separate trainable, non-trainable, and SAE probes
+            # Separate trainable and non-trainable probes
             trainable_architectures = []
             non_trainable_architectures = []
-            sae_architectures = []
             
             for arch_config in dataset_job['architectures']:
                 architecture_name = arch_config['name']
                 config_name = arch_config.get('config_name')
                 
                 # Check if this is a non-trainable probe
-                if (architecture_name.startswith('act_sim') or 
-                    architecture_name in ['mass_mean', 'mass_mean_iid']):
+                if (config_name.startswith('act_sim') or 
+                    config_name == 'mass_mean'):
                     non_trainable_architectures.append(arch_config)
-                # Check if this is an SAE probe (train individually for efficiency)
-                elif architecture_name.startswith('sae'):
-                    sae_architectures.append(arch_config)
                 else:
                     trainable_architectures.append(arch_config)
             
@@ -249,14 +273,14 @@ def main():
                     rebuild_config=dataset_job['rebuild_params'], metric=metric, contrast_fn=dataset_job['contrast_fn']
                 )
             
-            # Process SAE probes individually (they train faster with smaller feature dimensions)
-            for arch_config in sae_architectures:
+            # Process trainable probes individually
+            for arch_config in trainable_architectures:
                 architecture_name = arch_config['name']
                 config_name = arch_config.get('config_name')
                 
-                logger.log(f"    🧠 Training SAE probe individually: {architecture_name}, {config_name}")
+                logger.log(f"    🚀 Training probe: {architecture_name}, {config_name}")
                 
-                # Train SAE probe individually
+                # Train the probe
                 train_probe(
                     model=model, d_model=d_model, train_dataset_name=dataset_job['train_dataset'],
                     layer=dataset_job['layer'], component=dataset_job['component'], 
@@ -272,55 +296,11 @@ def main():
                     contrast_fn=dataset_job['contrast_fn']
                 )
             
-            # Process trainable probes using grouped training if there are multiple and enabled
-            use_grouped_training = config.get('use_grouped_training', False)
-            
-            if len(trainable_architectures) > 1 and use_grouped_training:
-                logger.log(f"     Training {len(trainable_architectures)} probes using grouped training for efficiency")
-                
-                # Train all trainable probes together
-                train_grouped_probe(
-                    model=model, d_model=d_model, train_dataset_name=dataset_job['train_dataset'],
-                    layer=dataset_job['layer'], component=dataset_job['component'], 
-                    architecture_configs=trainable_architectures,
-                    device=config['device'], use_cache=config['cache_activations'], 
-                    seed=effective_seed,
-                    results_dir=experiment_dir, cache_dir=cache_dir, logger=logger, 
-                    retrain=retrain,
-                    rebuild_config=dataset_job['rebuild_params'], metric=metric, contrast_fn=dataset_job['contrast_fn']
-                )
-            elif not use_grouped_training:
-                logger.log(f"    🚀 Training {len(trainable_architectures)} probes individually (grouped training disabled)")
-                
-                # Train each probe individually
-                for arch_config in trainable_architectures:
-                    architecture_name = arch_config['name']
-                    config_name = arch_config.get('config_name')
-                    
-                    logger.log(f"      💅 Training probe: {architecture_name}")
-                    
-                    # Train the probe
-                    train_probe(
-                        model=model, d_model=d_model, train_dataset_name=dataset_job['train_dataset'],
-                        layer=dataset_job['layer'], component=dataset_job['component'], 
-                        architecture_name=architecture_name, 
-                        config_name=config_name,
-                        device=config['device'], use_cache=config['cache_activations'], 
-                        seed=effective_seed,
-                        results_dir=experiment_dir, cache_dir=cache_dir, logger=logger, 
-                        retrain=retrain,
-                        hyperparameter_tuning=hyperparameter_tuning, 
-                        rebuild_config=dataset_job['rebuild_params'], metric=metric,
-                        retrain_with_best_hparams=retrain_with_best_hparams,
-                        contrast_fn=dataset_job['contrast_fn']
-                    )
-                
-            
-            # Evaluate all probes (both individual and grouped) on all evaluation datasets
+            # Evaluate all probes on all evaluation datasets
             logger.log(f"    🤔 Evaluating all probes on {len(dataset_job['eval_datasets'])} datasets...")
             
-            # Collect all architectures to evaluate (including non-trainable and SAE ones)
-            all_architectures_to_evaluate = non_trainable_architectures + sae_architectures + trainable_architectures
+            # Collect all architectures to evaluate
+            all_architectures_to_evaluate = non_trainable_architectures + trainable_architectures
             
             for eval_dataset in dataset_job['eval_datasets']:
                 try:
@@ -352,13 +332,6 @@ def main():
                     logger.log(f"🤔 Evaluation of {architecture_name} ({config_name}) on {eval_dataset}")
                     
                     try:                        
-                        # Check eval_dataset_configs first
-                        eval_dataset_configs = config.get('eval_dataset_configs', {})
-                        if eval_dataset in eval_dataset_configs:
-                            dataset_config = eval_dataset_configs[eval_dataset]
-                            threshold_class_0 = dataset_config.get('threshold_class_0')
-                            threshold_class_1 = dataset_config.get('threshold_class_1')
-                        
                         metrics = evaluate_probe(
                             train_dataset_name=dataset_job['train_dataset'], 
                             eval_dataset_name=eval_dataset,
@@ -368,8 +341,7 @@ def main():
                             model=model, d_model=d_model, device=config['device'],
                             use_cache=config['cache_activations'], cache_dir=cache_dir, 
                             reevaluate=reevaluate,
-                            score_options=score_options, threshold_class_0=threshold_class_0, 
-                            threshold_class_1=threshold_class_1, rebuild_config=dataset_job['rebuild_params'], 
+                            score_options=score_options, rebuild_config=dataset_job['rebuild_params'], 
                             return_metrics=True,
                             contrast_fn=dataset_job['contrast_fn']
                         )
@@ -383,8 +355,6 @@ def main():
                         
                         # Store results by architecture
                         all_eval_results[rebuild_key][eval_dataset][architecture_name] = metrics
-                        
-                        # logger.log(f"          🤩 Evaluation complete for {eval_dataset} with {architecture_name}")
                         
                     except Exception as e:
                         logger.log(f"          - 💀 ERROR evaluating probe on '{eval_dataset}': {e}")

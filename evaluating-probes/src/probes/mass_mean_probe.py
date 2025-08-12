@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Optional
 import json
 
-from src.probes.base_probe import BaseProbeNonTrainable
+from src.probes.base_probe_non_trainable import BaseProbeNonTrainable
 
 class MassMeanProbe(BaseProbeNonTrainable):
     """

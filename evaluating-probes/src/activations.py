@@ -13,19 +13,21 @@ import json
 
 
 class ActivationManager:
-    """Single‑cache design with a *binary hash index* memmap.
+    """Single‑cache design with a *binary hash index* memmap and token lengths.
 
-    For each (dataset, layer, component) we store two memmaps side by side:
+    For each (dataset, layer, component) we store three memmaps side by side:
 
     1. **`<hook>.mmap`**   – float16 activations  (rows × max_len × d_model)
     2. **`<hook>.hash.mmap`** – `S40` (40‑byte hex) prompt hashes (rows,)
+    3. **`<hook>.length.mmap`** – `uint16` token lengths (rows,)
 
     The hash memmap lets us rebuild a dict ⟨hash → row⟩ in O(rows) once, then
     we do constant‑time membership checks to detect which prompts still need
-    extraction.
+    extraction. The length memmap stores the actual token count for each prompt.
     """
 
     _HASH_DTYPE = np.dtype("S40")  # 40‑byte ascii hex sha1
+    _LENGTH_DTYPE = np.dtype("uint16")  # 16-bit unsigned integer for token lengths
 
     # init #
     def __init__(
@@ -75,10 +77,10 @@ class ActivationManager:
         texts: Iterable[str],
         layer: int,
         component: str,
-    ) -> np.ndarray:
-        """Return activations (N, S, D) in the exact order of `texts`."""
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        """Return activations (N, S, D) and attention masks (N, S) in the exact order of `texts`."""
         texts = list(texts)
-        act_path, hash_path, shape_path = self._paths(layer, component)
+        act_path, hash_path, length_path, shape_path = self._paths(layer, component)
 
         # load existing index into memory – {hash:str → row:int}
         index = self._get_cached_index(hash_path)
@@ -87,29 +89,40 @@ class ActivationManager:
         missing = [(h, p) for h, p in zip(hashes, texts) if h not in index]
 
         if missing:
-            act_mm = self._append_new(layer, component, missing, index, act_path, hash_path, shape_path)
+            act_mm = self._append_new(layer, component, missing, index, act_path, hash_path, length_path, shape_path)
             # Clear cache since we modified the hash file
             self._index_cache.pop(hash_path, None)
             rows = [index[h] for h in hashes]
-            return act_mm[rows]
+            return self._get_activations_with_masks(act_mm, length_path, rows)
         else:
             # No new activations needed, use existing memmap
             print(f"[DEBUG] No new activations needed, using existing memmap")
             act_mm = self._open_act(act_path, shape_path, writable=False)
             rows = [index[h] for h in hashes]
-            return act_mm[rows]
+            return self._get_activations_with_masks(act_mm, length_path, rows)
 
-        # # read activations in requested order
-        # act_mm = self._open_act(act_path, shape_path, writable=False)
-        # rows = [index[h] for h in hashes]
-        # return act_mm[rows]
+    def get_actual_max_len(self, layer: int, component: str) -> int:
+        """Get the actual maximum token length from the length mmap for this layer/component."""
+        _, _, length_path, _ = self._paths(layer, component)
+        
+        if not length_path.exists():
+            return None  # No activations cached yet
+        
+        # Load the length data and find the maximum
+        length_mm = np.memmap(length_path, dtype=self._LENGTH_DTYPE, mode="r")
+        if len(length_mm) == 0:
+            return None
+        
+        # The lengths stored are the actual token counts (no padding)
+        actual_max_len = int(length_mm.max())
+        return actual_max_len
 
     # internals #
     # ~~~ path helpers ~~~
-    def _paths(self, layer: int, component: str) -> Tuple[Path, Path, Path]:
+    def _paths(self, layer: int, component: str) -> Tuple[Path, Path, Path, Path]:
         hook = f"blocks.{layer}.hook_{component}".replace(".", "‑")
         act = self.cache_dir / f"{hook}.mmap"
-        return act, act.with_suffix(".hash.mmap"), act.with_suffix(".shape.json")
+        return act, act.with_suffix(".hash.mmap"), act.with_suffix(".length.mmap"), act.with_suffix(".shape.json")
 
     # ~~~ hashing & index ~~~
     @staticmethod
@@ -220,6 +233,12 @@ class ActivationManager:
         mode = "r+" if writable else "r"
         return np.memmap(hash_path, dtype=self.hash_dtype, mode=mode, shape=(rows,))
 
+    def _open_length(self, length_path: Path, rows: int, *, writable: bool):
+        if rows == 0 and not writable:
+            return np.empty((0,), dtype=self._LENGTH_DTYPE)
+        mode = "r+" if writable else "r"
+        return np.memmap(length_path, dtype=self._LENGTH_DTYPE, mode=mode, shape=(rows,))
+
     # ~~~ extraction & append ~~~
     def _append_new(
         self,
@@ -229,6 +248,7 @@ class ActivationManager:
         index: Dict[str, int],
         act_path: Path,
         hash_path: Path,
+        length_path: Path,
         shape_path: Path,
         bs: int = 10,
     ):
@@ -248,6 +268,7 @@ class ActivationManager:
         # Use truncated max_length for memmap to match actual activation shapes
         act_mm = self._grow_act(act_path, old_rows, new_rows, max_length)
         hash_mm = self._grow_hash(hash_path, old_rows, new_rows)
+        length_mm = self._grow_length(length_path, old_rows, new_rows)
 
         # --- extract activations for the new prompts ---
         hook = f"blocks.{layer}.hook_{component}"
@@ -259,15 +280,34 @@ class ActivationManager:
             with torch.no_grad():
                 _, cache = self.model.run_with_cache(toks["input_ids"], names_filter=[hook], device=self.device)
             acts = cache[hook].cpu().to(torch.float16).numpy()
-            row_slice = slice(old_rows + s, old_rows + s + len(batch_prompts))
-            act_mm[row_slice] = acts
-            hash_mm[row_slice] = np.array(list(new_hashes[s : s + len(batch_prompts)]), dtype=self.hash_dtype)
+            
+            # Calculate actual token lengths (sum of attention mask)
+            # This works correctly for left padding since attention mask has 1s for actual tokens
+            batch_lengths = toks["attention_mask"].sum(dim=1).cpu().numpy()
+            
+            # Store only the actual token activations (no padding)
+            for i, (act, length) in enumerate(zip(acts, batch_lengths)):
+                actual_act = act[:length]  # Only keep actual tokens
+                row_idx = old_rows + s + i
+                
+                # Store the actual activation (padded to max_length for mmap compatibility)
+                if actual_act.shape[0] < max_length:
+                    # Pad with zeros to max_length
+                    padded_act = np.pad(actual_act, ((0, max_length - actual_act.shape[0]), (0, 0)), 
+                                      mode='constant', constant_values=0)
+                else:
+                    padded_act = actual_act[:max_length]
+                
+                act_mm[row_idx] = padded_act
+                hash_mm[row_idx] = new_hashes[s + i].encode()
+                length_mm[row_idx] = min(length, max_length)  # Store actual length (capped at max_length)
+            
             del cache
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
 
         # flush & close
-        act_mm.flush(); hash_mm.flush()
+        act_mm.flush(); hash_mm.flush(); length_mm.flush()
         # self._selective_flush(act_mm, hash_mm, old_rows, new_rows, max_length)
         shape_path.write_text(json.dumps({"rows": new_rows}))
 
@@ -276,6 +316,51 @@ class ActivationManager:
             index[h] = old_rows + off
 
         return act_mm # avoid recreating after appending
+
+    def _get_activations_with_masks(self, act_mm, length_path: Path, rows: list) -> Tuple[np.ndarray, np.ndarray]:
+        """Return activations padded to actual max_length and attention masks."""
+        if not rows:
+            raise ValueError("No rows to get activations for")
+        
+        # Load the length data
+        length_mm = np.memmap(length_path, dtype=self._LENGTH_DTYPE, mode="r")
+        
+        # Get the activations for the requested rows
+        activations = act_mm[rows]  # Shape: (N, max_len, d_model)
+        lengths = length_mm[rows]   # Shape: (N,)
+        
+        # Find the actual maximum length in this batch
+        actual_max_len = int(lengths.max())
+        
+        # Trim activations to actual lengths and create attention masks
+        trimmed_activations = []
+        attention_masks = []
+        
+        for i, (act, length) in enumerate(zip(activations, lengths)):
+            # Trim activation to actual length (remove padding)
+            actual_act = act[:length]  # Shape: (actual_length, d_model)
+            
+            # Pad to the batch's max_length
+            if actual_act.shape[0] < actual_max_len:
+                # Pad with zeros
+                padding_size = actual_max_len - actual_act.shape[0]
+                padded_act = np.pad(actual_act, ((0, padding_size), (0, 0)), mode='constant', constant_values=0)
+            else:
+                # Already at max length
+                padded_act = actual_act
+            
+            trimmed_activations.append(padded_act)
+            
+            # Create attention mask: 1 for actual tokens, 0 for padding
+            mask = np.zeros(actual_max_len, dtype=bool)
+            mask[:length] = True  # First 'length' tokens are actual tokens
+            attention_masks.append(mask)
+        
+        # Stack into arrays
+        activations_array = np.stack(trimmed_activations) # Shape: (N, actual_max_len, d_model)
+        masks_array = np.stack(attention_masks)           # Shape: (N, actual_max_len)
+        
+        return activations_array, masks_array
 
     # ---- grow helpers ----
     def _grow_act(self, act_path: Path, old_rows: int, new_rows: int, max_length: int = None):
@@ -286,23 +371,9 @@ class ActivationManager:
         if not act_path.exists():
             return np.memmap(act_path, dtype=np.float16, mode="w+", shape=shape)
         
-        # For small additions (< 10% of file size), use append-only growth
-        if old_rows > 0:
-            growth_ratio = (new_rows - old_rows) / old_rows
-        else:
-            growth_ratio = 1 # need new
-        start_time = time.time()
-        
-        if growth_ratio < 0.9:  # Less than 90% growth, basically all the time
-            print(f"[DEBUG] Using append-only growth for activation file (adding {new_rows - old_rows} rows)")
-            result = self._append_grow_act(act_path, old_rows, new_rows, max_length)
-        else:
-            print(f"[DEBUG] Using full copy growth for activation file (adding {new_rows - old_rows} rows)")
-            result = self._copy_grow_act(act_path, old_rows, new_rows, max_length)
-        
-        elapsed = time.time() - start_time
-        print(f"[DEBUG] Activation file growth took {elapsed:.2f} seconds")
-        return result
+        # Always use append-only growth for simplicity
+        print(f"[DEBUG] Using append-only growth for activation file (adding {new_rows - old_rows} rows)")
+        return self._append_grow_act(act_path, old_rows, new_rows, max_length)
 
     def _append_grow_act(self, act_path: Path, old_rows: int, new_rows: int, max_length: int):
         """Append-only growth: extend the file without copying existing data."""
@@ -321,38 +392,13 @@ class ActivationManager:
         # Reopen with new shape
         return np.memmap(act_path, dtype=np.float16, mode="r+", shape=(new_rows, max_length, self.d_model))
 
-    def _copy_grow_act(self, act_path: Path, old_rows: int, new_rows: int, max_length: int):
-        """Full copy growth: copy entire file (used for large additions)."""
-        old_mm = np.memmap(act_path, dtype=np.float16, mode="r", shape=(old_rows, max_length, self.d_model))
-        tmp = np.memmap(act_path.with_suffix(".tmp"), dtype=np.float16, mode="w+", shape=(new_rows, max_length, self.d_model))
-        tmp[:old_rows] = old_mm[:]
-        act_path.unlink(); tmp.flush(); tmp._mmap.close()
-        act_path.with_suffix(".tmp").rename(act_path)
-        return np.memmap(act_path, dtype=np.float16, mode="r+", shape=(new_rows, max_length, self.d_model))
-
     def _grow_hash(self, hash_path: Path, old_rows: int, new_rows: int):
         shape = (new_rows,)
         if not hash_path.exists():
             return np.memmap(hash_path, dtype=self.hash_dtype, mode="w+", shape=shape)
-        
-        # For small additions, use append-only growth
-        if old_rows > 0:
-            growth_ratio = (new_rows - old_rows) / old_rows
-        else:
-            growth_ratio = 1 # need new
-
-        start_time = time.time()
-        
-        if growth_ratio < 0.9:  # Less than 90% growth
-            print(f"[DEBUG] Using append-only growth for hash file (adding {new_rows - old_rows} rows)")
-            result = self._append_grow_hash(hash_path, old_rows, new_rows)
-        else:
-            print(f"[DEBUG] Using full copy growth for hash file (adding {new_rows - old_rows} rows)")
-            result = self._copy_grow_hash(hash_path, old_rows, new_rows)
-        
-        elapsed = time.time() - start_time
-        print(f"[DEBUG] Hash file growth took {elapsed:.2f} seconds")
-        return result
+        # Always use append-only growth for simplicity
+        print(f"[DEBUG] Using append-only growth for hash file (adding {new_rows - old_rows} rows)")
+        return self._append_grow_hash(hash_path, old_rows, new_rows)
 
     def _append_grow_hash(self, hash_path: Path, old_rows: int, new_rows: int):
         """Append-only growth for hash file."""
@@ -370,14 +416,28 @@ class ActivationManager:
         # Reopen with new shape
         return np.memmap(hash_path, dtype=self.hash_dtype, mode="r+", shape=(new_rows,))
 
-    def _copy_grow_hash(self, hash_path: Path, old_rows: int, new_rows: int):
-        """Full copy growth for hash file."""
-        old_h = np.memmap(hash_path, dtype=self.hash_dtype, mode="r", shape=(old_rows,))
-        tmp = np.memmap(hash_path.with_suffix(".tmp"), dtype=self.hash_dtype, mode="w+", shape=(new_rows,))
-        tmp[:old_rows] = old_h[:]
-        hash_path.unlink(); tmp.flush(); tmp._mmap.close()
-        hash_path.with_suffix(".tmp").rename(hash_path)
-        return np.memmap(hash_path, dtype=self.hash_dtype, mode="r+", shape=(new_rows,))
+    def _grow_length(self, length_path: Path, old_rows: int, new_rows: int):
+        shape = (new_rows,)
+        if not length_path.exists():
+            return np.memmap(length_path, dtype=self._LENGTH_DTYPE, mode="w+", shape=shape)  
+        print(f"[DEBUG] Using append-only growth for length file (adding {new_rows - old_rows} rows)")
+        return self._append_grow_length(length_path, old_rows, new_rows)
+
+    def _append_grow_length(self, length_path: Path, old_rows: int, new_rows: int):
+        """Append-only growth for length file."""
+        # Open existing file in append mode
+        existing_mm = np.memmap(length_path, dtype=self._LENGTH_DTYPE, mode="r+", shape=(old_rows,))
+        
+        # Calculate the new file size needed
+        length_size = 2 # uint16 = 2 bytes
+        bytes_to_add = (new_rows - old_rows) * length_size
+        
+        # Extend the file by writing zeros to the end
+        with open(length_path, 'ab') as f:
+            f.write(b'\x00' * bytes_to_add)
+        
+        # Reopen with new shape
+        return np.memmap(length_path, dtype=self._LENGTH_DTYPE, mode="r+", shape=(new_rows,))
 
 class LazyActivationLoader:
     """Efficient GPU-optimized loader for large activation files."""

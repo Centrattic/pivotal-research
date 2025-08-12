@@ -1,10 +1,29 @@
 # configs/probes.py
+import os
 from dataclasses import dataclass, field
+
+# Set sklearn to use only 1 thread for CPU-based training
+os.environ["OMP_NUM_THREADS"] = "1"
+os.environ["OPENBLAS_NUM_THREADS"] = "1"
+os.environ["MKL_NUM_THREADS"] = "1"
+os.environ["VECLIB_MAXIMUM_THREADS"] = "1"
+os.environ["NUMEXPR_NUM_THREADS"] = "1"
 
 @dataclass
 class ProbeConfig:
     """Base class for probe configurations."""
     pass
+
+@dataclass
+class SklearnLinearProbeConfig(ProbeConfig):
+    """Hyperparameters for the sklearn LinearProbe."""
+    aggregation: str = "mean"  # mean, max, last, softmax
+    solver: str = "liblinear"  # liblinear, lbfgs, newton-cg, sag, saga
+    C: float = 1.0  # Inverse of regularization strength
+    max_iter: int = 1000
+    class_weight: str = "balanced"  # balanced, None
+    random_state: int = 42
+    # Add more as needed
 
 @dataclass
 class PytorchLinearProbeConfig(ProbeConfig):
@@ -14,7 +33,6 @@ class PytorchLinearProbeConfig(ProbeConfig):
     epochs: int = 100
     batch_size: int = 1024 # H100: 2048, H200: 800, A6000: 32
     weight_decay: float = 0.0
-    weighting_method: str = 'weighted_sampler'  # 'weighted_loss', 'weighted_sampler', or 'pcngd'
     # Add more as needed
 
 @dataclass
@@ -24,7 +42,6 @@ class PytorchAttentionProbeConfig(ProbeConfig):
     epochs: int = 100
     batch_size: int = 1024 # H100: 2560, H200: 1024, A6000: 32
     weight_decay: float = 0.0
-    weighting_method: str = 'weighted_sampler'  # 'weighted_loss', 'weighted_sampler', or 'pcngd'
     # Add more as needed
 
 @dataclass
@@ -40,7 +57,6 @@ class SAEProbeConfig(ProbeConfig):
     encoding_batch_size: int = 1280  # Batch size for SAE encoding (memory intensive) - H100: 100
     training_batch_size: int = 2560   # Batch size for probe training - H100: 512
     weight_decay: float = 0.0
-    weighting_method: str = 'weighted_sampler'  # 'weighted_loss', 'weighted_sampler', or 'pcngd'
 
 @dataclass
 class MassMeanProbeConfig(ProbeConfig):
@@ -59,35 +75,40 @@ class ActivationSimilarityProbeConfig(ProbeConfig):
 # A dictionary to easily access configs by name. Configs are updated by -ht flag (Optuna tuning).
 # The issue is we'd need separate for each dataset
 PROBE_CONFIGS = {
-    # Linear probe configs - now with aggregation as a parameter
-    "linear_mean": PytorchLinearProbeConfig(aggregation="mean", weighting_method='weighted_sampler', ),
-    "linear_max": PytorchLinearProbeConfig(aggregation="max", weighting_method='weighted_sampler'),
-    "linear_last": PytorchLinearProbeConfig(aggregation="last", weighting_method='weighted_sampler'),
-    "linear_softmax": PytorchLinearProbeConfig(aggregation="softmax", weighting_method='weighted_sampler'),
+    # Sklearn linear probe configs - new primary linear probe
+    "sklearn_linear_mean": SklearnLinearProbeConfig(aggregation="mean"),
+    "sklearn_linear_max": SklearnLinearProbeConfig(aggregation="max"),
+    "sklearn_linear_last": SklearnLinearProbeConfig(aggregation="last"),
+    "sklearn_linear_softmax": SklearnLinearProbeConfig(aggregation="softmax"),
     # High reg variants
-    "linear_mean_high_reg": PytorchLinearProbeConfig(aggregation="mean", weight_decay=1e-2),
-    "linear_max_high_reg": PytorchLinearProbeConfig(aggregation="max", weight_decay=1e-2),
-    "linear_last_high_reg": PytorchLinearProbeConfig(aggregation="last", weight_decay=1e-2),
-    "linear_softmax_high_reg": PytorchLinearProbeConfig(aggregation="softmax", weight_decay=1e-2),
+    "sklearn_linear_mean_high_reg": SklearnLinearProbeConfig(aggregation="mean", C=0.01),
+    "sklearn_linear_max_high_reg": SklearnLinearProbeConfig(aggregation="max", C=0.01),
+    "sklearn_linear_last_high_reg": SklearnLinearProbeConfig(aggregation="last", C=0.01),
+    "sklearn_linear_softmax_high_reg": SklearnLinearProbeConfig(aggregation="softmax", C=0.01),
     # No reg variants
-    "linear_mean_no_reg": PytorchLinearProbeConfig(aggregation="mean", weight_decay=0.0),
-    "linear_max_no_reg": PytorchLinearProbeConfig(aggregation="max", weight_decay=0.0),
-    "linear_last_no_reg": PytorchLinearProbeConfig(aggregation="last", weight_decay=0.0),
-    "linear_softmax_no_reg": PytorchLinearProbeConfig(aggregation="softmax", weight_decay=0.0),
-    # Default configs (for backward compatibility)
-    "default_linear": PytorchLinearProbeConfig(),
-    "high_reg_linear": PytorchLinearProbeConfig(weight_decay=1e-2),
-    "no_reg_linear": PytorchLinearProbeConfig(weight_decay=0.0),
+    "sklearn_linear_mean_no_reg": SklearnLinearProbeConfig(aggregation="mean", C=100.0),
+    "sklearn_linear_max_no_reg": SklearnLinearProbeConfig(aggregation="max", C=100.0),
+    "sklearn_linear_last_no_reg": SklearnLinearProbeConfig(aggregation="last", C=100.0),
+    "sklearn_linear_softmax_no_reg": SklearnLinearProbeConfig(aggregation="softmax", C=100.0),
+    # Default sklearn configs (for backward compatibility)
+    "default_sklearn_linear": SklearnLinearProbeConfig(),
+    "high_reg_sklearn_linear": SklearnLinearProbeConfig(C=0.01),
+    "no_reg_sklearn_linear": SklearnLinearProbeConfig(C=100.0),
+    
+    # Linear probe configs - now with aggregation as a parameter (legacy PyTorch)
+    "linear_mean": PytorchLinearProbeConfig(aggregation="mean"),
+    "linear_max": PytorchLinearProbeConfig(aggregation="max"),
+    "linear_last": PytorchLinearProbeConfig(aggregation="last"),
+    "linear_softmax": PytorchLinearProbeConfig(aggregation="softmax"),
+    
     # Attention probe configs
-    "attention": PytorchAttentionProbeConfig(weighting_method='weighted_sampler'),
-    "default_attention": PytorchAttentionProbeConfig(weighting_method='weighted_sampler'),
-    "high_reg_attention": PytorchAttentionProbeConfig(weight_decay=1e-2, weighting_method='weighted_sampler'),
-    "no_reg_attention": PytorchAttentionProbeConfig(weight_decay=0.0, weighting_method='weighted_sampler'),
+    "attention": PytorchAttentionProbeConfig(),
+
     # SAE probe configs - specific SAE IDs with different batch sizes
     # using gemma-scope-9b-pt-res as done in Kantamneni, not gemma-2-9b-it
     "sae_16k_l0_408_last": SAEProbeConfig(
         aggregation="last", # no matter right now
-        sae_id="layer_20/width_16k/average_l0_408", # for some reason lo_189 doesn't exist! 
+        sae_id="layer_20/width_16k/average_l0_408", 
         weighting_method='weighted_sampler'
     ),
     "sae_262k_l0_259_last": SAEProbeConfig(

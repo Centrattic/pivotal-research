@@ -1,10 +1,11 @@
-from src.probes.base_probe import BaseProbe, BaseProbeNonTrainable
-from src.probes.linear_probe import LinearProbe, LinearProbeNet
+from src.probes.base_probe import BaseProbe
+from src.probes.base_probe_non_trainable import BaseProbeNonTrainable
+from src.probes.linear_probe_torch import LinearProbe, LinearProbeNet
+from src.probes.linear_probe_sklearn import SklearnLinearProbe
 from src.probes.attention_probe import AttentionProbe, AttentionProbeNet
 from src.probes.mass_mean_probe import MassMeanProbe
 from src.probes.act_sim_probe import ActivationSimilarityProbe
 from src.probes.sae_probe import SAEProbe, SAEProbeNet
-from src.probes.grouped_probe import GroupedProbe
 
 # allows you to import all probes from src.probes
 __all__ = [
@@ -12,11 +13,11 @@ __all__ = [
     'BaseProbeNonTrainable',
     'LinearProbe',
     'LinearProbeNet', 
+    'SklearnLinearProbe',
     'AttentionProbe',
     'AttentionProbeNet',
     'MassMeanProbe',
     'ActivationSimilarityProbe',
     'SAEProbe',
-    'SAEProbeNet',
-    'GroupedProbe'
+    'SAEProbeNet'
 ] 

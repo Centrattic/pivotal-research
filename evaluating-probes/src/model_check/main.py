@@ -269,7 +269,24 @@ def run_single_model_check(check, ds_name, model, tokenizer, config):
         
         # Add logit difference (assuming binary classification with classes 0 and 1)
         if len(logit_values) == 2:
-            row["logit_diff"] = logit_values[0] - logit_values[1]
+            logit_diff = logit_values[0] - logit_values[1]
+            row["logit_diff"] = logit_diff
+            
+            # Add new column for filtered scoring
+            # For class 0 samples: don't use if logit_diff >= 0, use otherwise
+            # For class 1 samples: don't use if logit_diff <= 0, use otherwise
+            true_class = y_test[i]
+            if true_class == 0:
+                # Class 0: use if logit_diff < 0 (model correctly predicts class 0)
+                use_in_filtered = 1 if logit_diff < 0 else 0
+            elif true_class == 1:
+                # Class 1: use if logit_diff > 0 (model correctly predicts class 1)
+                use_in_filtered = 1 if logit_diff > 0 else 0
+            else:
+                # Fallback for any other class
+                use_in_filtered = 0
+            
+            row["use_in_filtered_scoring"] = use_in_filtered
         
         csv_rows.append(row)
     

@@ -70,16 +70,13 @@ def dump_loss_history(losses: List[float], out_path: Path, logger: Logger | None
 
 def extract_aggregation_from_config(config_name: str, architecture_name: str) -> str:
     """Extract aggregation from config for backward compatibility."""
-    # Handle grouped probe case - it doesn't have a real config
-    if config_name == "grouped" or architecture_name == "grouped":
-        return "grouped"
     config = PROBE_CONFIGS[config_name]
-    if hasattr(config, 'aggregation'): # act sim and linear have aggregation in config
+    if hasattr(config, 'aggregation'):
         return config.aggregation
     elif architecture_name == "attention":
         return "attention"
-    elif architecture_name in ["mass_mean"]:  # mass_mean_iid removed due to numerical instability
-        return "mass_mean"  # Mass-mean probes don't use aggregation
+    elif architecture_name.startswith("mass_mean"):
+        return "mass_mean"
     else:
         return "mean"  # Default fallback
 
@@ -87,32 +84,34 @@ def extract_aggregation_from_config(config_name: str, architecture_name: str) ->
 def get_probe_architecture(architecture_name: str, d_model: int, device, config: dict):
     """Create probe architecture with filtered config parameters."""
     # Import probes inside function to avoid circular imports
-    from src.probes import LinearProbe, AttentionProbe, MassMeanProbe, ActivationSimilarityProbe, SAEProbe, GroupedProbe
+    from src.probes import (
+        LinearProbe, SklearnLinearProbe, AttentionProbe, MassMeanProbe, 
+        ActivationSimilarityProbe, SAEProbe
+    )
     
-    if architecture_name == "linear":
+    if architecture_name == "sklearn_linear":
+        return SklearnLinearProbe(d_model=d_model, device=device, **config)
+    elif architecture_name == "linear":
         return LinearProbe(d_model=d_model, device=device, **config)
-    if architecture_name == "attention":
+    elif architecture_name == "attention":
         return AttentionProbe(d_model=d_model, device=device, **config)
-    if architecture_name.startswith("sae"):
+    elif architecture_name.startswith("sae"):
         return SAEProbe(d_model=d_model, device=device, **config)
-    if architecture_name in ["mass_mean"]:  # mass_mean_iid removed due to numerical instability
-        # Mass-mean probes need use_iid parameter from config
+    elif architecture_name.startswith("mass_mean"):
         return MassMeanProbe(d_model=d_model, device=device, **config)
-    if architecture_name.startswith("act_sim"):
+    elif architecture_name.startswith("act_sim"):
         # Activation similarity probes - filter out batch_size from constructor args
         filtered_config = {k: v for k, v in config.items() if k != 'batch_size'}
         return ActivationSimilarityProbe(d_model=d_model, device=device, **filtered_config)
-    if architecture_name == "grouped":
-        return GroupedProbe(d_model=d_model, device=device, **config)
-    raise ValueError(f"Unknown architecture: {architecture_name}")
-
+    else:
+        raise ValueError(f"Unknown architecture: {architecture_name}")
 
 
 def get_probe_filename_prefix(train_ds, arch_name, layer, component, config_name, contrast_fn=None):
-    # Should ideally just use arch_name and not agg_name but now we need to be backward compatible
+    # Use config_name instead of architecture name for better organization
     agg_name = extract_aggregation_from_config(config_name, arch_name)
     
-    base_prefix = f"train_on_{train_ds}_{arch_name}_{agg_name}_L{layer}_{component}"
+    base_prefix = f"train_on_{train_ds}_{config_name}_L{layer}_{component}"
     if contrast_fn is not None:
         # Add contrast function name to filename to distinguish from regular probes
         contrast_name = contrast_fn.__name__ if hasattr(contrast_fn, '__name__') else 'contrast'

@@ -10,7 +10,6 @@ from src.utils import (
     get_probe_filename_prefix,
     rebuild_suffix
 )
-from src.probes import GroupedProbe
 import numpy as np
 import torch
 import copy
@@ -25,7 +24,6 @@ def train_probe(
     train_size: float = 0.75, val_size: float = 0.10, test_size: float = 0.15,
     hyperparameter_tuning: bool = False,
     rebuild_config: dict = None,
-    # return_probe_and_test: bool = False,
     metric: str = 'acc',
     retrain_with_best_hparams: bool = False,
     contrast_fn: Any = None,
@@ -33,8 +31,10 @@ def train_probe(
     # Only raise error if both hyperparameter_tuning and retrain_with_best_hparams are set
     if hyperparameter_tuning and retrain_with_best_hparams:
         raise ValueError("Cannot use both hyperparameter_tuning and retrain_with_best_hparams at the same time.")
+    
     probe_filename_base = get_probe_filename_prefix(train_dataset_name, architecture_name, layer, component, config_name, contrast_fn)
     probe_save_dir = results_dir / f"train_{train_dataset_name}"
+    
     # If rebuilding, save in dataclass_exps_{dataset_name}
     if rebuild_config is not None:
         probe_save_dir = results_dir / f"dataclass_exps_{train_dataset_name}"
@@ -50,11 +50,14 @@ def train_probe(
     else:
         probe_state_path = probe_save_dir / f"{probe_filename_base}_state.npz"
         probe_json_path = probe_save_dir / f"{probe_filename_base}_meta.json"
+    
     if use_cache and probe_state_path.exists() and not retrain:
         logger.log(f"  - Probe already trained. Skipping: {probe_state_path.name}")
         return
+    
     logger.log("  - Training new probe …")
 
+    # Prepare dataset
     if rebuild_config is not None:
         orig_ds = Dataset(train_dataset_name, model=model, device=device, seed=seed)
         
@@ -104,83 +107,172 @@ def train_probe(
     if contrast_fn is not None:
         train_acts, y_train = train_ds.get_contrast_activations(contrast_fn, layer, component, split='train')
         val_acts, y_val = train_ds.get_contrast_activations(contrast_fn, layer, component, split='val')
-        # test_acts, y_test = train_ds.get_contrast_activations(contrast_fn, layer, component, split='test')
     else:
-        train_acts, y_train = train_ds.get_train_set_activations(layer, component)
-        val_acts, y_val = train_ds.get_val_set_activations(layer, component)
-        # test_acts, y_test = train_ds.get_test_set_activations(layer, component)
+        # Get activations based on probe type
+        if config_name == "attention":
+            # Attention probes don't use masks
+            train_acts, y_train = train_ds.get_train_set_activations(layer, component, use_masks=False)
+            val_acts, y_val = train_ds.get_val_set_activations(layer, component, use_masks=False)
+        else:
+            # Other probes use masks for proper aggregation
+            train_acts, train_masks, y_train = train_ds.get_train_set_activations(layer, component, use_masks=True)
+            val_acts, val_masks, y_val = train_ds.get_val_set_activations(layer, component, use_masks=True)
+    
+    print(f"Train activations: {len(train_acts) if isinstance(train_acts, list) else train_acts.shape}")
+    print(f"Val activations: {len(val_acts) if isinstance(val_acts, list) else val_acts.shape}")
 
-    probe = get_probe_architecture(architecture_name, d_model=d_model, device=device, config=asdict(PROBE_CONFIGS[config_name]))
+    # Create probe based on config_name
+    probe_config = asdict(PROBE_CONFIGS[config_name])
     
-    # Get fit parameters by filtering out initialization-only parameters
-    all_params = asdict(PROBE_CONFIGS[config_name])
-    fit_params = {}
-    
-    # Parameters that should be passed to fit() method
-    fit_param_names = ['lr', 'epochs', 'batch_size', 'weight_decay', 'verbose', 'early_stopping', 'patience', 'min_delta']
-    for key, value in all_params.items():
-        if key in fit_param_names:
-            fit_params[key] = value
-    
-    # Handle mass-mean probe configuration specially (binary classification only)
-    if architecture_name in ["mass_mean", "mass_mean_iid"]:
-        # Mass-mean probes don't have weighting_method, they're computed analytically
-        weighting_method = "mass_mean"
+    if config_name.startswith("sklearn_linear"):
+        # Sklearn linear probe
+        probe = get_probe_architecture("sklearn_linear", d_model=d_model, device=device, config=probe_config)
+        
+        if retrain_with_best_hparams:
+            logger.log(f"  - Using best hyperparameters from best_hparams.json for {config_name}.")
+            # Load best hyperparameters from the dedicated best_hparams.json file
+            if rebuild_config is not None:
+                suffix = rebuild_suffix(rebuild_config)
+                best_hparams_path = probe_save_dir / f"{probe_filename_base}_{suffix}_best_hparams.json"
+            else:
+                best_hparams_path = probe_save_dir / f"{probe_filename_base}_best_hparams.json"
+            if not best_hparams_path.exists():
+                raise FileNotFoundError(f"Best hyperparameters file not found: {best_hparams_path}")
+            with open(best_hparams_path, 'r') as f:
+                best_params = json.load(f)
+            # Update probe parameters with best hyperparameters
+            for key, value in best_params.items():
+                setattr(probe, key, value)
+            probe.fit(train_acts, y_train)
+        elif hyperparameter_tuning:
+            best_params = probe.find_best_fit(
+                train_acts, y_train, val_acts, y_val,
+                epochs=probe_config.get('epochs', 100),  # Get epochs from probe config
+                n_trials=10, direction=None, verbose=True, metric=metric,
+                probe_save_dir=probe_save_dir, probe_filename_base=probe_filename_base
+            )
+        else:
+            probe.fit(train_acts, y_train)
+            
+    elif config_name.startswith("linear"):
+        # PyTorch linear probe
+        probe = get_probe_architecture("linear", d_model=d_model, device=device, config=probe_config)
+        
+        # Get fit parameters by filtering out initialization-only parameters
+        fit_params = {}
+        fit_param_names = ['lr', 'epochs', 'batch_size', 'weight_decay', 'verbose', 'early_stopping', 'patience', 'min_delta']
+        for key, value in probe_config.items():
+            if key in fit_param_names:
+                fit_params[key] = value
+        
+        if retrain_with_best_hparams:
+            logger.log(f"  - Using best hyperparameters from best_hparams.json for {config_name}.")
+            if rebuild_config is not None:
+                suffix = rebuild_suffix(rebuild_config)
+                best_hparams_path = probe_save_dir / f"{probe_filename_base}_{suffix}_best_hparams.json"
+            else:
+                best_hparams_path = probe_save_dir / f"{probe_filename_base}_best_hparams.json"
+            if not best_hparams_path.exists():
+                raise FileNotFoundError(f"Best hyperparameters file not found: {best_hparams_path}")
+            with open(best_hparams_path, 'r') as f:
+                best_params = json.load(f)
+            fit_params.update(best_params)
+            probe.fit(train_acts, y_train)
+        elif hyperparameter_tuning:
+            best_params = probe.find_best_fit(
+                train_acts, y_train, val_acts, y_val,
+                epochs=probe_config.get('epochs', 100),  # Get epochs from probe config
+                n_trials=20, direction=None, verbose=True, metric=metric,
+                probe_save_dir=probe_save_dir, probe_filename_base=probe_filename_base
+            )
+        else:
+            probe.fit(train_acts, y_train)
+            
+    elif config_name == "attention":
+        # Attention probe
+        probe = get_probe_architecture("attention", d_model=d_model, device=device, config=probe_config)
+        
+        # Get fit parameters
+        fit_params = {}
+        fit_param_names = ['lr', 'epochs', 'batch_size', 'weight_decay', 'verbose', 'early_stopping', 'patience', 'min_delta']
+        for key, value in probe_config.items():
+            if key in fit_param_names:
+                fit_params[key] = value
+        
+        if retrain_with_best_hparams:
+            logger.log(f"  - Using best hyperparameters from best_hparams.json for {config_name}.")
+            if rebuild_config is not None:
+                suffix = rebuild_suffix(rebuild_config)
+                best_hparams_path = probe_save_dir / f"{probe_filename_base}_{suffix}_best_hparams.json"
+            else:
+                best_hparams_path = probe_save_dir / f"{probe_filename_base}_best_hparams.json"
+            if not best_hparams_path.exists():
+                raise FileNotFoundError(f"Best hyperparameters file not found: {best_hparams_path}")
+            with open(best_hparams_path, 'r') as f:
+                best_params = json.load(f)
+            fit_params.update(best_params)
+            probe.fit(train_acts, y_train)
+        elif hyperparameter_tuning:
+            best_params = probe.find_best_fit(
+                train_acts, y_train, val_acts, y_val,
+                epochs=probe_config.get('epochs', 100),  # Get epochs from probe config
+                n_trials=20, direction=None, verbose=True, metric=metric,
+                probe_save_dir=probe_save_dir, probe_filename_base=probe_filename_base
+            )
+        else:
+            probe.fit(train_acts, y_train)
+            
+    elif config_name.startswith("sae"):
+        # SAE probe
+        probe = get_probe_architecture("sae", d_model=d_model, device=device, config=probe_config)
+        
+        # Get fit parameters
+        fit_params = {}
+        fit_param_names = ['lr', 'epochs', 'batch_size', 'weight_decay', 'verbose', 'early_stopping', 'patience', 'min_delta']
+        for key, value in probe_config.items():
+            if key in fit_param_names:
+                fit_params[key] = value
+        
+        if retrain_with_best_hparams:
+            logger.log(f"  - Using best hyperparameters from best_hparams.json for {config_name}.")
+            if rebuild_config is not None:
+                suffix = rebuild_suffix(rebuild_config)
+                best_hparams_path = probe_save_dir / f"{probe_filename_base}_{suffix}_best_hparams.json"
+            else:
+                best_hparams_path = probe_save_dir / f"{probe_filename_base}_best_hparams.json"
+            if not best_hparams_path.exists():
+                raise FileNotFoundError(f"Best hyperparameters file not found: {best_hparams_path}")
+            with open(best_hparams_path, 'r') as f:
+                best_params = json.load(f)
+            fit_params.update(best_params)
+            probe.fit(train_acts, y_train)
+        elif hyperparameter_tuning:
+            best_params = probe.find_best_fit(
+                train_acts, y_train, val_acts, y_val,
+                epochs=probe_config.get('epochs', 100),  # Get epochs from probe config
+                n_trials=20, direction=None, verbose=True, metric=metric,
+                probe_save_dir=probe_save_dir, probe_filename_base=probe_filename_base
+            )
+        else:
+            probe.fit(train_acts, y_train)
+            
+    elif config_name == "mass_mean":
+        # Mass mean probe (non-trainable)
+        probe = get_probe_architecture("mass_mean", d_model=d_model, device=device, config=probe_config)
+        probe.fit(train_acts, y_train)
+        
+    elif config_name.startswith("act_sim"):
+        # Activation similarity probe (non-trainable)
+        probe = get_probe_architecture("act_sim", d_model=d_model, device=device, config=probe_config)
+        probe.fit(train_acts, y_train)
+        
     else:
-        weighting_method = all_params.get("weighting_method", "weighted_sampler")
+        raise ValueError(f"Unknown config_name: {config_name}")
 
-    if retrain_with_best_hparams:
-        logger.log(f"  - Using best hyperparameters from best_hparams.json for {config_name}.")
-        # Load best hyperparameters from the dedicated best_hparams.json file
-        if rebuild_config is not None:
-            suffix = rebuild_suffix(rebuild_config)
-            best_hparams_path = probe_save_dir / f"{probe_filename_base}_{suffix}_best_hparams.json"
-        else:
-            best_hparams_path = probe_save_dir / f"{probe_filename_base}_best_hparams.json"
-        if not best_hparams_path.exists():
-            raise FileNotFoundError(f"Best hyperparameters file not found: {best_hparams_path}")
-        with open(best_hparams_path, 'r') as f:
-            best_params = json.load(f)
-        fit_params.update(best_params)
-        if weighting_method == "mass_mean":
-            # Mass-mean probe is computed analytically, no training needed
-            logger.log(f"  - Computing mass-mean probe analytically...")
-            probe.fit(train_acts, y_train, **fit_params)
-        elif weighting_method == "weighted_loss":
-            fit_params["use_weighted_loss"] = True
-            fit_params["use_weighted_sampler"] = False
-            probe.fit(train_acts, y_train, **fit_params)
-        elif weighting_method == "weighted_sampler":
-            fit_params["use_weighted_loss"] = False
-            fit_params["use_weighted_sampler"] = True
-            probe.fit(train_acts, y_train, **fit_params)
-        else:
-            raise ValueError(f"Unknown weighting_method: {weighting_method}")
-    elif hyperparameter_tuning:
-        best_params = probe.find_best_fit(
-            train_acts, y_train, val_acts, y_val,
-            mask_train=None, mask_val=None,
-            n_trials=10, direction=None, verbose=True, weighting_method=weighting_method, metric=metric,
-            probe_save_dir=probe_save_dir, probe_filename_base=probe_filename_base
-        )
-    else:
-        if weighting_method == "mass_mean":
-            # Mass-mean probe is computed analytically, no training needed
-            logger.log(f"  - Computing mass-mean probe analytically...")
-            probe.fit(train_acts, y_train, **fit_params)
-        elif weighting_method == "weighted_loss":
-            fit_params["use_weighted_loss"] = True
-            fit_params["use_weighted_sampler"] = False
-            probe.fit(train_acts, y_train, **fit_params)
-        elif weighting_method == "weighted_sampler":
-            fit_params["use_weighted_loss"] = False
-            fit_params["use_weighted_sampler"] = True
-            probe.fit(train_acts, y_train, **fit_params)
-        else:
-            raise ValueError(f"Unknown weighting_method: {weighting_method}")
-
+    # Save probe
     probe_save_dir.mkdir(parents=True, exist_ok=True)
     probe.save_state(probe_state_path)
+    
     # Save metadata/config
     meta = {
         'train_dataset_name': train_dataset_name,
@@ -197,220 +289,6 @@ def train_probe(
     with open(probe_json_path, 'w') as f:
         json.dump(meta, f, indent=2)
     logger.log(f"  - 🔥 Probe state saved to {probe_state_path.name}")
-    # if return_probe_and_test:
-    #     return probe, test_acts, y_test
-
-
-def train_grouped_probe(
-    model, d_model: int, train_dataset_name: str, layer: int, component: str,
-    architecture_configs: list, device: str, use_cache: bool,
-    seed: int, results_dir: Path, cache_dir: Path, logger: Logger, retrain: bool,
-    train_size: float = 0.75, val_size: float = 0.10, test_size: float = 0.15,
-    rebuild_config: dict = None,
-    metric: str = 'acc',
-    contrast_fn: Any = None,
-):
-    """
-    Train multiple probes simultaneously using GroupedProbe to reduce GPU memory transfers.
-    Each probe is saved individually with its own filename for compatibility with evaluation code.
-    
-    Args:
-        architecture_configs: List of dicts with 'name' and 'config_name' keys
-    """
-    logger.log(f"  - Training {len(architecture_configs)} probes using grouped training for efficiency...")
-
-    # Check which individual probes already exist and skip them
-    probe_save_dir = results_dir / f"train_{train_dataset_name}"
-    if rebuild_config is not None:
-        probe_save_dir = results_dir / f"dataclass_exps_{train_dataset_name}"
-    
-    probes_to_train = []
-    existing_probes = []
-    
-    for arch_config in architecture_configs:
-        architecture_name = arch_config['name']
-        config_name = arch_config.get('config_name')
-        
-        individual_probe_filename_base = get_probe_filename_prefix(train_dataset_name, architecture_name, layer, component, config_name, contrast_fn)
-        
-        if rebuild_config is not None:
-            suffix = rebuild_suffix(rebuild_config)
-            individual_probe_state_path = probe_save_dir / f"{individual_probe_filename_base}_{suffix}_state.npz"
-        else:
-            individual_probe_state_path = probe_save_dir / f"{individual_probe_filename_base}_state.npz"
-        
-        if use_cache and individual_probe_state_path.exists() and not retrain:
-            existing_probes.append(arch_config)
-            logger.log(f"    - [SKIP] Probe already exists: {architecture_name} ({config_name})")
-        else:
-            probes_to_train.append(arch_config)
-    
-    if not probes_to_train:
-        logger.log(f"  - [SKIP] All {len(architecture_configs)} probes already trained. Skipping grouped training.")
-        return
-        
-    logger.log(f"  - Training {len(probes_to_train)} probes (skipping {len(existing_probes)} existing probes)")
-    
-    # Keep original list for metadata saving, update working list for training
-    original_architecture_configs = architecture_configs
-    architecture_configs = probes_to_train
-
-    # Prepare dataset (same logic as train_probe)
-    if rebuild_config is not None:
-        orig_ds = Dataset(train_dataset_name, model=model, device=device, seed=seed)
-        
-        # Check if this is LLM upsampling with new method
-        if 'llm_upsampling' in rebuild_config and rebuild_config['llm_upsampling']:
-            n_real_neg = rebuild_config.get('n_real_neg')
-            n_real_pos = rebuild_config.get('n_real_pos')
-            upsampling_factor = rebuild_config.get('upsampling_factor')
-            
-            run_name = str(results_dir).split('/')[-3]
-            llm_csv_base_path = rebuild_config.get('llm_csv_base_path', f'results/{run_name}')
-            
-            if n_real_neg is None or n_real_pos is None or upsampling_factor is None:
-                raise ValueError("For LLM upsampling, 'n_real_neg', 'n_real_pos', and 'upsampling_factor' must be specified")
-            
-            train_ds = Dataset.build_llm_upsampled_dataset(
-                orig_ds,
-                seed=seed,
-                n_real_neg=n_real_neg,
-                n_real_pos=n_real_pos,
-                upsampling_factor=upsampling_factor,
-                val_size=val_size,
-                test_size=test_size,
-                llm_csv_base_path=llm_csv_base_path,
-                only_test=False,
-            )
-        else:
-            # Original rebuild_config logic
-            train_class_counts = rebuild_config.get('class_counts')
-            train_class_percents = rebuild_config.get('class_percents')
-            train_total_samples = rebuild_config.get('total_samples')
-            train_ds = Dataset.build_imbalanced_train_balanced_eval(
-                orig_ds,
-                train_class_counts=train_class_counts,
-                train_class_percents=train_class_percents,
-                train_total_samples=train_total_samples,
-                val_size=val_size,
-                test_size=test_size,
-                seed=seed,
-                only_test=False,
-            )
-    else:
-        train_ds = Dataset(train_dataset_name, model=model, device=device, seed=seed)
-        train_ds.split_data(train_size=train_size, val_size=val_size, test_size=test_size, seed=seed)
-
-    # Use contrast activations if contrast_fn is provided
-    if contrast_fn is not None:
-        train_acts, y_train = train_ds.get_contrast_activations(contrast_fn, layer, component, split='train')
-        val_acts, y_val = train_ds.get_contrast_activations(contrast_fn, layer, component, split='val')
-    else:
-        train_acts, y_train = train_ds.get_train_set_activations(layer, component)
-        val_acts, y_val = train_ds.get_val_set_activations(layer, component)
-
-    # Create grouped probe
-    grouped_probe = GroupedProbe(d_model=d_model, device=device)
-    
-    # Add each probe to the group
-    for i, arch_config in enumerate(architecture_configs):
-        architecture_name = arch_config['name']
-        config_name = arch_config.get('config_name')
-        
-        # Create a unique name for this probe within the group
-        probe_name = f"{architecture_name}_{config_name}_{i}"
-        
-        # Skip non-trainable probes and SAE probes (they train faster individually)
-        if (architecture_name.startswith('act_sim') or 
-            architecture_name in ['mass_mean', 'mass_mean_iid'] or
-            architecture_name.startswith('sae')):
-            logger.log(f"    - Skipping probe (non-trainable or SAE): {architecture_name}, {config_name}")
-            continue
-            
-        grouped_probe.add_probe(probe_name, architecture_name, config_name)
-    
-    if not grouped_probe.probes:
-        logger.log("  - No trainable probes to group. Skipping grouped training.")
-        return
-    
-    # Get fit parameters from the first probe's config (they should be similar)
-    first_probe_name = list(grouped_probe.probes.keys())[0]
-    all_params = grouped_probe.probe_configs[first_probe_name]
-    fit_params = {}
-    
-    # Parameters that should be passed to fit() method
-    fit_param_names = ['lr', 'epochs', 'batch_size', 'weight_decay', 'verbose', 'early_stopping', 'patience', 'min_delta']
-    for key, value in all_params.items():
-        if key in fit_param_names:
-            fit_params[key] = value
-    
-    # Handle weighting method
-    weighting_method = all_params.get("weighting_method", "weighted_sampler")
-    
-    if weighting_method == "weighted_loss":
-        fit_params["use_weighted_loss"] = True
-        fit_params["use_weighted_sampler"] = False
-    elif weighting_method == "weighted_sampler":
-        fit_params["use_weighted_loss"] = False
-        fit_params["use_weighted_sampler"] = True
-    else:
-        fit_params["use_weighted_loss"] = False
-        fit_params["use_weighted_sampler"] = False
-    
-    # Train the grouped probe
-    logger.log(f"  - Training {len(grouped_probe.probes)} probes simultaneously...")
-    grouped_probe.fit(train_acts, y_train, **fit_params)
-    
-    # Save each probe individually with its own filename (for compatibility with evaluation)
-    probe_save_dir.mkdir(parents=True, exist_ok=True)
-    
-    # Use the enhanced save_state method to save each probe with proper individual filenames
-    grouped_probe.save_state(
-        path=probe_save_dir / "grouped_probe_state.json",  # Dummy path, not actually used
-        architecture_configs=architecture_configs,
-        train_dataset_name=train_dataset_name,
-        layer=layer,
-        component=component,
-        rebuild_config=rebuild_config,
-        contrast_fn=contrast_fn
-    )
-    
-    # Save metadata files for each probe (both trained and existing ones)
-    for arch_config in original_architecture_configs:
-        architecture_name = arch_config['name']
-        config_name = arch_config.get('config_name')
-        
-        # Create individual probe filename (same as train_probe would use)
-        individual_probe_filename_base = get_probe_filename_prefix(train_dataset_name, architecture_name, layer, component, config_name, contrast_fn)
-        
-        if rebuild_config is not None:
-            suffix = rebuild_suffix(rebuild_config)
-            individual_probe_state_path = probe_save_dir / f"{individual_probe_filename_base}_{suffix}_state.npz"
-            individual_probe_json_path = probe_save_dir / f"{individual_probe_filename_base}_{suffix}_meta.json"
-        else:
-            individual_probe_state_path = probe_save_dir / f"{individual_probe_filename_base}_state.npz"
-            individual_probe_json_path = probe_save_dir / f"{individual_probe_filename_base}_meta.json"
-        
-        # Save metadata/config (same as train_probe would save)
-        meta = {
-            'train_dataset_name': train_dataset_name,
-            'layer': layer,
-            'component': component,
-            'architecture_name': architecture_name,
-            'aggregation': extract_aggregation_from_config(config_name, architecture_name),
-            'config_name': config_name,
-            'rebuild_config': copy.deepcopy(rebuild_config),
-            'probe_state_path': str(individual_probe_state_path),
-        }
-        
-        with open(individual_probe_json_path, 'w') as f:
-            json.dump(meta, f, indent=2)
-        
-        logger.log(f"  - 🔥 Saved individual probe: {individual_probe_state_path.name}")
-    
-    logger.log(f"  - ✅ Trained {len(grouped_probe.probes)} probes, metadata saved for all {len(original_architecture_configs)} probes")
-    
-    return grouped_probe
 
 
 def evaluate_probe(
@@ -418,10 +296,10 @@ def evaluate_probe(
     architecture_config: dict, results_dir: Path, logger: Logger,
     seed: int, model, d_model: int, device: str, use_cache: bool, cache_dir: Path, reevaluate: bool,
     train_size: float = 0.75, val_size: float = 0.10, test_size: float = 0.15, 
-    score_options: list = None, threshold_class_0: float = 2.0, threshold_class_1: float = 2.0,
+    score_options: list = None,
     rebuild_config: dict = None,
     return_metrics: bool = False,
-    contrast_fn: Any = None,  # NEW
+    contrast_fn: Any = None,
 ):
     if score_options is None:
         score_options = ['all']
@@ -451,12 +329,27 @@ def evaluate_probe(
 
     # Load probe
     probe_config = asdict(PROBE_CONFIGS[config_name])
-    probe = get_probe_architecture(architecture_name, d_model=d_model, device=device, config=probe_config)
+    
+    if config_name.startswith("sklearn_linear"):
+        probe = get_probe_architecture("sklearn_linear", d_model=d_model, device=device, config=probe_config)
+    elif config_name.startswith("linear"):
+        probe = get_probe_architecture("linear", d_model=d_model, device=device, config=probe_config)
+    elif config_name == "attention":
+        probe = get_probe_architecture("attention", d_model=d_model, device=device, config=probe_config)
+    elif config_name.startswith("sae"):
+        probe = get_probe_architecture("sae", d_model=d_model, device=device, config=probe_config)
+    elif config_name == "mass_mean":
+        probe = get_probe_architecture("mass_mean", d_model=d_model, device=device, config=probe_config)
+    elif config_name.startswith("act_sim"):
+        probe = get_probe_architecture("act_sim", d_model=d_model, device=device, config=probe_config)
+    else:
+        raise ValueError(f"Unknown config_name: {config_name}")
+    
     probe.load_state(probe_state_path)
     
     # Get batch_size from probe config for evaluation
     # For SAE probes, use training_batch_size; for others, use batch_size
-    if architecture_name.startswith("sae"):
+    if config_name.startswith("sae"):
         batch_size = probe_config.get('training_batch_size', probe_config.get('batch_size', 200))
     else:
         batch_size = probe_config.get('batch_size', 200)
@@ -507,31 +400,55 @@ def evaluate_probe(
     else:
         eval_ds = Dataset(eval_dataset_name, model=model, device=device, seed=seed, only_test=only_test)
         eval_ds.split_data(train_size=train_size, val_size=val_size, test_size=test_size, seed=seed)
+    
     # Use contrast activations if contrast_fn is provided
     if contrast_fn is not None:
         test_acts, y_test = eval_ds.get_contrast_activations(contrast_fn, layer, component, split='test')
     else:
-        test_acts, y_test = eval_ds.get_test_set_activations(layer, component)
-
+        # Get activations
+        if config_name == "attention":
+            # Attention probes don't use masks
+            test_acts, y_test = eval_ds.get_test_set_activations(layer, component, use_masks=False)
+        else:
+            # Other probes use masks for proper aggregation
+            test_acts, test_masks, y_test = eval_ds.get_test_set_activations(layer, component, use_masks=True)
+        
+        print(f"Test activations: {len(test_acts) if isinstance(test_acts, list) else test_acts.shape}")
+    
     # Calculate metrics based on score options
     combined_metrics = {}
-
+    
     if 'all' in score_options:
-        logger.log(f"  - 🥰 Calculating metrics for all examples...")
-        all_metrics = probe.score(test_acts, y_test, batch_size=batch_size)
-        all_metrics["filtered"] = False
+        logger.log(f"  - 🤗 Calculating all examples metrics...")
+        if config_name == "attention":
+            # Attention probes don't use masks
+            all_metrics = probe.score(test_acts, y_test)
+        else:
+            # Other probes use masks
+            all_metrics = probe.score(test_acts, y_test, masks=test_masks)
         combined_metrics["all_examples"] = all_metrics
-    
+
     if 'filtered' in score_options:
-        logger.log(f"  - 🤗 Calculating filtered metrics (class_0_threshold={threshold_class_0}, class_1_threshold={threshold_class_1})...")
-        filtered_metrics = probe.score_filtered(test_acts, y_test, eval_dataset_name, results_dir, 
-                                              seed=seed, threshold_class_0=threshold_class_0, 
-                                              threshold_class_1=threshold_class_1, test_size=test_size)
+        logger.log(f"  - 🤗 Calculating filtered metrics...")
+        if config_name == "attention":
+            # Attention probes don't use masks
+            filtered_metrics = probe.score_filtered(test_acts, y_test, dataset_name=eval_dataset_name, 
+                                                  results_dir=results_dir, seed=seed, test_size=test_size)
+        else:
+            # Other probes use masks
+            filtered_metrics = probe.score_filtered(test_acts, y_test, masks=test_masks, 
+                                                  dataset_name=eval_dataset_name, results_dir=results_dir, 
+                                                  seed=seed, test_size=test_size)
         combined_metrics["filtered_examples"] = filtered_metrics
-    
+
     # Save metrics and per-datapoint scores/labels
     # Compute per-datapoint probe scores (logits) and labels
-    test_scores = probe.predict_logits(test_acts, batch_size=batch_size)
+    if config_name == "attention":
+        # Attention probes don't use masks
+        test_scores = probe.predict_logits(test_acts)
+    else:
+        # Other probes use masks
+        test_scores = probe.predict_logits(test_acts, masks=test_masks)
     # Flatten if shape is (N, 1)
     if hasattr(test_scores, 'shape') and len(test_scores.shape) == 2 and test_scores.shape[1] == 1:
         test_scores = test_scores[:, 0]
@@ -560,29 +477,17 @@ def evaluate_probe(
             csv_files = list(runthrough_dir.glob("*logit_diff*.csv"))
             if csv_files:
                 df = pd.read_csv(csv_files[0])
-                if 'logit_diff' in df.columns:
-                    # Apply class-specific thresholds like in score_filtered
-                    logit_diff_values = df['logit_diff'].values
-                    mask_filter = np.zeros(len(logit_diff_values), dtype=bool)
-                    
-                    for i, (logit_diff, true_label) in enumerate(zip(logit_diff_values, test_labels)):
-                        if true_label == 0:
-                            threshold = threshold_class_0
-                        elif true_label == 1:
-                            threshold = threshold_class_1
-                        else:
-                            threshold = max(threshold_class_0, threshold_class_1)  # fallback
-                        mask_filter[i] = np.abs(logit_diff) > threshold
-                    
-                    filtered_indices = np.where(mask_filter)[0]
+                if 'use_in_filtered_scoring' in df.columns:
+                    # Use the use_in_filtered_scoring column directly
+                    use_in_filtered = df['use_in_filtered_scoring'].values
+                    filtered_indices = np.where(use_in_filtered == 1)[0]
                     
                     if len(filtered_indices) > 0:
                         output_dict["filtered_scores"] = {
                             "scores": [test_scores[i] for i in filtered_indices],
                             "labels": [test_labels[i] for i in filtered_indices],
                             "filtered": True,
-                            "threshold_class_0": threshold_class_0,
-                            "threshold_class_1": threshold_class_1,
+                            "filter_method": "use_in_filtered_scoring",
                             "original_size": len(test_scores),
                             "filtered_size": len(filtered_indices),
                             "removed_count": len(test_scores) - len(filtered_indices)
@@ -599,7 +504,7 @@ def evaluate_probe(
     if 'filtered' in score_options:
         filtered_metrics = combined_metrics.get("filtered_examples", {})
         if filtered_metrics.get("filtered", False):
-            logger.log(f"  - 🙃 Filtered examples metrics (class_0_threshold={threshold_class_0}, class_1_threshold={threshold_class_1}): {filtered_metrics}")
+            logger.log(f"  - 🙃 Filtered examples metrics: {filtered_metrics}")
         else:
             logger.log(f"  - 😵‍💫 Filtered scoring failed, using all examples")
     if return_metrics:
@@ -663,12 +568,10 @@ def run_non_trainable_probe(
             if n_real_neg is None or n_real_pos is None or upsampling_factor is None:
                 raise ValueError("For LLM upsampling, 'n_real_neg', 'n_real_pos', and 'upsampling_factor' must be specified")
             
-            # Use run_name from config for LLM samples path
-            # We need to get the run_name from the results_dir path: results/run_name/seed_X/experiment_name
-            run_name = results_dir.parent.parent.name  # Go up two levels to get run_name
+            run_name = str(results_dir).split('/')[-3]
             llm_csv_base_path = rebuild_config.get('llm_csv_base_path', f'results/{run_name}')
             
-            train_ds = Dataset.build_llm_upsampled_dataset(
+            ds = Dataset.build_llm_upsampled_dataset(
                 orig_ds,
                 seed=seed,
                 n_real_neg=n_real_neg,
@@ -677,14 +580,13 @@ def run_non_trainable_probe(
                 val_size=val_size,
                 test_size=test_size,
                 llm_csv_base_path=llm_csv_base_path,
-                only_test=False,
             )
         else:
             # Original rebuild_config logic
             train_class_counts = rebuild_config.get('class_counts')
             train_class_percents = rebuild_config.get('class_percents')
             train_total_samples = rebuild_config.get('total_samples')
-            train_ds = Dataset.build_imbalanced_train_balanced_eval(
+            ds = Dataset.build_imbalanced_train_balanced_eval(
                 orig_ds,
                 train_class_counts=train_class_counts,
                 train_class_percents=train_class_percents,
@@ -692,21 +594,36 @@ def run_non_trainable_probe(
                 val_size=val_size,
                 test_size=test_size,
                 seed=seed,
-                only_test=False,
             )
     else:
-        train_ds = Dataset(train_dataset_name, model=model, device=device, seed=seed)
-        train_ds.split_data(train_size=train_size, val_size=val_size, test_size=test_size, seed=seed)
+        ds = Dataset(train_dataset_name, model=model, device=device, seed=seed)
+        ds.split_data(train_size=train_size, val_size=val_size, test_size=test_size, seed=seed)
 
-    # Get training activations
-    if contrast_fn is not None:
-        train_acts, y_train = train_ds.get_contrast_activations(contrast_fn, layer, component, split='train')
+    # Get activations
+    if config_name == "attention":
+        # Attention probes don't use masks
+        train_acts, y_train = ds.get_train_set_activations(layer, component, use_masks=False)
+        val_acts, y_val = ds.get_val_set_activations(layer, component, use_masks=False)
+        test_acts, y_test = ds.get_test_set_activations(layer, component, use_masks=False)
     else:
-        train_acts, y_train = train_ds.get_train_set_activations(layer, component)
-
-    # Create and fit the non-trainable probe
+        # Other probes use masks for proper aggregation
+        train_acts, train_masks, y_train = ds.get_train_set_activations(layer, component, use_masks=True)
+        val_acts, val_masks, y_val = ds.get_val_set_activations(layer, component, use_masks=True)
+        test_acts, test_masks, y_test = ds.get_test_set_activations(layer, component, use_masks=True)
+    
+    print(f"Train activations: {len(train_acts) if isinstance(train_acts, list) else train_acts.shape}")
+    print(f"Val activations: {len(val_acts) if isinstance(val_acts, list) else val_acts.shape}") 
+    print(f"Test activations: {len(test_acts) if isinstance(test_acts, list) else test_acts.shape}")
+    
+    # Fit the non-trainable probe
     probe_config = asdict(PROBE_CONFIGS[config_name])
-    probe = get_probe_architecture(architecture_name, d_model=d_model, device=device, config=probe_config)
+    
+    if config_name == "mass_mean":
+        probe = get_probe_architecture("mass_mean", d_model=d_model, device=device, config=probe_config)
+    elif config_name.startswith("act_sim"):
+        probe = get_probe_architecture("act_sim", d_model=d_model, device=device, config=probe_config)
+    else:
+        raise ValueError(f"Unknown non-trainable config_name: {config_name}")
     
     # Batch size is already set during probe initialization
     probe.fit(train_acts, y_train)

@@ -16,7 +16,6 @@ import importlib
 __all__ = [
     "Dataset",
     "get_available_datasets",
-    "load_combined_classification_datasets",
 ]
 
 from functools import lru_cache
@@ -27,9 +26,7 @@ def get_main_csv_metadata() -> pd.DataFrame:  # type: ignore[override]
     if not path.exists():
         raise FileNotFoundError("datasets/main.csv not found. This file is required for dataset metadata.")
     df = pd.read_csv(path)
-    # print("[DEBUG] main.csv 'number' column:", df['number'].tolist())
     df['number'] = df['number'].astype(int)
-    # print("[DEBUG] main.csv index after set_index:", df['number'].tolist())
     return df.set_index("number")
 
 class Dataset:
@@ -43,15 +40,15 @@ class Dataset:
         device: str = "cuda:0",
         data_dir: Path = Path("datasets/cleaned"),
         cache_root: Path = Path("activation_cache"),
-        seed: int, # This is so important - how train and test sets persist across models/runs/etc.
-        only_test: bool = False,  # <-- Add this argument
+        seed: int,
+        only_test: bool = False,
     ):
         self.dataset_name = dataset_name
-        self.model = model  # Ensure model is always set as an attribute
+        self.model = model
         self.device = device
         self.cache_root = cache_root
         self.seed = seed
-        self.only_test = only_test  # <-- Store the flag
+        self.only_test = only_test
         
         meta = get_main_csv_metadata()
         # Robust lookup: try 'name' column, else try integer index, else error
@@ -75,10 +72,8 @@ class Dataset:
         df = pd.read_csv(csv_path).dropna(subset=["prompt", "target"])
         self.df = df
 
-        # Calculate max_len from the entire dataset upfront
-        self.max_len = ( # We can safely divide by 2 because this is character length vs. token count, and avg > 2
-            df["prompt_len"].max()//2 if "prompt_len" in df.columns else df["prompt"].str.len().max()//2
-        )
+        # Calculate max_len from activation cache if available, otherwise set to None
+        self.max_len = None  # Will be updated from activation cache if available
 
         # Binary classification only - map minority class to 1, majority to 0
         value_counts = df["target"].astype(str).value_counts()
@@ -134,13 +129,15 @@ class Dataset:
             self.y_val = None
             self.train_indices = None
             self.val_indices = None
+        
+        # Initialize activation manager if model is provided
         try: 
             cache_dir = cache_root / model.cfg.model_name / dataset_name
             self.act_manager = ActivationManager(
                 model=model,
                 device=device,
                 d_model=model.cfg.d_model,
-                max_len=self.max_len,
+                max_len=self.max_len,  # Will be None initially
                 cache_dir=cache_dir,
             )
         except: 
@@ -186,7 +183,7 @@ class Dataset:
         acts = self.act_manager.get_activations_for_texts(texts, layer, component)
         return acts
 
-    # text getters (unchanged)
+    # Text getters
     def get_train_set(self):
         if self.X_train_text is None:
             raise ValueError("Data not split yet. Split data first.")
@@ -202,24 +199,43 @@ class Dataset:
             raise ValueError("Data not split yet. Split data first.")
         return self.X_test_text, self.y_test
 
-    # activation getters
-    def get_train_set_activations(self, layer: int, component: str):
+    def update_max_len_from_activations(self, layer: int, component: str):
+        """Update max_len based on actual token lengths from activations."""
+        self.max_len = self.get_actual_max_len(layer, component)
+
+    # Activation getters
+    def get_train_set_activations(self, layer: int, component: str, use_masks: bool = True):
         if self.X_train_text is None:
             raise ValueError("Data not split yet. Split data first.")
-        acts = self.act_manager.get_activations_for_texts(self.X_train_text, layer, component)
-        return acts, self.y_train
+        # Update max_len from actual activations if available
+        self.update_max_len_from_activations(layer, component)
+        acts, masks = self.act_manager.get_activations_for_texts(self.X_train_text, layer, component)
+        if use_masks:
+            return acts, masks, self.y_train
+        else:
+            return acts, self.y_train
 
-    def get_val_set_activations(self, layer: int, component: str):
+    def get_val_set_activations(self, layer: int, component: str, use_masks: bool = True):
         if self.X_val_text is None:
             raise ValueError("Data not split yet. Split data first.")
-        acts = self.act_manager.get_activations_for_texts(self.X_val_text, layer, component)
-        return acts, self.y_val
+        # Update max_len from actual activations if available
+        self.update_max_len_from_activations(layer, component)
+        acts, masks = self.act_manager.get_activations_for_texts(self.X_val_text, layer, component)
+        if use_masks:
+            return acts, masks, self.y_val
+        else:
+            return acts, self.y_val
 
-    def get_test_set_activations(self, layer: int, component: str):
+    def get_test_set_activations(self, layer: int, component: str, use_masks: bool = True):
         if self.X_test_text is None:
             raise ValueError("Data not split yet. Split data first.")
-        acts = self.act_manager.get_activations_for_texts(self.X_test_text, layer, component)
-        return acts, self.y_test
+        # Update max_len from actual activations if available
+        self.update_max_len_from_activations(layer, component)
+        acts, masks = self.act_manager.get_activations_for_texts(self.X_test_text, layer, component)
+        if use_masks:
+            return acts, masks, self.y_test
+        else:
+            return acts, self.y_test
     
     def clear_activation_cache(self):
         """Clear activation cache to free memory."""
@@ -238,8 +254,8 @@ class Dataset:
         obj.df = df.copy()
         obj.model = model
         obj.device = device
-        obj.cache_root = cache_root  # Add missing cache_root attribute
-        obj.seed = seed  # Add missing seed attribute
+        obj.cache_root = cache_root
+        obj.seed = seed
         obj.max_len = max_len if max_len is not None else (df["prompt_len"].max() if "prompt_len" in df.columns else df["prompt"].str.len().max())
         obj.task_type = task_type
         obj.n_classes = n_classes
@@ -276,7 +292,7 @@ class Dataset:
             obj.X_test_text = obj.X[obj.test_indices].tolist()
             obj.y_test = obj.y[obj.test_indices]
         
-        # Rewriting ActivationManager
+        # Initialize ActivationManager
         try:
             cache_dir = cache_root / model.cfg.model_name / dataset_name
             obj.act_manager = ActivationManager(
@@ -346,7 +362,7 @@ class Dataset:
             
             # Calculate max_len from all possible data (only from original df since we're not using LLM data)
             all_lengths = df["prompt_len"].max() if "prompt_len" in df.columns else df["prompt"].str.len().max()
-            max_len = all_lengths // 2
+            max_len = all_lengths
             
             return Dataset.from_dataframe(
                 test_df,
@@ -424,7 +440,7 @@ class Dataset:
             df["prompt_len"].max() if "prompt_len" in df.columns else df["prompt"].str.len().max(),
             llm_df["prompt_len"].max() if "prompt_len" in llm_df.columns else llm_df["prompt"].str.len().max()
         )
-        max_len = all_lengths // 2
+        max_len = all_lengths
         
         # Use shared activation cache to avoid duplicating activations across LLM upsampling configurations
         # All LLM upsampling variants of the same base dataset will share the same activation cache
@@ -471,7 +487,7 @@ class Dataset:
         
         # Calculate max_len from all possible data upfront
         all_lengths = df["prompt_len"].max() if "prompt_len" in df.columns else df["prompt"].str.len().max()
-        max_len = all_lengths // 2  # match original logic (character length / 2)
+        max_len = all_lengths  # Use actual token lengths or character lengths directly
         
         # Build test/val indices (real data only, 50/50)
         test_indices, val_indices, used_indices = [], [], set()
@@ -593,6 +609,12 @@ class Dataset:
             test_indices=test_indices_new,
         )
 
+    def get_actual_max_len(self, layer: int, component: str) -> int:
+        """Get the actual maximum token length from activations if available."""
+        if hasattr(self, 'act_manager'):
+            return self.act_manager.get_actual_max_len(layer, component)
+        return None
+
     def get_contrast_pairs(self, contrast_fn):
         """
         For each row in the dataset, apply contrast_fn(row) to get (original_row, contrast_row).
@@ -638,7 +660,7 @@ class Dataset:
             all_lengths.append(len(orig['prompt']))
             all_lengths.append(len(contrast['prompt']))
         
-        contrast_max_len = max(all_lengths) // 2  # match original logic (character length / 2)
+        contrast_max_len = max(all_lengths)
         
         # Only collect prompts for the requested split
         for idx in indices:
