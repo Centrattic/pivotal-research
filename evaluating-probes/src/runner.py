@@ -115,8 +115,8 @@ def train_probe(
             val_acts, y_val = train_ds.get_val_set_activations(layer, component, use_masks=False)
         else:
             # Other probes use masks for proper aggregation
-            train_acts, train_masks, y_train = train_ds.get_train_set_activations(layer, component, use_masks=True)
-            val_acts, val_masks, y_val = train_ds.get_val_set_activations(layer, component, use_masks=True)
+            train_acts, train_masks, y_train = train_ds.get_train_set_activations(layer, component)
+            val_acts, val_masks, y_val = train_ds.get_val_set_activations(layer, component)
     
     print(f"Train activations: {len(train_acts) if isinstance(train_acts, list) else train_acts.shape}")
     print(f"Val activations: {len(val_acts) if isinstance(val_acts, list) else val_acts.shape}")
@@ -148,7 +148,7 @@ def train_probe(
             best_params = probe.find_best_fit(
                 train_acts, y_train, val_acts, y_val,
                 epochs=probe_config.get('epochs', 100),  # Get epochs from probe config
-                n_trials=10, direction=None, verbose=True, metric=metric,
+                n_trials=20, direction=None, metric=metric,
                 probe_save_dir=probe_save_dir, probe_filename_base=probe_filename_base
             )
         else:
@@ -182,7 +182,7 @@ def train_probe(
             best_params = probe.find_best_fit(
                 train_acts, y_train, val_acts, y_val,
                 epochs=probe_config.get('epochs', 100),  # Get epochs from probe config
-                n_trials=20, direction=None, verbose=True, metric=metric,
+                n_trials=20, direction=None, metric=metric,
                 probe_save_dir=probe_save_dir, probe_filename_base=probe_filename_base
             )
         else:
@@ -411,7 +411,7 @@ def evaluate_probe(
             test_acts, y_test = eval_ds.get_test_set_activations(layer, component, use_masks=False)
         else:
             # Other probes use masks for proper aggregation
-            test_acts, test_masks, y_test = eval_ds.get_test_set_activations(layer, component, use_masks=True)
+            test_acts, test_masks, y_test = eval_ds.get_test_set_activations(layer, component)
         
         print(f"Test activations: {len(test_acts) if isinstance(test_acts, list) else test_acts.shape}")
     
@@ -607,9 +607,9 @@ def run_non_trainable_probe(
         test_acts, y_test = ds.get_test_set_activations(layer, component, use_masks=False)
     else:
         # Other probes use masks for proper aggregation
-        train_acts, train_masks, y_train = ds.get_train_set_activations(layer, component, use_masks=True)
-        val_acts, val_masks, y_val = ds.get_val_set_activations(layer, component, use_masks=True)
-        test_acts, test_masks, y_test = ds.get_test_set_activations(layer, component, use_masks=True)
+        train_acts, train_masks, y_train = ds.get_train_set_activations(layer, component)
+        val_acts, val_masks, y_val = ds.get_val_set_activations(layer, component)
+        test_acts, test_masks, y_test = ds.get_test_set_activations(layer, component)
     
     print(f"Train activations: {len(train_acts) if isinstance(train_acts, list) else train_acts.shape}")
     print(f"Val activations: {len(val_acts) if isinstance(val_acts, list) else val_acts.shape}") 

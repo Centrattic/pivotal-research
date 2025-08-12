@@ -256,7 +256,7 @@ class Dataset:
         obj.device = device
         obj.cache_root = cache_root
         obj.seed = seed
-        obj.max_len = max_len if max_len is not None else (df["prompt_len"].max() if "prompt_len" in df.columns else df["prompt"].str.len().max())
+        obj.max_len = max_len if max_len is not None else None
         obj.task_type = task_type
         obj.n_classes = n_classes
         obj.X = df["prompt"].astype(str).to_numpy()

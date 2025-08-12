@@ -40,8 +40,6 @@ def extract_imbalanced_csvs(config_path):
                     train_class_counts=rc.get('class_counts'),
                     train_class_percents=rc.get('class_percents'),
                     train_total_samples=rc.get('total_samples'),
-                    val_size=0.10,
-                    test_size=0.15,
                     seed=rc.get('seed', seed)
                 )
                 # Save splits as CSV

@@ -57,9 +57,9 @@ def extract_activations_for_dataset(model, dataset_name, layer, component, devic
         ds.split_data(seed=seed)
         
         # Extract activations for all splits
-        train_acts, train_masks, y_train = ds.get_train_set_activations(layer, component, use_masks=True)
-        val_acts, val_masks, y_val = ds.get_val_set_activations(layer, component, use_masks=True)
-        test_acts, test_masks, y_test = ds.get_test_set_activations(layer, component, use_masks=True)
+        train_acts, train_masks, y_train = ds.get_train_set_activations(layer, component)
+        val_acts, val_masks, y_val = ds.get_val_set_activations(layer, component)
+        test_acts, test_masks, y_test = ds.get_test_set_activations(layer, component)
         
         logger.log(f"    - Successfully extracted activations: train={train_acts.shape}, val={val_acts.shape}, test={test_acts.shape}")
         
@@ -150,15 +150,15 @@ def main():
         # Step 1: Pre-flight check and gather all dataset jobs
         logger.log("\n Performing Pre-flight Checks and Gathering Dataset Jobs")
         all_dataset_jobs = []
-        all_dataset_names_to_check = set()
+        train_and_eval_datasets = set()
 
         for experiment in config['experiments']:
             experiment_name = experiment['name']
             train_sets = [experiment['train_on']]
             eval_sets = experiment['evaluate_on']
             
-            all_dataset_names_to_check.update(d for d in train_sets if d in available_datasets)
-            all_dataset_names_to_check.update(d for d in eval_sets if d in available_datasets)
+            train_and_eval_datasets.update(d for d in train_sets if d in available_datasets)
+            train_and_eval_datasets.update(d for d in eval_sets if d in available_datasets)
             
             # Handle rebuild configs for this experiment
             rebuild_configs = []
@@ -197,9 +197,9 @@ def main():
                                 }
                                 all_dataset_jobs.append(dataset_job)
 
-        # Step 2: Extract activations for all datasets (optional but recommended)
+        # Step 2: Extract activations for train and eval datasets (optional but recommended)
         logger.log("\n" + "="*25 + " ACTIVATION EXTRACTION PHASE " + "="*25)
-        for dataset_name in all_dataset_names_to_check:
+        for dataset_name in train_and_eval_datasets:
             for layer in config['layers']:
                 for component in config['components']:
                     extract_activations_for_dataset(model, dataset_name, layer, component, device, all_seeds[0], logger)
