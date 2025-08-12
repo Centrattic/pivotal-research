@@ -45,28 +45,27 @@ from src.utils import should_skip_dataset, resample_params_to_str, get_dataset, 
 from src.model_check.main import run_model_check
 from transformer_lens import HookedTransformer
 
-def extract_activations_for_dataset(model, dataset_name, layer, component, device, seed, logger):
+def extract_activations_for_dataset(model, dataset_name, layer, component, device, seed, logger, gpu_devices=None):
     """
     Extract activations for a dataset to ensure they're available before training.
+    
+    Args:
+        gpu_devices: List of GPU devices to use for multi-GPU extraction (e.g., ['cuda:0', 'cuda:1'])
     """
     logger.log(f"  - Extracting activations for {dataset_name}, L{layer}, {component}")
+    if gpu_devices:
+        logger.log(f"    - Using multi-GPU devices: {gpu_devices}")
     
     try:
-        # Create dataset and extract activations
-        ds = Dataset(dataset_name, model=model, device=device, seed=seed)
-        # just splitting so can use the get_{split}_set_activations function, these splits dont matter
-        ds.split_data(seed=seed)
+        # Create dataset and extract activations for all texts
+        ds = Dataset(dataset_name, model=model, device=device, seed=seed, gpu_devices=gpu_devices)
+        acts, masks = ds.extract_all_activations(layer, component)
         
-        # Extract activations for all splits
-        train_acts, train_masks, y_train = ds.get_train_set_activations(layer, component)
-        val_acts, val_masks, y_val = ds.get_val_set_activations(layer, component)
-        test_acts, test_masks, y_test = ds.get_test_set_activations(layer, component)
-        
-        logger.log(f"    - Successfully extracted activations: train={train_acts.shape}, val={val_acts.shape}, test={test_acts.shape}")
-        
+        logger.log(f"    - Successfully extracted activations: shape={acts.shape}")
+
     except Exception as e:
-        logger.log(f"    - Warning: Could not extract activations for {dataset_name}: {e}")
-        logger.log(f"    - Activations will be extracted during training if needed")
+        logger.log(f"    - 💀 ERROR extracting activations for {dataset_name}: {e}")
+        raise
 
 def main():
     # Clear GPU memory and set device

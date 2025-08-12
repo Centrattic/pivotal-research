@@ -131,17 +131,25 @@ class Dataset:
             self.val_indices = None
         
         # Initialize activation manager if model is provided
-        try: 
-            cache_dir = cache_root / model.cfg.model_name / dataset_name
-            self.act_manager = ActivationManager(
-                model=model,
-                device=device,
-                d_model=model.cfg.d_model,
-                max_len=self.max_len,  # Will be None initially
-                cache_dir=cache_dir,
-            )
-        except: 
-            print("Not using dataset class to manage activations. Model is likely None.")
+        self.act_manager = None
+        if model is not None:
+            try: 
+                cache_dir = cache_root / model.cfg.model_name / dataset_name
+                print(f"Initializing ActivationManager with model: {model.cfg.model_name}, device: {device}, cache_dir: {cache_dir}")
+                self.act_manager = ActivationManager(
+                    model=model,
+                    device=device,
+                    d_model=model.cfg.d_model,
+                    cache_dir=cache_dir,
+                )
+                print(f"Successfully initialized ActivationManager")
+            except Exception as e: 
+                print(f"Failed to initialize activation manager: {e}")
+                print(f"Model type: {type(model)}, Model name: {getattr(model, 'cfg', None).model_name if hasattr(model, 'cfg') and hasattr(model.cfg, 'model_name') else 'Unknown'}")
+                print("Not using dataset class to manage activations.")
+                self.act_manager = None
+        else:
+            print("Model is None, not initializing activation manager.")
 
     def split_data(self, seed: int, train_size: float = 0.75, val_size: float = 0.10, test_size: float = 0.15):
         """
@@ -178,8 +186,8 @@ class Dataset:
 
     def get_activations_for_texts(self, texts: List[str], layer: int, component: str):
         """Get activations for an arbitrary list of texts."""
-        if not hasattr(self, 'act_manager'):
-            raise ValueError("No activation manager available")
+        if self.act_manager is None:
+            raise ValueError("No activation manager available. Model may not be loaded.")
         acts = self.act_manager.get_activations_for_texts(texts, layer, component)
         return acts
 
@@ -201,12 +209,19 @@ class Dataset:
 
     def update_max_len_from_activations(self, layer: int, component: str):
         """Update max_len based on actual token lengths from activations."""
-        self.max_len = self.get_actual_max_len(layer, component)
+        if self.act_manager is not None:
+            # The ActivationManager will compute its own max_len when needed
+            # We can also update our own max_len for compatibility
+            actual_max_len = self.act_manager.get_actual_max_len(layer, component)
+            if actual_max_len is not None:
+                self.max_len = actual_max_len
 
     # Activation getters
     def get_train_set_activations(self, layer: int, component: str, use_masks: bool = True):
         if self.X_train_text is None:
             raise ValueError("Data not split yet. Split data first.")
+        if self.act_manager is None:
+            raise ValueError("No activation manager available. Model may not be loaded.")
         # Update max_len from actual activations if available
         self.update_max_len_from_activations(layer, component)
         acts, masks = self.act_manager.get_activations_for_texts(self.X_train_text, layer, component)
@@ -218,6 +233,8 @@ class Dataset:
     def get_val_set_activations(self, layer: int, component: str, use_masks: bool = True):
         if self.X_val_text is None:
             raise ValueError("Data not split yet. Split data first.")
+        if self.act_manager is None:
+            raise ValueError("No activation manager available. Model may not be loaded.")
         # Update max_len from actual activations if available
         self.update_max_len_from_activations(layer, component)
         acts, masks = self.act_manager.get_activations_for_texts(self.X_val_text, layer, component)
@@ -229,6 +246,8 @@ class Dataset:
     def get_test_set_activations(self, layer: int, component: str, use_masks: bool = True):
         if self.X_test_text is None:
             raise ValueError("Data not split yet. Split data first.")
+        if self.act_manager is None:
+            raise ValueError("No activation manager available. Model may not be loaded.")
         # Update max_len from actual activations if available
         self.update_max_len_from_activations(layer, component)
         acts, masks = self.act_manager.get_activations_for_texts(self.X_test_text, layer, component)
@@ -237,9 +256,19 @@ class Dataset:
         else:
             return acts, self.y_test
     
+    def extract_all_activations(self, layer: int, component: str):
+        """Extract activations for all texts in the dataset without requiring splits."""
+        if self.act_manager is None:
+            raise ValueError("No activation manager available. Model may not be loaded.")
+        
+        print(f"Extracting activations for all {len(self.X)} texts in dataset {self.dataset_name}")
+        acts, masks = self.act_manager.get_activations_for_texts(self.X.tolist(), layer, component)
+        print(f"Successfully extracted activations: shape={acts.shape}")
+        return acts, masks
+    
     def clear_activation_cache(self):
         """Clear activation cache to free memory."""
-        if hasattr(self, 'act_manager'):
+        if self.act_manager is not None:
             self.act_manager.clear_activation_cache()
 
     @classmethod
@@ -293,17 +322,22 @@ class Dataset:
             obj.y_test = obj.y[obj.test_indices]
         
         # Initialize ActivationManager
-        try:
-            cache_dir = cache_root / model.cfg.model_name / dataset_name
-            obj.act_manager = ActivationManager(
-                model=model,
-                device=device,
-                d_model=model.cfg.d_model,
-                max_len=obj.max_len,
-                cache_dir=cache_dir,
-            )
-        except:
-            print("Using dataset class to fetch text, not manage activations.")
+        obj.act_manager = None
+        if model is not None:
+            try:
+                cache_dir = cache_root / model.cfg.model_name / dataset_name
+                obj.act_manager = ActivationManager(
+                    model=model,
+                    device=device,
+                    d_model=model.cfg.d_model,
+                    cache_dir=cache_dir,
+                )
+            except Exception as e:
+                print(f"Failed to initialize activation manager in from_dataframe: {e}")
+                print("Using dataset class to fetch text, not manage activations.")
+                obj.act_manager = None
+        else:
+            print("Model is None in from_dataframe, not initializing activation manager.")
         return obj
 
     @staticmethod
@@ -611,7 +645,7 @@ class Dataset:
 
     def get_actual_max_len(self, layer: int, component: str) -> int:
         """Get the actual maximum token length from activations if available."""
-        if hasattr(self, 'act_manager'):
+        if self.act_manager is not None:
             return self.act_manager.get_actual_max_len(layer, component)
         return None
 

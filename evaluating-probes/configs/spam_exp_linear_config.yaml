@@ -1,13 +1,13 @@
 run_name: "spam_experiment_gemma"
 model_name: "gemma-2-9b" # 1.2 B multilignual model, 512 seq length
 d_model: 3584 # 3584 for gemma-2-9b
-device: "cuda:0" # will use these for extracting activations
+device: "cuda:0" # will use these for extracting activations, but not for sklearn probes
 use_grouped_training: True
 cache_activations: True
 log_file: "logs/spam_experiment_gemma_all_seeds_freja.log"  # Custom log file path
 seeds: [42, 43, 44, 45, 46, 47, 48, 49, 50, 51] 
 
-layers: [20] # Where SAE probes found layers peform the bests
+layers: [20] # Where SAE probes found layers peform the bestss
 components:
   - "resid_post"
 
