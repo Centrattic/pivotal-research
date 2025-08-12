@@ -231,10 +231,10 @@ class SklearnLinearProbe(BaseProbe):
                 
                 # Create filename with C value
                 C_str = f"{C:.2e}".replace("+", "").replace(".", "p")
-                probe_filename = f"{probe_filename_base}_C_{C_str}.joblib"
+                probe_filename = f"{probe_filename_base}_C_{C_str}_state.npz"
                 probe_path = sweep_dir / probe_filename
                 
-                # Save probe
+                # Save probe in .npz format
                 trial_probe.save_state(probe_path)
             
             return C, loss, trial_probe
@@ -287,35 +287,60 @@ class SklearnLinearProbe(BaseProbe):
         return {'C': best_C, 'training_loss': best_loss}
 
     def save_state(self, path: Path):
-        """Save the sklearn probe state."""
-        save_dict = {
-            'd_model': self.d_model,
-            'task_type': self.task_type,
-            'aggregation': self.aggregation,
-            'solver': self.solver,
-            'C': self.C,
-            'max_iter': self.max_iter,
-            'class_weight': self.class_weight,
-            'random_state': self.random_state,
-            'sklearn_model': self.sklearn_model,
-            'scaler': self.scaler,
-        }
-        joblib.dump(save_dict, path)
+        """Save the sklearn probe state in .npz format."""
+        # Extract model coefficients and intercept
+        coef = self.sklearn_model.coef_
+        intercept = self.sklearn_model.intercept_
+        
+        # Extract scaler parameters
+        scaler_mean = self.scaler.mean_
+        scaler_scale = self.scaler.scale_
+        scaler_var = self.scaler.var_
+        
+        # Save all parameters
+        np.savez_compressed(
+            path,
+            # Model parameters
+            coef=coef,
+            intercept=intercept,
+            # Scaler parameters
+            scaler_mean=scaler_mean,
+            scaler_scale=scaler_scale,
+            scaler_var=scaler_var,
+            # Metadata
+            d_model=self.d_model,
+            task_type=self.task_type,
+            aggregation=self.aggregation,
+            solver=self.solver,
+            C=self.C,
+            max_iter=self.max_iter,
+            class_weight=self.class_weight,
+            random_state=self.random_state,
+        )
 
     def load_state(self, path: Path):
-        """Load the sklearn probe state."""
-        save_dict = joblib.load(path)
+        """Load the sklearn probe state from .npz format."""
+        save_dict = np.load(path, allow_pickle=True)
         
-        self.d_model = save_dict['d_model']
-        self.task_type = save_dict['task_type']
-        self.aggregation = save_dict['aggregation']
-        self.solver = save_dict['solver']
-        self.C = save_dict['C']
-        self.max_iter = save_dict['max_iter']
-        self.class_weight = save_dict['class_weight']
-        self.random_state = save_dict['random_state']
-        self.sklearn_model = save_dict['sklearn_model']
-        self.scaler = save_dict['scaler']
+        # Load metadata
+        self.d_model = int(save_dict['d_model'])
+        self.task_type = str(save_dict['task_type'])
+        self.aggregation = str(save_dict['aggregation'])
+        self.solver = str(save_dict['solver'])
+        self.C = float(save_dict['C'])
+        self.max_iter = int(save_dict['max_iter'])
+        self.class_weight = str(save_dict['class_weight'])
+        self.random_state = int(save_dict['random_state'])
+        
+        # Update existing sklearn model parameters
+        self.sklearn_model.coef_ = save_dict['coef']
+        self.sklearn_model.intercept_ = save_dict['intercept']
+        self.sklearn_model.classes_ = np.array([0, 1])  # Binary classification
+        
+        # Update existing scaler parameters
+        self.scaler.mean_ = save_dict['scaler_mean']
+        self.scaler.scale_ = save_dict['scaler_scale']
+        self.scaler.var_ = save_dict['scaler_var']
         
         # Recreate dummy model for compatibility
         self._init_model()

@@ -5,7 +5,6 @@ from pathlib import Path
 from typing import Optional, List
 import json
 import math
-import optuna
 
 from src.probes.base_probe import BaseProbe
 
@@ -49,72 +48,153 @@ class AttentionProbe(BaseProbe):
                      epochs: int = 100, n_trials: int = 20, direction: str = None, verbose: bool = True, metric: str = 'acc',
                      probe_save_dir: Path = None, probe_filename_base: str = None) -> dict:
         """
-        Find best hyperparameters by sweeping over weight decay and learning rate values.
-        Chooses the model with the lowest averaged training loss over the last self.fit_patience epochs.
+        Find best hyperparameters by training multiple probes simultaneously on each batch.
+        This is more efficient than optuna as it avoids repeated GPU data transfers.
+        Saves all probes to hyperparameter_sweep folder and selects best based on training loss.
         """
-        import optuna
+        # Define hyperparameter search space
+        lr_values = np.logspace(-5, -2, 8)  # 8 learning rates from 1e-5 to 1e-2
+        weight_decay_values = np.logspace(-6, -2, 5)  # 5 weight decay values from 1e-6 to 1e-2
         
-        def objective(trial):
-            # Define hyperparameter search space
-            lr = trial.suggest_float('lr', 1e-5, 1e-2, log=True)
-            weight_decay = trial.suggest_float('weight_decay', 1e-6, 1e-2, log=True)
-            
-            # Create a copy of the current probe with trial hyperparameters
+        # Create all combinations
+        hyperparam_combinations = []
+        for lr in lr_values:
+            for weight_decay in weight_decay_values:
+                hyperparam_combinations.append((lr, weight_decay))
+        
+        if verbose:
+            print(f"Training {len(hyperparam_combinations)} probes simultaneously...")
+            print(f"Learning rates: {lr_values}")
+            print(f"Weight decay values: {weight_decay_values}")
+        
+        # Convert data to torch tensors once
+        X_tensor = torch.tensor(X_train, dtype=torch.float32, device=self.device)
+        y_tensor = torch.tensor(y_train, dtype=torch.float32, device=self.device)
+        mask = torch.ones(X_train.shape[:2], dtype=torch.bool, device=self.device)
+        
+        # Create dataset and dataloader
+        dataset = torch.utils.data.TensorDataset(X_tensor, y_tensor, mask)
+        dataloader = torch.utils.data.DataLoader(dataset, batch_size=1024, shuffle=True)
+        
+        # Initialize all probes
+        probes = []
+        optimizers = []
+        loss_histories = []
+        
+        for lr, weight_decay in hyperparam_combinations:
+            # Create probe with current hyperparameters
             config_params = {k: v for k, v in self.__dict__.items() 
                            if k not in ['d_model', 'device', 'task_type', 'aggregation', 'model', 'loss_history']}
-            trial_probe = AttentionProbe(
+            probe = AttentionProbe(
                 self.d_model, 
                 device=self.device, 
                 **config_params
             )
+            probe._init_model()  # Initialize the model
             
-            # Train with trial hyperparameters
-            try:
-                trial_probe.fit(
-                    X_train, y_train,
-                    epochs=epochs,  # Use epochs parameter
-                    lr=lr,
-                    weight_decay=weight_decay,
-                    batch_size=1024,  # Fixed batch size
-                    verbose=False,  # Reduce output during hyperparameter search
-                    use_weighted_sampler=True
-                )
-                
-                # Get the last self.fit_patience epochs of training loss for stability assessment
-                if len(trial_probe.loss_history) >= self.fit_patience:
-                    last_losses = trial_probe.loss_history[-self.fit_patience:]
-                    avg_loss = np.mean(last_losses)
-                else:
-                    # If not enough epochs, use all available losses
-                    avg_loss = np.mean(trial_probe.loss_history) if trial_probe.loss_history else float('inf')
-                
-                return avg_loss
-                
-            except Exception as e:
-                if verbose:
-                    print(f"Trial failed with lr={lr}, weight_decay={weight_decay}: {e}")
-                return float('inf')
+            # Setup optimizer
+            optimizer = torch.optim.Adam(probe.model.parameters(), lr=lr, weight_decay=weight_decay)
+            
+            probes.append(probe)
+            optimizers.append(optimizer)
+            loss_histories.append([])
         
-        # Create study to minimize the average training loss
-        study = optuna.create_study(direction='minimize')
-        study.optimize(objective, n_trials=n_trials, show_progress_bar=verbose)
+        # Training loop - all probes train simultaneously on each batch
+        criterion = torch.nn.BCEWithLogitsLoss()
         
-        # Get best parameters
-        best_params = study.best_params
+        for epoch in range(epochs):
+            # Set all models to training mode
+            for probe in probes:
+                probe.model.train()
+            
+            epoch_losses = [0.0] * len(probes)
+            num_batches = 0
+            
+            for batch_X, batch_y, batch_mask in dataloader:
+                num_batches += 1
+                
+                # Train all probes on this batch
+                for i, (probe, optimizer) in enumerate(zip(probes, optimizers)):
+                    optimizer.zero_grad()
+                    
+                    # Forward pass
+                    outputs = probe.model(batch_X, batch_mask)
+                    loss = criterion(outputs.squeeze(), batch_y)
+                    
+                    # Backward pass
+                    loss.backward()
+                    optimizer.step()
+                    
+                    epoch_losses[i] += loss.item()
+            
+            # Record average losses for this epoch
+            for i in range(len(probes)):
+                avg_loss = epoch_losses[i] / num_batches
+                loss_histories[i].append(avg_loss)
+            
+            if verbose and (epoch + 1) % 10 == 0:
+                print(f"Epoch {epoch + 1}/{epochs}")
+                for i, (lr, weight_decay) in enumerate(hyperparam_combinations):
+                    print(f"  lr={lr:.2e}, wd={weight_decay:.2e}: loss={epoch_losses[i]/num_batches:.4f}")
+        
+        # Calculate final average losses (using last fit_patience epochs for stability)
+        final_losses = []
+        for i, loss_history in enumerate(loss_histories):
+            if len(loss_history) >= self.fit_patience:
+                final_loss = np.mean(loss_history[-self.fit_patience:])
+            else:
+                final_loss = np.mean(loss_history) if loss_history else float('inf')
+            final_losses.append(final_loss)
+        
+        # Find best probe
+        best_idx = np.argmin(final_losses)
+        best_lr, best_weight_decay = hyperparam_combinations[best_idx]
+        best_loss = final_losses[best_idx]
+        best_probe = probes[best_idx]
         
         if verbose:
-            print(f"Best hyperparameters found:")
-            print(f"  Learning rate: {best_params['lr']:.2e}")
-            print(f"  Weight decay: {best_params['weight_decay']:.2e}")
-            print(f"  Best average training loss: {study.best_value:.6f}")
+            print(f"\nHyperparameter sweep results:")
+            for i, (lr, weight_decay) in enumerate(hyperparam_combinations):
+                print(f"  lr={lr:.2e}, wd={weight_decay:.2e}: final_loss={final_losses[i]:.6f}")
+            print(f"\nBest hyperparameters:")
+            print(f"  Learning rate: {best_lr:.2e}")
+            print(f"  Weight decay: {best_weight_decay:.2e}")
+            print(f"  Best final loss: {best_loss:.6f}")
+        
+        # Save all probes if directory provided
+        if probe_save_dir is not None and probe_filename_base is not None:
+            # Create hyperparameter_sweep subfolder
+            sweep_dir = probe_save_dir / "hyperparameter_sweep"
+            sweep_dir.mkdir(exist_ok=True)
+            
+            for i, (lr, weight_decay) in enumerate(hyperparam_combinations):
+                # Create filename with hyperparameters
+                lr_str = f"{lr:.2e}".replace("+", "").replace(".", "p")
+                wd_str = f"{weight_decay:.2e}".replace("+", "").replace(".", "p")
+                probe_filename = f"{probe_filename_base}_lr_{lr_str}_wd_{wd_str}_state.pt"
+                probe_path = sweep_dir / probe_filename
+                
+                # Save probe state
+                probes[i].save_state(probe_path)
+        
+        # Update current probe with best parameters
+        self.model = best_probe.model
+        self.loss_history = loss_histories[best_idx]
         
         # Save best hyperparameters if directory provided
         if probe_save_dir is not None and probe_filename_base is not None:
             best_hparams_path = probe_save_dir / f"{probe_filename_base}_best_hparams.json"
+            best_params = {
+                'lr': best_lr,
+                'weight_decay': best_weight_decay,
+                'best_final_loss': best_loss,
+                'all_results': {f"lr_{lr:.2e}_wd_{wd:.2e}": loss 
+                               for (lr, wd), loss in zip(hyperparam_combinations, final_losses)}
+            }
             with open(best_hparams_path, 'w') as f:
                 json.dump(best_params, f, indent=2)
         
-        return best_params
+        return {'lr': best_lr, 'weight_decay': best_weight_decay, 'final_loss': best_loss}
 
     def fit(self, X: np.ndarray, y: np.ndarray, 
             epochs: int = 100, lr: float = 5e-4, batch_size: int = 1024, 

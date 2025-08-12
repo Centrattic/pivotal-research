@@ -45,20 +45,15 @@ from src.utils import should_skip_dataset, resample_params_to_str, get_dataset, 
 from src.model_check.main import run_model_check
 from transformer_lens import HookedTransformer
 
-def extract_activations_for_dataset(model, dataset_name, layer, component, device, seed, logger, gpu_devices=None):
+def extract_activations_for_dataset(model, dataset_name, layer, component, device, seed, logger):
     """
     Extract activations for a dataset to ensure they're available before training.
-    
-    Args:
-        gpu_devices: List of GPU devices to use for multi-GPU extraction (e.g., ['cuda:0', 'cuda:1'])
     """
     logger.log(f"  - Extracting activations for {dataset_name}, L{layer}, {component}")
-    if gpu_devices:
-        logger.log(f"    - Using multi-GPU devices: {gpu_devices}")
     
     try:
         # Create dataset and extract activations for all texts
-        ds = Dataset(dataset_name, model=model, device=device, seed=seed, gpu_devices=gpu_devices)
+        ds = Dataset(dataset_name, model=model, device=device, seed=seed)
         acts, masks = ds.extract_all_activations(layer, component)
         
         logger.log(f"    - Successfully extracted activations: shape={acts.shape}")

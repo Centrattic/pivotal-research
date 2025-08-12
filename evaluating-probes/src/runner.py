@@ -143,7 +143,7 @@ def train_probe(
             # Update probe parameters with best hyperparameters
             for key, value in best_params.items():
                 setattr(probe, key, value)
-            probe.fit(train_acts, y_train)
+            probe.fit(train_acts, y_train, train_masks)
         elif hyperparameter_tuning:
             best_params = probe.find_best_fit(
                 train_acts, y_train, val_acts, y_val,
@@ -152,7 +152,7 @@ def train_probe(
                 probe_save_dir=probe_save_dir, probe_filename_base=probe_filename_base
             )
         else:
-            probe.fit(train_acts, y_train)
+            probe.fit(train_acts, y_train, train_masks)
             
     elif config_name.startswith("linear"):
         # PyTorch linear probe
@@ -177,7 +177,7 @@ def train_probe(
             with open(best_hparams_path, 'r') as f:
                 best_params = json.load(f)
             fit_params.update(best_params)
-            probe.fit(train_acts, y_train)
+            probe.fit(train_acts, y_train, train_masks)
         elif hyperparameter_tuning:
             best_params = probe.find_best_fit(
                 train_acts, y_train, val_acts, y_val,
@@ -186,7 +186,7 @@ def train_probe(
                 probe_save_dir=probe_save_dir, probe_filename_base=probe_filename_base
             )
         else:
-            probe.fit(train_acts, y_train)
+            probe.fit(train_acts, y_train, train_masks)
             
     elif config_name == "attention":
         # Attention probe
@@ -245,7 +245,7 @@ def train_probe(
             with open(best_hparams_path, 'r') as f:
                 best_params = json.load(f)
             fit_params.update(best_params)
-            probe.fit(train_acts, y_train)
+            probe.fit(train_acts, y_train, train_masks)
         elif hyperparameter_tuning:
             best_params = probe.find_best_fit(
                 train_acts, y_train, val_acts, y_val,
@@ -254,7 +254,7 @@ def train_probe(
                 probe_save_dir=probe_save_dir, probe_filename_base=probe_filename_base
             )
         else:
-            probe.fit(train_acts, y_train)
+            probe.fit(train_acts, y_train, train_masks)
             
     elif config_name == "mass_mean":
         # Mass mean probe (non-trainable)
