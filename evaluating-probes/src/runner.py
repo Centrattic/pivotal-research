@@ -149,7 +149,8 @@ def train_probe(
                 train_acts, y_train, val_acts, y_val,
                 epochs=probe_config.get('epochs', 100),  # Get epochs from probe config
                 n_trials=20, direction=None, metric=metric,
-                probe_save_dir=probe_save_dir, probe_filename_base=probe_filename_base
+                probe_save_dir=probe_save_dir, probe_filename_base=probe_filename_base,
+                n_jobs=1  # Use single-threaded to avoid conflicts with main parallelization
             )
         else:
             probe.fit(train_acts, y_train, train_masks)
