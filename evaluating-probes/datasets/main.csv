@@ -95,3 +95,4 @@ number,source,name,tag,save_name,Probe from,Probe to,Data type,probe from extrac
 94,enron_spam_data.csv,better_spam, Spam dataset 2,better_spam.csv,Message,"Spam/Ham",Binary Classification,Message,"Spam/Ham",spam_handler
 95,art.csv,is_book, Art,is_book.csv,title,entity_type,Binary Classification,title,entity_type == 'book',simple
 96,art.csv,is_movie, Art,is_movie.csv,title,entity_type,Binary Classification,title,entity_type == 'movie',simple
+97,"doubling_down_known_facts_llama-3.3-70b-instruct.csv,provided_facts_llama-3.3-70b-instruct.csv,statistics_llama-3.3-70b-instruct.csv",llama_combined_honesty,Llama Combined Honesty,llama_combined_honesty.csv,"generation(System Prompt + User Prompt)_run1","eval_honesty_1",Binary Classification,"generation(System Prompt + User Prompt)_run1","eval_honesty_1",llama_combined_handler
