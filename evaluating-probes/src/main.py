@@ -54,6 +54,7 @@ def extract_activations_for_dataset(model, dataset_name, layer, component, devic
     try:
         # Create dataset and extract activations
         ds = Dataset(dataset_name, model=model, device=device, seed=seed)
+        # just splitting so can use the get_{split}_set_activations function, these splits dont matter
         ds.split_data(seed=seed)
         
         # Extract activations for all splits
@@ -198,6 +199,7 @@ def main():
                                 all_dataset_jobs.append(dataset_job)
 
         # Step 2: Extract activations for train and eval datasets (optional but recommended)
+        # Just extract them all even if they're a bit extra
         logger.log("\n" + "="*25 + " ACTIVATION EXTRACTION PHASE " + "="*25)
         for dataset_name in train_and_eval_datasets:
             for layer in config['layers']:

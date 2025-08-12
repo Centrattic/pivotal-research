@@ -4,7 +4,9 @@ import torch.nn as nn
 from sklearn.linear_model import LogisticRegression
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import accuracy_score, roc_auc_score, precision_score, recall_score, confusion_matrix
+from sklearn.model_selection import StratifiedKFold
 import joblib
+from joblib import Parallel, delayed
 from pathlib import Path
 import json
 from typing import Optional, List
@@ -34,7 +36,8 @@ class SklearnLinearProbe(BaseProbe):
             C=C,
             max_iter=max_iter,
             class_weight=class_weight,
-            random_state=random_state
+            random_state=random_state,
+            n_jobs=1  # Ensure single-threaded execution
         )
         
         # Initialize scaler for feature normalization
@@ -169,89 +172,119 @@ class SklearnLinearProbe(BaseProbe):
         
         return {"acc": float(acc), "auc": float(auc), "precision": float(precision), "recall": float(recall), "fpr": float(fpr)}
 
-    def find_best_fit(self, X_train: List[np.ndarray], y_train: np.ndarray, X_val: List[np.ndarray], y_val: np.ndarray,
-                     n_trials: int = 20, direction: str = None, verbose: bool = True,
-                     probe_save_dir: Path = None, probe_filename_base: str = None) -> dict:
+    def find_best_fit(self, X_train: List[np.ndarray], y_train: np.ndarray, masks_train: np.ndarray = None,
+                     C_values: List[float] = None, fit_patience: None = None, verbose: bool = True,
+                     probe_save_dir: Path = None, probe_filename_base: str = None, 
+                     n_jobs: int = -1) -> dict:
         """
-        Find best hyperparameters using Optuna.
-        For sklearn probes, we use training accuracy as the selection criterion.
+        Find best hyperparameters using parallelized grid search over C values.
+        Saves all probes to hyperparameter_sweep folder and selects best based on training loss.
         
         Args:
             X_train: Training features (list of activation arrays)
             y_train: Training labels
-            X_val: Validation features (list of activation arrays) - not used for sklearn
-            y_val: Validation labels - not used for sklearn
-            n_trials: Number of trials
-            direction: Optimization direction
+            masks_train: Training masks for aggregation (optional)
+            C_values: List of C values to try (default: logspace from 1e-4 to 1e2)
+            fit_patience: Number of epochs to average training loss over (not used for sklearn)
             verbose: Verbosity
-            probe_save_dir: Directory to save best hyperparameters
+            probe_save_dir: Directory to save probes (will create hyperparameter_sweep subfolder)
             probe_filename_base: Base filename for saving
+            n_jobs: Number of jobs for parallelization (-1 for all CPUs)
             
         Returns:
             Best hyperparameters
         """
-        import optuna
+        # Set default C values if not provided
+        if C_values is None:
+            C_values = np.logspace(-4, 2, 20).tolist()
         
-        def objective(trial):
-            # Define hyperparameter search space
-            C = trial.suggest_float('C', 1e-4, 1e2, log=True)
-            solver = trial.suggest_categorical('solver', ['liblinear'])
-            class_weight = trial.suggest_categorical('class_weight', ['balanced'])
-            
-            # Create probe with trial hyperparameters
+        def train_and_evaluate_probe(C):
+            """Train a probe with given C value and return training loss."""
+            # Create probe with current C value (n_jobs=1 ensures single-threaded execution)
             trial_probe = SklearnLinearProbe(
                 d_model=self.d_model,
                 device=self.device,
                 task_type=self.task_type,
                 aggregation=self.aggregation,
-                solver=solver,
+                solver=self.solver,
                 C=C,
                 max_iter=self.max_iter,
-                class_weight=class_weight,
+                class_weight=self.class_weight,
                 random_state=self.random_state
             )
             
-            # Fit and evaluate on training set
-            trial_probe.fit(X_train, y_train)
-            metrics = trial_probe.score(X_train, y_train)
+            # Fit the probe
+            trial_probe.fit(X_train, y_train, masks_train)
             
-            return metrics['auc']  # Use training AUC as selection criterion
+            # Calculate training loss (using negative log likelihood)
+            y_pred_proba = trial_probe.predict_proba(X_train, masks_train)
+            # Clip probabilities to avoid log(0)
+            y_pred_proba = np.clip(y_pred_proba, 1e-15, 1 - 1e-15)
+            # Calculate negative log likelihood
+            loss = -np.mean(y_train * np.log(y_pred_proba) + (1 - y_train) * np.log(1 - y_pred_proba))
+            
+            # Save probe if directory provided
+            if probe_save_dir is not None and probe_filename_base is not None:
+                # Create hyperparameter_sweep subfolder
+                sweep_dir = probe_save_dir / "hyperparameter_sweep"
+                sweep_dir.mkdir(exist_ok=True)
+                
+                # Create filename with C value
+                C_str = f"{C:.2e}".replace("+", "").replace(".", "p")
+                probe_filename = f"{probe_filename_base}_C_{C_str}.joblib"
+                probe_path = sweep_dir / probe_filename
+                
+                # Save probe
+                trial_probe.save_state(probe_path)
+            
+            return C, loss, trial_probe
         
-        # Create study to maximize training accuracy
-        study = optuna.create_study(direction='maximize')
-        study.optimize(objective, n_trials=n_trials, show_progress_bar=verbose)
+        # Parallelize the grid search
+        if verbose:
+            print(f"Running parallelized grid search over {len(C_values)} C values...")
         
-        # Get best parameters
-        best_params = study.best_params
+        results = Parallel(n_jobs=n_jobs)(
+            delayed(train_and_evaluate_probe)(C) for C in C_values
+        )
+        
+        # Extract results
+        C_loss_pairs = [(C, loss) for C, loss, _ in results]
+        probes = [probe for _, _, probe in results]
+        
+        # Find best C value (minimum loss)
+        best_idx = np.argmin([loss for _, loss in C_loss_pairs])
+        best_C, best_loss = C_loss_pairs[best_idx]
+        best_probe = probes[best_idx]
         
         if verbose:
-            print(f"Best hyperparameters found:")
-            print(f"  C: {best_params['C']:.2e}")
-            print(f"  solver: {best_params['solver']}")
-            print(f"  class_weight: {best_params['class_weight']}")
-            print(f"  Best training accuracy: {study.best_value:.6f}")
+            print(f"Grid search results:")
+            for C, loss in C_loss_pairs:
+                print(f"  C={C:.2e}: loss={loss:.6f}")
+            print(f"\nBest hyperparameters:")
+            print(f"  C: {best_C:.2e}")
+            print(f"  Best training loss: {best_loss:.6f}")
         
         # Update current probe with best parameters
-        self.C = best_params['C']
-        self.solver = best_params['solver']
-        self.class_weight = best_params['class_weight']
-        
-        # Recreate sklearn model with best parameters
-        self.sklearn_model = LogisticRegression(
-            solver=self.solver,
-            C=self.C,
-            max_iter=self.max_iter,
-            class_weight=self.class_weight,
-            random_state=self.random_state
-        )
+        self.C = best_C
+        self.sklearn_model = best_probe.sklearn_model
+        self.scaler = best_probe.scaler
         
         # Save best hyperparameters if directory provided
         if probe_save_dir is not None and probe_filename_base is not None:
             best_hparams_path = probe_save_dir / f"{probe_filename_base}_best_hparams.json"
+            best_params = {
+                'C': best_C,
+                'solver': self.solver,
+                'class_weight': self.class_weight,
+                'max_iter': self.max_iter,
+                'random_state': self.random_state,
+                'best_training_loss': best_loss,
+                'all_results': {f"C_{C:.2e}": loss for C, loss in C_loss_pairs}
+            }
             with open(best_hparams_path, 'w') as f:
                 json.dump(best_params, f, indent=2)
         
-        return best_params
+        return {'C': best_C, 'training_loss': best_loss}
 
     def save_state(self, path: Path):
         """Save the sklearn probe state."""

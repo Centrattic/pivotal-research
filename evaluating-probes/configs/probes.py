@@ -3,11 +3,7 @@ import os
 from dataclasses import dataclass, field
 
 # Set sklearn to use only 1 thread for CPU-based training
-os.environ["OMP_NUM_THREADS"] = "1"
-os.environ["OPENBLAS_NUM_THREADS"] = "1"
-os.environ["MKL_NUM_THREADS"] = "1"
-os.environ["VECLIB_MAXIMUM_THREADS"] = "1"
-os.environ["NUMEXPR_NUM_THREADS"] = "1"
+# os.environ["OMP_NUM_THREADS"] = "1"
 
 @dataclass
 class ProbeConfig:
@@ -109,14 +105,12 @@ PROBE_CONFIGS = {
     "sae_16k_l0_408_last": SAEProbeConfig(
         aggregation="last", # no matter right now
         sae_id="layer_20/width_16k/average_l0_408", 
-        weighting_method='weighted_sampler'
     ),
     "sae_262k_l0_259_last": SAEProbeConfig(
         aggregation="last", 
         sae_id="layer_20/width_262k/average_l0_259",
         # encoding_batch_size=1024,  # H100: 1024
         # training_batch_size=256,   # H100: 256
-        weighting_method='weighted_sampler'
     ),
     # Mass-mean probe configs (IID functionality disabled due to numerical instability)
     "mass_mean": MassMeanProbeConfig(use_iid=False),
