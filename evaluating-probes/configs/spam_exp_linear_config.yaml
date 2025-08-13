@@ -21,6 +21,15 @@ architectures:
     config_name: "sklearn_linear_last"
   - name: "sklearn_linear"
     config_name: "sklearn_linear_softmax"
+  - name: "act_sim"
+    config_name: "act_sim_mean"
+  - name: "act_sim"
+    config_name: "act_sim_max"
+  - name: "act_sim"
+    config_name: "act_sim_last"
+  - name: "act_sim"
+    config_name: "act_sim_softmax"
+  - 
 
 # List of experiments to run
 experiments:

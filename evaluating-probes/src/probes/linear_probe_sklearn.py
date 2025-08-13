@@ -335,18 +335,41 @@ class SklearnLinearProbe(BaseProbe):
         C_loss_pairs = [(C, loss) for C, loss, _ in results]
         probes = [probe for _, _, probe in results]
         
-        # Find best C value (minimum loss)
-        best_idx = np.argmin([loss for _, loss in C_loss_pairs])
-        best_C, best_loss = C_loss_pairs[best_idx]
-        best_probe = probes[best_idx]
-        
         if verbose:
             print(f"Grid search results:")
             for C, loss in C_loss_pairs:
                 print(f"  C={C:.2e}: loss={loss:.6f}")
-            print(f"\nBest hyperparameters:")
-            print(f"  C: {best_C:.2e}")
-            print(f"  Best training loss: {best_loss:.6f}")
+        
+        # Train one additional probe with C = 1 (most typical C value)
+        print(f"\nTraining additional probe with C = 1 (most typical)...")
+        C_1_probe = SklearnLinearProbe(
+            d_model=self.d_model,
+            device=self.device,
+            task_type=self.task_type,
+            aggregation=self.aggregation,
+            solver=self.solver,
+            C=1.0,
+            max_iter=self.max_iter,
+            class_weight=self.class_weight,
+            random_state=self.random_state
+        )
+        
+        # Fit the C=1 probe
+        C_1_probe.fit(X_train, y_train)
+        
+        # Calculate training loss for C=1 probe
+        y_pred_proba = C_1_probe.predict_proba(X_train)
+        y_pred_proba = np.clip(y_pred_proba, 1e-15, 1 - 1e-15)
+        C_1_loss = -np.mean(y_train * np.log(y_pred_proba) + (1 - y_train) * np.log(1 - y_pred_proba))
+        
+        print(f"Selected probe (C = 1, most typical):")
+        print(f"  C: 1.00e+00")
+        print(f"  Training loss: {C_1_loss:.6f}")
+        
+        # Use the C=1 probe as the best probe
+        best_C = 1.0
+        best_loss = C_1_loss
+        best_probe = C_1_probe
         
         # Update current probe with best parameters
         self.C = best_C

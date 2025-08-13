@@ -107,15 +107,11 @@ def get_probe_architecture(architecture_name: str, d_model: int, device, config:
         raise ValueError(f"Unknown architecture: {architecture_name}")
 
 
-def get_probe_filename_prefix(train_ds, arch_name, layer, component, config_name, contrast_fn=None):
+def get_probe_filename_prefix(train_ds, arch_name, layer, component, config_name):
     # Use config_name instead of architecture name for better organization
     agg_name = extract_aggregation_from_config(config_name, arch_name)
     
     base_prefix = f"train_on_{train_ds}_{config_name}_L{layer}_{component}"
-    if contrast_fn is not None:
-        # Add contrast function name to filename to distinguish from regular probes
-        contrast_name = contrast_fn.__name__ if hasattr(contrast_fn, '__name__') else 'contrast'
-        base_prefix += f"_{contrast_name}"
     return base_prefix
 
 

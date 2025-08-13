@@ -90,7 +90,6 @@ experiments:
   #   score:
   #     - all
   #     - filtered
-  #   contrast_fn: language_swap_contrast
   #   rebuild_config:
   #     increasing_french_fixed_total:
   #       - {class_counts: {0: 3998, 1: 2}, seed: 42}

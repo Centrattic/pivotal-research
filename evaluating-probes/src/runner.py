@@ -15,7 +15,38 @@ import torch
 import copy
 import json
 import pandas as pd
-import numpy as np
+
+
+def get_activation_type_from_config(config_name: str) -> str:
+    """
+    Determine activation_type based on config_name.
+    
+    Args:
+        config_name: Name of the probe configuration
+        
+    Returns:
+        activation_type: Type of activations to use
+    """
+    if config_name == "attention":
+        return "full"
+    elif config_name.startswith("sklearn_linear"):
+        # Extract aggregation method from config_name (e.g., "sklearn_linear_mean" -> "linear_mean")
+        aggregation = config_name.split("_")[-1] if "_" in config_name else "mean"
+        return f"linear_{aggregation}"
+    elif config_name.startswith("linear"):
+        # PyTorch linear probes use full activations with masks
+        return "full"
+    elif config_name.startswith("sae"):
+        # SAE probes use pre-aggregated activations
+        aggregation = config_name.split("_")[-1] if "_" in config_name else "mean"
+        return f"sae_{aggregation}"
+    elif config_name.startswith("act_sim"):
+        # Activation similarity probes use pre-aggregated activations
+        aggregation = config_name.split("_")[-1] if "_" in config_name else "mean"
+        return f"act_sim_{aggregation}"
+    else:
+        # Default to full activations
+        return "full"
 
 def train_probe(
     model_name: str, d_model: int, train_dataset_name: str, layer: int, component: str,
@@ -26,13 +57,12 @@ def train_probe(
     rebuild_config: dict = None,
     metric: str = 'acc',
     retrain_with_best_hparams: bool = False,
-    contrast_fn: Any = None,
 ):
     # Only raise error if both hyperparameter_tuning and retrain_with_best_hparams are set
     if hyperparameter_tuning and retrain_with_best_hparams:
         raise ValueError("Cannot use both hyperparameter_tuning and retrain_with_best_hparams at the same time.")
     
-    probe_filename_base = get_probe_filename_prefix(train_dataset_name, architecture_name, layer, component, config_name, contrast_fn)
+    probe_filename_base = get_probe_filename_prefix(train_dataset_name, architecture_name, layer, component, config_name)
     probe_save_dir = results_dir / f"train_{train_dataset_name}"
     
     # If rebuilding, save in dataclass_exps_{dataset_name}
@@ -115,50 +145,22 @@ def train_probe(
         train_ds.split_data(train_size=train_size, val_size=val_size, test_size=test_size, seed=seed)
         logger.log(f"  [DEBUG] Split data complete")
 
-    # Use contrast activations if contrast_fn is provided
-    logger.log(f"  [DEBUG] Getting activations...")
-    if contrast_fn is not None:
-        logger.log(f"  [DEBUG] Using contrast activations")
-        train_acts, y_train = train_ds.get_contrast_activations(contrast_fn, layer, component, split='train')
-        val_acts, y_val = train_ds.get_contrast_activations(contrast_fn, layer, component, split='val')
-        logger.log(f"  [DEBUG] Got contrast activations")
-    else:
-        # Determine activation_type based on config_name
-        if config_name == "attention":
-            activation_type = "full"
-        elif config_name.startswith("sklearn_linear"):
-            # Extract aggregation method from config_name (e.g., "sklearn_linear_mean" -> "linear_mean")
-            aggregation = config_name.split("_")[-1] if "_" in config_name else "mean"
-            activation_type = f"linear_{aggregation}"
-        elif config_name.startswith("linear"):
-            # PyTorch linear probes use full activations with masks
-            activation_type = "full"
-        elif config_name.startswith("sae"):
-            # SAE probes use pre-aggregated activations
-            aggregation = config_name.split("_")[-1] if "_" in config_name else "mean"
-            activation_type = f"sae_{aggregation}"
-        elif config_name.startswith("act_sim"):
-            # Activation similarity probes use pre-aggregated activations
-            aggregation = config_name.split("_")[-1] if "_" in config_name else "mean"
-            activation_type = f"act_sim_{aggregation}"
-        else:
-            # Default to full activations
-            activation_type = "full"
-        
-        logger.log(f"  [DEBUG] Using activation_type: {activation_type}")
-        
-        # Get activations using the unified method
-        train_result = train_ds.get_train_set_activations(layer, component, use_masks=True, activation_type=activation_type)
-        
-        # Handle different return formats (with/without masks)
-        if len(train_result) == 3:
-            train_acts, train_masks, y_train = train_result
-        else:
-            train_acts, y_train = train_result
-            train_masks = None
-        
-        logger.log(f"  [DEBUG] Got activations with type: {activation_type}")
+    # Get activations
+    activation_type = get_activation_type_from_config(config_name)
+    logger.log(f"  [DEBUG] Using activation_type: {activation_type}")
     
+    # Get activations using the unified method
+    train_result = train_ds.get_train_set_activations(layer, component, activation_type=activation_type)
+    
+    # Handle different return formats (with/without masks)
+    if len(train_result) == 3:
+        train_acts, train_masks, y_train = train_result
+    else:
+        train_acts, y_train = train_result
+        train_masks = None
+    
+    logger.log(f"  [DEBUG] Got activations with type: {activation_type}")
+
     print(f"Train activations: {len(train_acts) if isinstance(train_acts, list) else train_acts.shape}")
 
     # Create probe based on config_name
@@ -405,7 +407,6 @@ def evaluate_probe(
     score_options: list = None,
     rebuild_config: dict = None,
     return_metrics: bool = False,
-    contrast_fn: Any = None,
 ):
     if score_options is None:
         score_options = ['all']
@@ -415,7 +416,7 @@ def evaluate_probe(
     # Extract aggregation from config for results, to be backward compatible
     agg_name = extract_aggregation_from_config(config_name, architecture_name)
 
-    probe_filename_base = get_probe_filename_prefix(train_dataset_name, architecture_name, layer, component, config_name, contrast_fn)
+    probe_filename_base = get_probe_filename_prefix(train_dataset_name, architecture_name, layer, component, config_name)
     if rebuild_config is not None:
         probe_save_dir = results_dir / f"dataclass_exps_{train_dataset_name}"
         suffix = rebuild_suffix(rebuild_config)
@@ -507,27 +508,29 @@ def evaluate_probe(
         eval_ds = Dataset(eval_dataset_name, model_name=model_name, device=device, seed=seed, only_test=only_test)
         eval_ds.split_data(train_size=train_size, val_size=val_size, test_size=test_size, seed=seed)
     
-    # Use contrast activations if contrast_fn is provided
-    if contrast_fn is not None:
-        test_acts, y_test = eval_ds.get_contrast_activations(contrast_fn, layer, component, split='test')
+    # Get activations
+    activation_type = get_activation_type_from_config(config_name)
+    logger.log(f"  [DEBUG] Using activation_type: {activation_type}")
+    
+    # Get activations using the unified method
+    test_result = eval_ds.get_test_set_activations(layer, component, activation_type=activation_type)
+    
+    # Handle different return formats (with/without masks)
+    if len(test_result) == 3:
+        test_acts, test_masks, y_test = test_result
     else:
-        # Get activations
-        if config_name == "attention":
-            # Attention probes don't use masks
-            test_acts, y_test = eval_ds.get_test_set_activations(layer, component, use_masks=False)
-        else:
-            # Other probes use masks for proper aggregation
-            test_acts, test_masks, y_test = eval_ds.get_test_set_activations(layer, component)
-        
-        print(f"Test activations: {len(test_acts) if isinstance(test_acts, list) else test_acts.shape}")
+        test_acts, y_test = test_result
+        test_masks = None
+    
+    print(f"Test activations: {len(test_acts) if isinstance(test_acts, list) else test_acts.shape}")
     
     # Calculate metrics based on score options
     combined_metrics = {}
     
     if 'all' in score_options:
         logger.log(f"  - 🤗 Calculating all examples metrics...")
-        if config_name == "attention":
-            # Attention probes don't use masks
+        if config_name == "attention" or config_name.startswith("act_sim"):
+            # Attention probes and act_sim probes don't use masks
             all_metrics = probe.score(test_acts, y_test)
         else:
             # Other probes use masks
@@ -536,8 +539,8 @@ def evaluate_probe(
 
     if 'filtered' in score_options:
         logger.log(f"  - 🤗 Calculating filtered metrics...")
-        if config_name == "attention":
-            # Attention probes don't use masks
+        if config_name == "attention" or config_name.startswith("act_sim"):
+            # Attention probes and act_sim probes don't use masks
             filtered_metrics = probe.score_filtered(test_acts, y_test, dataset_name=eval_dataset_name, 
                                                   results_dir=results_dir, seed=seed, test_size=test_size)
         else:
@@ -549,8 +552,8 @@ def evaluate_probe(
 
     # Save metrics and per-datapoint scores/labels
     # Compute per-datapoint probe scores (logits) and labels
-    if config_name == "attention":
-        # Attention probes don't use masks
+    if config_name == "attention" or config_name.startswith("act_sim"):
+        # Attention probes and act_sim probes don't use masks
         test_scores = probe.predict_logits(test_acts)
     else:
         # Other probes use masks
@@ -624,13 +627,12 @@ def run_non_trainable_probe(
     train_size: float = 0.75, val_size: float = 0.10, test_size: float = 0.15,
     rebuild_config: dict = None,
     metric: str = 'acc',
-    contrast_fn: Any = None,
 ):
     """
     Run non-trainable probes (like activation similarity and mass-mean probes).
     These probes don't require training but need to compute parameters from training data.
     """
-    probe_filename_base = get_probe_filename_prefix(train_dataset_name, architecture_name, layer, component, config_name, contrast_fn)
+    probe_filename_base = get_probe_filename_prefix(train_dataset_name, architecture_name, layer, component, config_name)
     probe_save_dir = results_dir / f"train_{train_dataset_name}"
     
     # If rebuilding, save in dataclass_exps_{dataset_name}
@@ -706,16 +708,32 @@ def run_non_trainable_probe(
         ds.split_data(train_size=train_size, val_size=val_size, test_size=test_size, seed=seed)
 
     # Get activations
-    if config_name == "attention":
-        # Attention probes don't use masks
-        train_acts, y_train = ds.get_train_set_activations(layer, component, use_masks=False)
-        val_acts, y_val = ds.get_val_set_activations(layer, component, use_masks=False)
-        test_acts, y_test = ds.get_test_set_activations(layer, component, use_masks=False)
+    activation_type = get_activation_type_from_config(config_name)
+    logger.log(f"  [DEBUG] Using activation_type: {activation_type}")
+    
+    # Get activations using the unified method
+    train_result = ds.get_train_set_activations(layer, component, activation_type=activation_type)
+    val_result = ds.get_val_set_activations(layer, component, activation_type=activation_type)
+    test_result = ds.get_test_set_activations(layer, component, activation_type=activation_type)
+    
+    # Handle different return formats (with/without masks)
+    if len(train_result) == 3:
+        train_acts, train_masks, y_train = train_result
     else:
-        # Other probes use masks for proper aggregation
-        train_acts, train_masks, y_train = ds.get_train_set_activations(layer, component)
-        val_acts, val_masks, y_val = ds.get_val_set_activations(layer, component)
-        test_acts, test_masks, y_test = ds.get_test_set_activations(layer, component)
+        train_acts, y_train = train_result
+        train_masks = None
+        
+    if len(val_result) == 3:
+        val_acts, val_masks, y_val = val_result
+    else:
+        val_acts, y_val = val_result
+        val_masks = None
+        
+    if len(test_result) == 3:
+        test_acts, test_masks, y_test = test_result
+    else:
+        test_acts, y_test = test_result
+        test_masks = None
     
     print(f"Train activations: {len(train_acts) if isinstance(train_acts, list) else train_acts.shape}")
     print(f"Val activations: {len(val_acts) if isinstance(val_acts, list) else val_acts.shape}") 

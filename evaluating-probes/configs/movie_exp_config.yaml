@@ -89,7 +89,6 @@ experiments:
       - 96_is_movie
     score:
       - filtered
-    contrast_fn: movie_swap_contrast
     rebuild_config:
       increasing_movie_fixed_total:
         - {class_counts: {0: 3999, 1: 1}, seed: 42}

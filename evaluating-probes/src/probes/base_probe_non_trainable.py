@@ -49,14 +49,14 @@ class BaseProbeNonTrainable:
         accuracy = np.mean(predictions == y)
         return {"accuracy": accuracy}
 
-    def score_filtered(self, X: List[np.ndarray], y: np.ndarray, dataset_name: str = None, 
+    def score_filtered(self, X: np.ndarray, y: np.ndarray, dataset_name: str = None, 
                       results_dir: Path = None, seed: int = None, test_size: float = 0.15) -> dict[str, float]:
         """
         Calculate metrics only on examples where the model's logit_diff indicates correct prediction.
         Reads the CSV file from runthrough folder and filters based on logit_diff values.
         
         Args:
-            X: List of activation arrays, each with shape (seq_len, d_model)
+            X: Pre-aggregated activations, shape (N, d_model)
             y: Labels, shape (N,)
             dataset_name: Name of the dataset for finding the CSV file
             results_dir: Results directory to find the runthrough folder
@@ -119,7 +119,7 @@ class BaseProbeNonTrainable:
                 return self.score(X, y)
             
             # Apply the filter to X and y
-            X_filtered = [X[i] for i in filtered_indices]
+            X_filtered = X[filtered_indices]
             y_filtered = y[filtered_indices]
             
             # Calculate metrics on filtered data

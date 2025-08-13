@@ -163,7 +163,7 @@ def process_dataset_job(dataset_job, config, retrain, hyperparameter_tuning, ret
                 seed=effective_seed,
                 results_dir=experiment_dir, cache_dir=dataset_job['cache_dir'], logger=logger, 
                 retrain=retrain,
-                rebuild_config=dataset_job['rebuild_params'], metric=metric, contrast_fn=dataset_job['contrast_fn']
+                rebuild_config=dataset_job['rebuild_params'], metric=metric
             )
         
         # Process trainable probes individually
@@ -185,8 +185,7 @@ def process_dataset_job(dataset_job, config, retrain, hyperparameter_tuning, ret
                 retrain=retrain,
                 hyperparameter_tuning=hyperparameter_tuning, 
                 rebuild_config=dataset_job['rebuild_params'], metric=metric,
-                retrain_with_best_hparams=retrain_with_best_hparams,
-                contrast_fn=dataset_job['contrast_fn']
+                retrain_with_best_hparams=retrain_with_best_hparams
             )
         
         # Evaluate all probes on all evaluation datasets
@@ -235,8 +234,7 @@ def process_dataset_job(dataset_job, config, retrain, hyperparameter_tuning, ret
                         use_cache=config['cache_activations'], cache_dir=dataset_job['cache_dir'], 
                         reevaluate=reevaluate,
                         score_options=score_options, rebuild_config=dataset_job['rebuild_params'], 
-                        return_metrics=True,
-                        contrast_fn=dataset_job['contrast_fn']
+                        return_metrics=True
                     )
                     
                     # Store results by rebuild config and eval dataset
@@ -391,33 +389,27 @@ def main():
             else:
                 rebuild_configs = [None]
             
-            # Handle contrast function
-            contrast_fn = None
-            if experiment and 'contrast_fn' in experiment:
-                contrast_fn = Dataset.load_contrast_fn(experiment['contrast_fn'])
-            
             for train_dataset in train_sets:
                 for rebuild_params in rebuild_configs:
                     for layer in config['layers']:
                         for component in config['components']:
                             for seed in all_seeds:
-                                                                 # Create a dataset job that will process all architectures for this dataset/rebuild/seed combination
-                                 dataset_job = {
-                                     'experiment_name': experiment_name,
-                                     'train_dataset': train_dataset,
-                                     'layer': layer,
-                                     'component': component,
-                                     'seed': seed,
-                                     'rebuild_params': rebuild_params,
-                                     'experiment': experiment,
-                                     'eval_datasets': eval_sets,
-                                     'contrast_fn': contrast_fn,
-                                     'architectures': config.get('architectures', []),
-                                     'results_dir': results_dir,
-                                     'cache_dir': cache_dir,
-                                     'log_file_path': log_file_path, # Pass log file path instead of logger
-                                 }
-                                 all_dataset_jobs.append(dataset_job)
+                                # Create a dataset job that will process all architectures for this dataset/rebuild/seed combination
+                                dataset_job = {
+                                    'experiment_name': experiment_name,
+                                    'train_dataset': train_dataset,
+                                    'layer': layer,
+                                    'component': component,
+                                    'seed': seed,
+                                    'rebuild_params': rebuild_params,
+                                    'experiment': experiment,
+                                    'eval_datasets': eval_sets,
+                                    'architectures': config.get('architectures', []),
+                                    'results_dir': results_dir,
+                                    'cache_dir': cache_dir,
+                                    'log_file_path': log_file_path, # Pass log file path instead of logger
+                                }
+                                all_dataset_jobs.append(dataset_job)
 
         # Step 2: Extract activations for train and eval datasets (optional but recommended)
         # Just extract them all even if they're a bit extra
@@ -461,11 +453,11 @@ def main():
         logger.log(f"Completed {completed_jobs}/{len(all_dataset_jobs)} dataset jobs successfully")
         
         # Save combined evaluation results if any jobs completed
-        if all_eval_results:
+            if all_eval_results:
             logger.log("Combining and saving evaluation results...")
             # Note: Individual job results are already saved by each process
             # This is just for logging purposes
-        
+                
     finally:
         if 'model' in locals():
             del model
