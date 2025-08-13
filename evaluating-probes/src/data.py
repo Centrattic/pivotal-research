@@ -29,6 +29,17 @@ def get_main_csv_metadata() -> pd.DataFrame:  # type: ignore[override]
     df['number'] = df['number'].astype(int)
     return df.set_index("number")
 
+def get_model_d_model(model_name: str) -> int:
+    """Get the d_model dimension for a given model name."""
+    model_dims = {
+        'gemma-2-9b': 3584,
+        'meta-llama/Llama-3.3-70B-Instruct': 8192,
+    }
+    if model_name not in model_dims:
+        raise ValueError(f"Unknown model name: {model_name}. Available models: {list(model_dims.keys())}")
+    return model_dims[model_name]
+
+
 class Dataset:
     """Dataset wrapper that lazily populates activation caches."""
 
@@ -36,7 +47,8 @@ class Dataset:
         self,
         dataset_name: str,
         *,
-        model: HookedTransformer | None,
+        model: HookedTransformer | None = None,
+        model_name: str = None,  # Alternative to passing the full model
         device: str = "cuda:0",
         data_dir: Path = Path("datasets/cleaned"),
         cache_root: Path = Path("activation_cache"),
@@ -45,6 +57,7 @@ class Dataset:
     ):
         self.dataset_name = dataset_name
         self.model = model
+        self.model_name = model_name or (model.cfg.model_name if model is not None else None)
         self.device = device
         self.cache_root = cache_root
         self.seed = seed
@@ -132,24 +145,46 @@ class Dataset:
         
         # Initialize activation manager if model is provided
         self.act_manager = None
-        if model is not None:
+        if model is not None or model_name is not None:
             try: 
-                cache_dir = cache_root / model.cfg.model_name / dataset_name
-                print(f"Initializing ActivationManager with model: {model.cfg.model_name}, device: {device}, cache_dir: {cache_dir}")
-                self.act_manager = ActivationManager(
-                    model=model,
-                    device=device,
-                    d_model=model.cfg.d_model,
-                    cache_dir=cache_dir,
-                )
+                cache_dir = cache_root / self.model_name / dataset_name
+                print(f"Initializing ActivationManager with model: {self.model_name}, device: {device}, cache_dir: {cache_dir}")
+                print(f"[DEBUG] model_name parameter: {model_name}")
+                print(f"[DEBUG] self.model_name: {self.model_name}")
+                print(f"[DEBUG] model parameter: {model}")
+                print(f"[DEBUG] model type: {type(model)}")
+                
+                if model is not None:
+                    # Full model provided - use it
+                    self.act_manager = ActivationManager(
+                        model=model,
+                        device=device,
+                        d_model=model.cfg.d_model,
+                        cache_dir=cache_dir,
+                    )
+                else:
+                    # Only model name provided - create readonly activation manager
+                    # that can read existing caches but not create new ones
+                    print(f"[DEBUG] Creating read-only activation manager for model_name={model_name}")
+                    try:
+                        self.act_manager = ActivationManager.create_readonly(
+                            model_name=model_name,
+                            d_model=get_model_d_model(model_name),
+                            cache_dir=cache_dir,
+                        )
+                        print(f"[DEBUG] Successfully created read-only activation manager")
+                    except Exception as e:
+                        print(f"[DEBUG] Failed to create read-only activation manager: {e}")
+                        raise
+                    
                 print(f"Successfully initialized ActivationManager")
             except Exception as e: 
                 print(f"Failed to initialize activation manager: {e}")
-                print(f"Model type: {type(model)}, Model name: {getattr(model, 'cfg', None).model_name if hasattr(model, 'cfg') and hasattr(model.cfg, 'model_name') else 'Unknown'}")
+                print(f"Model type: {type(model)}, Model name: {self.model_name}")
                 print("Not using dataset class to manage activations.")
                 self.act_manager = None
         else:
-            print("Model is None, not initializing activation manager.")
+            print("No model or model_name provided, not initializing activation manager.")
 
     def split_data(self, seed: int, train_size: float = 0.75, val_size: float = 0.10, test_size: float = 0.15):
         """
@@ -184,12 +219,12 @@ class Dataset:
         self.y_test = self.y[te_idx]
         print(f"Split data: {len(self.X_train_text)} train, {len(self.X_val_text)} val, {len(self.X_test_text)} test")
 
-    def get_activations_for_texts(self, texts: List[str], layer: int, component: str):
+    def get_activations_for_texts(self, texts: List[str], layer: int, component: str, activation_type: str = "full"):
         """Get activations for an arbitrary list of texts."""
         if self.act_manager is None:
             raise ValueError("No activation manager available. Model may not be loaded.")
-        acts = self.act_manager.get_activations_for_texts(texts, layer, component)
-        return acts
+        acts, masks = self.act_manager.get_activations_for_texts(texts, layer, component, activation_type)
+        return acts, masks
 
     # Text getters
     def get_train_set(self):
@@ -217,44 +252,98 @@ class Dataset:
                 self.max_len = actual_max_len
 
     # Activation getters
-    def get_train_set_activations(self, layer: int, component: str, use_masks: bool = True):
+    def get_train_set_activations(self, layer: int, component: str, use_masks: bool = True, activation_type: str = "full"):
         if self.X_train_text is None:
             raise ValueError("Data not split yet. Split data first.")
         if self.act_manager is None:
             raise ValueError("No activation manager available. Model may not be loaded.")
         # Update max_len from actual activations if available
         self.update_max_len_from_activations(layer, component)
-        acts, masks = self.act_manager.get_activations_for_texts(self.X_train_text, layer, component)
-        if use_masks:
+        acts, masks = self.act_manager.get_activations_for_texts(self.X_train_text, layer, component, activation_type)
+        
+        # Validate activations for numerical issues
+        self._validate_activations(acts, "train")
+        
+        if use_masks and masks is not None:
             return acts, masks, self.y_train
         else:
             return acts, self.y_train
 
-    def get_val_set_activations(self, layer: int, component: str, use_masks: bool = True):
+    def get_train_set_aggregated_activations(self, layer: int, component: str, aggregation: str = "mean"):
+        """Get pre-aggregated activations for training set (much faster than full activations)."""
+        if self.X_train_text is None:
+            raise ValueError("Data not split yet. Split data first.")
+        if self.act_manager is None:
+            raise ValueError("No activation manager available. Model may not be loaded.")
+        
+        acts = self.act_manager.get_pre_aggregated_activations(self.X_train_text, layer, component, aggregation)
+        
+        # Validate activations for numerical issues
+        self._validate_activations(acts, "train")
+        
+        return acts, self.y_train
+
+    def get_val_set_activations(self, layer: int, component: str, use_masks: bool = True, activation_type: str = "full"):
         if self.X_val_text is None:
             raise ValueError("Data not split yet. Split data first.")
         if self.act_manager is None:
             raise ValueError("No activation manager available. Model may not be loaded.")
         # Update max_len from actual activations if available
         self.update_max_len_from_activations(layer, component)
-        acts, masks = self.act_manager.get_activations_for_texts(self.X_val_text, layer, component)
-        if use_masks:
+        acts, masks = self.act_manager.get_activations_for_texts(self.X_val_text, layer, component, activation_type)
+        
+        # Validate activations for numerical issues
+        self._validate_activations(acts, "val")
+        
+        if use_masks and masks is not None:
             return acts, masks, self.y_val
         else:
             return acts, self.y_val
 
-    def get_test_set_activations(self, layer: int, component: str, use_masks: bool = True):
+    def get_val_set_aggregated_activations(self, layer: int, component: str, aggregation: str = "mean"):
+        """Get pre-aggregated activations for validation set (much faster than full activations)."""
+        if self.X_val_text is None:
+            raise ValueError("Data not split yet. Split data first.")
+        if self.act_manager is None:
+            raise ValueError("No activation manager available. Model may not be loaded.")
+        
+        acts = self.act_manager.get_pre_aggregated_activations(self.X_val_text, layer, component, aggregation)
+        
+        # Validate activations for numerical issues
+        self._validate_activations(acts, "val")
+        
+        return acts, self.y_val
+
+    def get_test_set_activations(self, layer: int, component: str, use_masks: bool = True, activation_type: str = "full"):
         if self.X_test_text is None:
             raise ValueError("Data not split yet. Split data first.")
         if self.act_manager is None:
             raise ValueError("No activation manager available. Model may not be loaded.")
         # Update max_len from actual activations if available
         self.update_max_len_from_activations(layer, component)
-        acts, masks = self.act_manager.get_activations_for_texts(self.X_test_text, layer, component)
-        if use_masks:
+        acts, masks = self.act_manager.get_activations_for_texts(self.X_test_text, layer, component, activation_type)
+        
+        # Validate activations for numerical issues
+        self._validate_activations(acts, "test")
+        
+        if use_masks and masks is not None:
             return acts, masks, self.y_test
         else:
             return acts, self.y_test
+
+    def get_test_set_aggregated_activations(self, layer: int, component: str, aggregation: str = "mean"):
+        """Get pre-aggregated activations for test set (much faster than full activations)."""
+        if self.X_test_text is None:
+            raise ValueError("Data not split yet. Split data first.")
+        if self.act_manager is None:
+            raise ValueError("No activation manager available. Model may not be loaded.")
+        
+        acts = self.act_manager.get_pre_aggregated_activations(self.X_test_text, layer, component, aggregation)
+        
+        # Validate activations for numerical issues
+        self._validate_activations(acts, "test")
+        
+        return acts, self.y_test
     
     def extract_all_activations(self, layer: int, component: str):
         """Extract activations for all texts in the dataset without requiring splits."""
@@ -265,6 +354,36 @@ class Dataset:
         acts, masks = self.act_manager.get_activations_for_texts(self.X.tolist(), layer, component)
         print(f"Successfully extracted activations: shape={acts.shape}")
         return acts, masks
+
+    def _validate_activations(self, acts, split_name):
+        """Validate activations for numerical issues."""
+        if acts is None:
+            return
+            
+        acts_array = np.array(acts) if isinstance(acts, list) else acts
+        
+        # Check for infinity
+        if np.any(np.isinf(acts_array)):
+            inf_count = np.sum(np.isinf(acts_array))
+            total_elements = acts_array.size
+            print(f"[WARNING] Found {inf_count}/{total_elements} infinity values in {split_name} activations")
+            print(f"[WARNING] Infinity locations: {np.where(np.isinf(acts_array))}")
+            
+        # Check for NaN
+        if np.any(np.isnan(acts_array)):
+            nan_count = np.sum(np.isnan(acts_array))
+            total_elements = acts_array.size
+            print(f"[WARNING] Found {nan_count}/{total_elements} NaN values in {split_name} activations")
+            print(f"[WARNING] NaN locations: {np.where(np.isnan(acts_array))}")
+            
+        # Check for extremely large values
+        max_val = np.max(np.abs(acts_array))
+        if max_val > 1e10:
+            print(f"[WARNING] Found extremely large values in {split_name} activations: max_abs={max_val}")
+            
+        # Check data type
+        print(f"[DEBUG] {split_name} activations shape: {acts_array.shape}, dtype: {acts_array.dtype}")
+        print(f"[DEBUG] {split_name} activations range: [{np.min(acts_array):.6f}, {np.max(acts_array):.6f}]")
     
     def clear_activation_cache(self):
         """Clear activation cache to free memory."""
@@ -272,7 +391,7 @@ class Dataset:
             self.act_manager.clear_activation_cache()
 
     @classmethod
-    def from_dataframe(cls, df, *, dataset_name, model, device, cache_root, seed, task_type=None, n_classes=None, max_len=None, train_indices=None, val_indices=None, test_indices=None):
+    def from_dataframe(cls, df, *, dataset_name, model=None, model_name=None, device, cache_root, seed, task_type=None, n_classes=None, max_len=None, train_indices=None, val_indices=None, test_indices=None):
         """
         Construct a Dataset from a DataFrame, using the same model/device/etc. as the original.
         If train/val/test indices are provided, set all split attributes accordingly.
@@ -282,6 +401,7 @@ class Dataset:
         obj.dataset_name = dataset_name
         obj.df = df.copy()
         obj.model = model
+        obj.model_name = model_name or (model.cfg.model_name if model is not None else None)
         obj.device = device
         obj.cache_root = cache_root
         obj.seed = seed
@@ -323,21 +443,29 @@ class Dataset:
         
         # Initialize ActivationManager
         obj.act_manager = None
-        if model is not None:
+        if model is not None or model_name is not None:
             try:
-                cache_dir = cache_root / model.cfg.model_name / dataset_name
-                obj.act_manager = ActivationManager(
-                    model=model,
-                    device=device,
-                    d_model=model.cfg.d_model,
-                    cache_dir=cache_dir,
-                )
+                cache_dir = cache_root / obj.model_name / dataset_name
+                if model is not None:
+                    obj.act_manager = ActivationManager(
+                        model=model,
+                        device=device,
+                        d_model=model.cfg.d_model,
+                        cache_dir=cache_dir,
+                    )
+                else:
+                    # Use read-only activation manager
+                    obj.act_manager = ActivationManager.create_readonly(
+                        model_name=model_name,
+                        d_model=get_model_d_model(model_name),
+                        cache_dir=cache_dir,
+                    )
             except Exception as e:
                 print(f"Failed to initialize activation manager in from_dataframe: {e}")
                 print("Using dataset class to fetch text, not manage activations.")
                 obj.act_manager = None
         else:
-            print("Model is None in from_dataframe, not initializing activation manager.")
+            print("No model or model_name in from_dataframe, not initializing activation manager.")
         return obj
 
     @staticmethod
@@ -402,6 +530,7 @@ class Dataset:
                 test_df,
                 dataset_name=f"{original_dataset.dataset_name}_llm_upsampling",
                 model=original_dataset.model,
+                model_name=original_dataset.model_name,
                 device=original_dataset.device,
                 cache_root=original_dataset.cache_root,
                 seed=seed,
@@ -482,6 +611,7 @@ class Dataset:
             all_df,
             dataset_name=f"{original_dataset.dataset_name}_llm_upsampling",  # Constant name for shared cache
             model=original_dataset.model,
+            model_name=original_dataset.model_name,
             device=original_dataset.device,
             cache_root=original_dataset.cache_root,
             seed=seed,
@@ -553,6 +683,7 @@ class Dataset:
                 test_df,
                 dataset_name=original_dataset.dataset_name,
                 model=original_dataset.model,
+                model_name=original_dataset.model_name,
                 device=original_dataset.device,
                 cache_root=original_dataset.cache_root,
                 seed=seed,
@@ -632,6 +763,7 @@ class Dataset:
             all_df,
             dataset_name=original_dataset.dataset_name,
             model=original_dataset.model,
+            model_name=original_dataset.model_name,
             device=original_dataset.device,
             cache_root=original_dataset.cache_root,
             seed=seed,

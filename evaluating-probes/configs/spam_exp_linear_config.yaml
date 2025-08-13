@@ -13,14 +13,14 @@ components:
 
 # Evaluation dataset configurations with thresholds for filtered scoring
 architectures:
-  - name: "linear"
-    config_name: "linear_mean"
-  - name: "linear"
-    config_name: "linear_max"
-  - name: "linear"
-    config_name: "linear_last"
-  - name: "linear"
-    config_name: "linear_softmax"
+  - name: "sklearn_linear"
+    config_name: "sklearn_linear_mean"
+  - name: "sklearn_linear"
+    config_name: "sklearn_linear_max"
+  - name: "sklearn_linear"
+    config_name: "sklearn_linear_last"
+  - name: "sklearn_linear"
+    config_name: "sklearn_linear_softmax"
 
 # List of experiments to run
 experiments:

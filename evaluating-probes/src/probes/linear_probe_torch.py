@@ -18,8 +18,21 @@ class LinearProbeNet(nn.Module):
         # Create linear layer with bfloat16 dtype for mixed precision training
         self.linear = nn.Linear(d_model, 1, dtype=torch.bfloat16).to(self.device)
 
-    def forward(self, x: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
-        # x: (batch, seq, d_model), mask: (batch, seq)
+    def forward(self, x: torch.Tensor, mask: torch.Tensor = None) -> torch.Tensor:
+        # x: (batch, seq, d_model) or (batch, d_model) if pre-aggregated
+        # mask: (batch, seq) - optional, only needed if x is not pre-aggregated
+        
+        # Check if x is already aggregated (no sequence dimension)
+        if len(x.shape) == 2:
+            # x is already aggregated, just apply linear layer
+            x = x.contiguous()
+            logits = self.linear(x).squeeze(-1)
+            return logits
+        
+        # x has sequence dimension, need to aggregate using mask
+        if mask is None:
+            raise ValueError("Mask is required when x has sequence dimension")
+        
         # Optimize aggregation operations for better performance
         if self.aggregation == "mean":
             # Use more efficient mean pooling

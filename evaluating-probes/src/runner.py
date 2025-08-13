@@ -18,7 +18,7 @@ import pandas as pd
 import numpy as np
 
 def train_probe(
-    model, d_model: int, train_dataset_name: str, layer: int, component: str,
+    model_name: str, d_model: int, train_dataset_name: str, layer: int, component: str,
     architecture_name: str, config_name: str, device: str, use_cache: bool,
     seed: int, results_dir: Path, cache_dir: Path, logger: Logger, retrain: bool,
     train_size: float = 0.75, val_size: float = 0.10, test_size: float = 0.15,
@@ -43,26 +43,30 @@ def train_probe(
         probe_filename = f"{probe_filename_base}_{suffix}_state.npz"
         probe_state_path = probe_save_dir / probe_filename
         probe_json_path = probe_save_dir / f"{probe_filename_base}_{suffix}_meta.json"
-        # Check for existing probe file before running
-        if use_cache and probe_state_path.exists() and not retrain:
-            logger.log(f"  - [SKIP] Probe already trained in dataclass_exps: {probe_state_path.name}")
-            return
     else:
         probe_state_path = probe_save_dir / f"{probe_filename_base}_state.npz"
         probe_json_path = probe_save_dir / f"{probe_filename_base}_meta.json"
     
+    # EARLY CHECK: If probe already exists and we're not retraining, skip immediately
     if use_cache and probe_state_path.exists() and not retrain:
-        logger.log(f"  - Probe already trained. Skipping: {probe_state_path.name}")
+        if rebuild_config is not None:
+            logger.log(f"  - [SKIP] Probe already trained in dataclass_exps: {probe_state_path.name}")
+        else:
+            logger.log(f"  - [SKIP] Probe already trained: {probe_state_path.name}")
         return
     
     logger.log("  - Training new probe …")
 
     # Prepare dataset
+    logger.log(f"  [DEBUG] Starting dataset preparation...")
     if rebuild_config is not None:
-        orig_ds = Dataset(train_dataset_name, model=model, device=device, seed=seed)
+        logger.log(f"  [DEBUG] Using rebuild_config: {rebuild_config}")
+        orig_ds = Dataset(train_dataset_name, model_name=model_name, device=device, seed=seed)
+        logger.log(f"  [DEBUG] Created original dataset")
         
         # Check if this is LLM upsampling with new method
         if 'llm_upsampling' in rebuild_config and rebuild_config['llm_upsampling']:
+            logger.log(f"  [DEBUG] Using LLM upsampling method")
             n_real_neg = rebuild_config.get('n_real_neg')
             n_real_pos = rebuild_config.get('n_real_pos')
             upsampling_factor = rebuild_config.get('upsampling_factor')
@@ -73,6 +77,7 @@ def train_probe(
             if n_real_neg is None or n_real_pos is None or upsampling_factor is None:
                 raise ValueError("For LLM upsampling, 'n_real_neg', 'n_real_pos', and 'upsampling_factor' must be specified")
             
+            logger.log(f"  [DEBUG] Building LLM upsampled dataset...")
             train_ds = Dataset.build_llm_upsampled_dataset(
                 orig_ds,
                 seed=seed,
@@ -84,11 +89,14 @@ def train_probe(
                 llm_csv_base_path=llm_csv_base_path,
                 only_test=False,
             )
+            logger.log(f"  [DEBUG] Built LLM upsampled dataset")
         else:
             # Original rebuild_config logic
+            logger.log(f"  [DEBUG] Using original rebuild_config logic")
             train_class_counts = rebuild_config.get('class_counts')
             train_class_percents = rebuild_config.get('class_percents')
             train_total_samples = rebuild_config.get('total_samples')
+            logger.log(f"  [DEBUG] Building imbalanced train balanced eval dataset...")
             train_ds = Dataset.build_imbalanced_train_balanced_eval(
                 orig_ds,
                 train_class_counts=train_class_counts,
@@ -99,34 +107,60 @@ def train_probe(
                 seed=seed,  # Use the global seed passed to this function
                 only_test=False,
             )
+            logger.log(f"  [DEBUG] Built imbalanced train balanced eval dataset")
     else:
-        train_ds = Dataset(train_dataset_name, model=model, device=device, seed=seed)
+        logger.log(f"  [DEBUG] Using simple dataset creation")
+        train_ds = Dataset(train_dataset_name, model_name=model_name, device=device, seed=seed)
+        logger.log(f"  [DEBUG] Created dataset, now splitting data...")
         train_ds.split_data(train_size=train_size, val_size=val_size, test_size=test_size, seed=seed)
+        logger.log(f"  [DEBUG] Split data complete")
 
     # Use contrast activations if contrast_fn is provided
+    logger.log(f"  [DEBUG] Getting activations...")
     if contrast_fn is not None:
+        logger.log(f"  [DEBUG] Using contrast activations")
         train_acts, y_train = train_ds.get_contrast_activations(contrast_fn, layer, component, split='train')
         val_acts, y_val = train_ds.get_contrast_activations(contrast_fn, layer, component, split='val')
+        logger.log(f"  [DEBUG] Got contrast activations")
     else:
-        # Get activations based on probe type
+        # Determine activation_type based on config_name
         if config_name == "attention":
-            # Attention probes don't use masks
-            train_acts, y_train = train_ds.get_train_set_activations(layer, component, use_masks=False)
-            val_acts, y_val = train_ds.get_val_set_activations(layer, component, use_masks=False)
+            activation_type = "attention"
+        elif config_name.startswith("sklearn_linear"):
+            # Extract aggregation method from config_name (e.g., "sklearn_linear_mean" -> "linear_mean")
+            aggregation = config_name.split("_")[-1] if "_" in config_name else "mean"
+            activation_type = f"linear_{aggregation}"
+        elif config_name.startswith("linear"):
+            # PyTorch linear probes use full activations with masks
+            activation_type = "full"
+        elif config_name.startswith("sae"):
+            # SAE probes use pre-aggregated activations
+            aggregation = config_name.split("_")[-1] if "_" in config_name else "mean"
+            activation_type = f"sae_{aggregation}"
         else:
-            # Other probes use masks for proper aggregation
-            train_acts, train_masks, y_train = train_ds.get_train_set_activations(layer, component)
-            val_acts, val_masks, y_val = train_ds.get_val_set_activations(layer, component)
+            # Default to full activations
+            activation_type = "full"
+        
+        logger.log(f"  [DEBUG] Using activation_type: {activation_type}")
+        
+        # Get activations using the unified method
+        train_acts, train_masks, y_train = train_ds.get_train_set_activations(layer, component, use_masks=True, activation_type=activation_type)
+        val_acts, val_masks, y_val = train_ds.get_val_set_activations(layer, component, use_masks=True, activation_type=activation_type)
+        logger.log(f"  [DEBUG] Got activations with type: {activation_type}")
     
     print(f"Train activations: {len(train_acts) if isinstance(train_acts, list) else train_acts.shape}")
     print(f"Val activations: {len(val_acts) if isinstance(val_acts, list) else val_acts.shape}")
 
     # Create probe based on config_name
+    logger.log(f"  [DEBUG] Creating probe for config_name: {config_name}")
     probe_config = asdict(PROBE_CONFIGS[config_name])
+    logger.log(f"  [DEBUG] Got probe config")
     
     if config_name.startswith("sklearn_linear"):
+        logger.log(f"  [DEBUG] Creating sklearn linear probe")
         # Sklearn linear probe
         probe = get_probe_architecture("sklearn_linear", d_model=d_model, device=device, config=probe_config)
+        logger.log(f"  [DEBUG] Created sklearn linear probe")
         
         if retrain_with_best_hparams:
             logger.log(f"  - Using best hyperparameters from best_hparams.json for {config_name}.")
@@ -143,8 +177,15 @@ def train_probe(
             # Update probe parameters with best hyperparameters
             for key, value in best_params.items():
                 setattr(probe, key, value)
-            probe.fit(train_acts, y_train, train_masks)
+            logger.log(f"  [DEBUG] Fitting probe with best hyperparameters...")
+            # Pass masks only if they exist (for pre-aggregated activations, masks=None)
+            if train_masks is not None:
+                probe.fit(train_acts, y_train, train_masks)
+            else:
+                probe.fit(train_acts, y_train)
+            logger.log(f"  [DEBUG] Fitted probe with best hyperparameters")
         elif hyperparameter_tuning:
+            logger.log(f"  [DEBUG] Starting hyperparameter tuning...")
             best_params = probe.find_best_fit(
                 train_acts, y_train, val_acts, y_val,
                 epochs=probe_config.get('epochs', 100),  # Get epochs from probe config
@@ -152,12 +193,21 @@ def train_probe(
                 probe_save_dir=probe_save_dir, probe_filename_base=probe_filename_base,
                 n_jobs=1  # Use single-threaded to avoid conflicts with main parallelization
             )
+            logger.log(f"  [DEBUG] Completed hyperparameter tuning")
         else:
-            probe.fit(train_acts, y_train, train_masks)
+            logger.log(f"  [DEBUG] Fitting probe normally...")
+            # Pass masks only if they exist (for pre-aggregated activations, masks=None)
+            if train_masks is not None:
+                probe.fit(train_acts, y_train, train_masks)
+            else:
+                probe.fit(train_acts, y_train)
+            logger.log(f"  [DEBUG] Fitted probe normally")
             
     elif config_name.startswith("linear"):
+        logger.log(f"  [DEBUG] Creating PyTorch linear probe")
         # PyTorch linear probe
         probe = get_probe_architecture("linear", d_model=d_model, device=device, config=probe_config)
+        logger.log(f"  [DEBUG] Created PyTorch linear probe")
         
         # Get fit parameters by filtering out initialization-only parameters
         fit_params = {}
@@ -178,20 +228,28 @@ def train_probe(
             with open(best_hparams_path, 'r') as f:
                 best_params = json.load(f)
             fit_params.update(best_params)
+            logger.log(f"  [DEBUG] Fitting PyTorch linear probe with best hyperparameters...")
             probe.fit(train_acts, y_train, train_masks)
+            logger.log(f"  [DEBUG] Fitted PyTorch linear probe with best hyperparameters")
         elif hyperparameter_tuning:
+            logger.log(f"  [DEBUG] Starting PyTorch linear hyperparameter tuning...")
             best_params = probe.find_best_fit(
                 train_acts, y_train, val_acts, y_val,
                 epochs=probe_config.get('epochs', 100),  # Get epochs from probe config
                 n_trials=20, direction=None, metric=metric,
                 probe_save_dir=probe_save_dir, probe_filename_base=probe_filename_base
             )
+            logger.log(f"  [DEBUG] Completed PyTorch linear hyperparameter tuning")
         else:
+            logger.log(f"  [DEBUG] Fitting PyTorch linear probe normally...")
             probe.fit(train_acts, y_train, train_masks)
+            logger.log(f"  [DEBUG] Fitted PyTorch linear probe normally")
             
     elif config_name == "attention":
+        logger.log(f"  [DEBUG] Creating attention probe")
         # Attention probe
         probe = get_probe_architecture("attention", d_model=d_model, device=device, config=probe_config)
+        logger.log(f"  [DEBUG] Created attention probe")
         
         # Get fit parameters
         fit_params = {}
@@ -212,20 +270,28 @@ def train_probe(
             with open(best_hparams_path, 'r') as f:
                 best_params = json.load(f)
             fit_params.update(best_params)
+            logger.log(f"  [DEBUG] Fitting attention probe with best hyperparameters...")
             probe.fit(train_acts, y_train)
+            logger.log(f"  [DEBUG] Fitted attention probe with best hyperparameters")
         elif hyperparameter_tuning:
+            logger.log(f"  [DEBUG] Starting attention hyperparameter tuning...")
             best_params = probe.find_best_fit(
                 train_acts, y_train, val_acts, y_val,
                 epochs=probe_config.get('epochs', 100),  # Get epochs from probe config
                 n_trials=20, direction=None, verbose=True, metric=metric,
                 probe_save_dir=probe_save_dir, probe_filename_base=probe_filename_base
             )
+            logger.log(f"  [DEBUG] Completed attention hyperparameter tuning")
         else:
+            logger.log(f"  [DEBUG] Fitting attention probe normally...")
             probe.fit(train_acts, y_train)
+            logger.log(f"  [DEBUG] Fitted attention probe normally")
             
     elif config_name.startswith("sae"):
+        logger.log(f"  [DEBUG] Creating SAE probe")
         # SAE probe
         probe = get_probe_architecture("sae", d_model=d_model, device=device, config=probe_config)
+        logger.log(f"  [DEBUG] Created SAE probe")
         
         # Get fit parameters
         fit_params = {}
@@ -246,35 +312,52 @@ def train_probe(
             with open(best_hparams_path, 'r') as f:
                 best_params = json.load(f)
             fit_params.update(best_params)
+            logger.log(f"  [DEBUG] Fitting SAE probe with best hyperparameters...")
             probe.fit(train_acts, y_train, train_masks)
+            logger.log(f"  [DEBUG] Fitted SAE probe with best hyperparameters")
         elif hyperparameter_tuning:
+            logger.log(f"  [DEBUG] Starting SAE hyperparameter tuning...")
             best_params = probe.find_best_fit(
                 train_acts, y_train, val_acts, y_val,
                 epochs=probe_config.get('epochs', 100),  # Get epochs from probe config
-                n_trials=20, direction=None, verbose=True, metric=metric,
+                n_trials=20, direction=None, metric=metric,
                 probe_save_dir=probe_save_dir, probe_filename_base=probe_filename_base
             )
+            logger.log(f"  [DEBUG] Completed SAE hyperparameter tuning")
         else:
+            logger.log(f"  [DEBUG] Fitting SAE probe normally...")
             probe.fit(train_acts, y_train, train_masks)
+            logger.log(f"  [DEBUG] Fitted SAE probe normally")
             
     elif config_name == "mass_mean":
+        logger.log(f"  [DEBUG] Creating mass mean probe")
         # Mass mean probe (non-trainable)
         probe = get_probe_architecture("mass_mean", d_model=d_model, device=device, config=probe_config)
+        logger.log(f"  [DEBUG] Created mass mean probe")
+        logger.log(f"  [DEBUG] Fitting mass mean probe...")
         probe.fit(train_acts, y_train)
+        logger.log(f"  [DEBUG] Fitted mass mean probe")
         
     elif config_name.startswith("act_sim"):
+        logger.log(f"  [DEBUG] Creating activation similarity probe")
         # Activation similarity probe (non-trainable)
         probe = get_probe_architecture("act_sim", d_model=d_model, device=device, config=probe_config)
+        logger.log(f"  [DEBUG] Created activation similarity probe")
+        logger.log(f"  [DEBUG] Fitting activation similarity probe...")
         probe.fit(train_acts, y_train)
+        logger.log(f"  [DEBUG] Fitted activation similarity probe")
         
     else:
         raise ValueError(f"Unknown config_name: {config_name}")
 
     # Save probe
+    logger.log(f"  [DEBUG] Saving probe state...")
     probe_save_dir.mkdir(parents=True, exist_ok=True)
     probe.save_state(probe_state_path)
+    logger.log(f"  [DEBUG] Saved probe state")
     
     # Save metadata/config
+    logger.log(f"  [DEBUG] Saving metadata...")
     meta = {
         'train_dataset_name': train_dataset_name,
         'layer': layer,
@@ -289,13 +372,15 @@ def train_probe(
         meta['hyperparameters'] = best_params
     with open(probe_json_path, 'w') as f:
         json.dump(meta, f, indent=2)
+    logger.log(f"  [DEBUG] Saved metadata")
     logger.log(f"  - 🔥 Probe state saved to {probe_state_path.name}")
+    logger.log(f"  [DEBUG] train_probe function completed successfully")
 
 
 def evaluate_probe(
     train_dataset_name: str, eval_dataset_name: str, layer: int, component: str,
     architecture_config: dict, results_dir: Path, logger: Logger,
-    seed: int, model, d_model: int, device: str, use_cache: bool, cache_dir: Path, reevaluate: bool,
+    seed: int, model_name: str, d_model: int, device: str, use_cache: bool, cache_dir: Path, reevaluate: bool,
     train_size: float = 0.75, val_size: float = 0.10, test_size: float = 0.15, 
     score_options: list = None,
     rebuild_config: dict = None,
@@ -358,7 +443,7 @@ def evaluate_probe(
     # Prepare evaluation dataset
     only_test = (eval_dataset_name != train_dataset_name)
     if rebuild_config is not None:
-        orig_ds = Dataset(eval_dataset_name, model=model, device=device, seed=seed, only_test=only_test)
+        orig_ds = Dataset(eval_dataset_name, model_name=model_name, device=device, seed=seed, only_test=only_test)
         
         # Check if this is LLM upsampling with new method
         if 'llm_upsampling' in rebuild_config and rebuild_config['llm_upsampling']:
@@ -399,7 +484,7 @@ def evaluate_probe(
                 only_test=only_test,
             )
     else:
-        eval_ds = Dataset(eval_dataset_name, model=model, device=device, seed=seed, only_test=only_test)
+        eval_ds = Dataset(eval_dataset_name, model_name=model_name, device=device, seed=seed, only_test=only_test)
         eval_ds.split_data(train_size=train_size, val_size=val_size, test_size=test_size, seed=seed)
     
     # Use contrast activations if contrast_fn is provided
@@ -513,7 +598,7 @@ def evaluate_probe(
 
 
 def run_non_trainable_probe(
-    model, d_model: int, train_dataset_name: str, layer: int, component: str,
+    model_name: str, d_model: int, train_dataset_name: str, layer: int, component: str,
     architecture_name: str, config_name: str, device: str, use_cache: bool,
     seed: int, results_dir: Path, cache_dir: Path, logger: Logger, retrain: bool,
     train_size: float = 0.75, val_size: float = 0.10, test_size: float = 0.15,
@@ -552,7 +637,7 @@ def run_non_trainable_probe(
 
     # Prepare dataset
     if rebuild_config is not None:
-        orig_ds = Dataset(train_dataset_name, model=model, device=device, seed=seed)
+        orig_ds = Dataset(train_dataset_name, model_name=model_name, device=device, seed=seed)
         
         # Check if this is LLM upsampling with new method
         if 'llm_upsampling' in rebuild_config and rebuild_config['llm_upsampling']:
@@ -597,7 +682,7 @@ def run_non_trainable_probe(
                 seed=seed,
             )
     else:
-        ds = Dataset(train_dataset_name, model=model, device=device, seed=seed)
+        ds = Dataset(train_dataset_name, model_name=model_name, device=device, seed=seed)
         ds.split_data(train_size=train_size, val_size=val_size, test_size=test_size, seed=seed)
 
     # Get activations

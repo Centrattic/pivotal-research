@@ -12,7 +12,7 @@ class Logger:
 
     def log(self, message: Any):
         """Writes a message to the console and the log file."""
-        # print(message, file=self.terminal, flush=True)
+        print(message, file=self.terminal, flush=True)
         print(message, file=self.log_file, flush=True)
 
     def close(self):

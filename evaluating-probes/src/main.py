@@ -39,34 +39,70 @@ except Exception as e:
     print(f"Warning: Could not set CUDA device early: {e}")
 
 # Now import transformer_lens after setting CUDA device
-from src.runner import train_probe, evaluate_probe, get_probe_filename_prefix, run_non_trainable_probe
-from src.data import Dataset, get_available_datasets
+from src.data import Dataset, get_available_datasets, get_model_d_model
+from src.runner import evaluate_probe, train_probe, run_non_trainable_probe
 from src.logger import Logger
-from src.utils import should_skip_dataset, resample_params_to_str, get_dataset, get_effective_seeds, get_effective_seed_for_rebuild_config, generate_llm_upsampling_configs
+from src.utils import should_skip_dataset, resample_params_to_str, get_effective_seeds, get_effective_seed_for_rebuild_config, generate_llm_upsampling_configs
 from src.model_check.main import run_model_check
 from transformer_lens import HookedTransformer
 
 def extract_activations_for_dataset(model, dataset_name, layer, component, device, seed, logger):
     """
-    Extract activations for a dataset to ensure they're available before training.
+    Extract activations for a dataset using the full model.
+    This is phase 1: ensure all activations are cached.
+    Also pre-compute aggregated activations for faster loading later.
     """
     logger.log(f"  - Extracting activations for {dataset_name}, L{layer}, {component}")
     
     try:
-        # Create dataset and extract activations for all texts
+        # Create dataset with full model to extract activations
         ds = Dataset(dataset_name, model=model, device=device, seed=seed)
         acts, masks = ds.extract_all_activations(layer, component)
         
         logger.log(f"    - Successfully extracted activations: shape={acts.shape}")
+        
+        # Pre-compute aggregated activations for faster loading later
+        logger.log(f"    - Pre-computing aggregated activations...")
+        activation_types = [
+            "linear_mean", "linear_max", "linear_last", "linear_softmax",
+            # "sae_mean", "sae_max", "sae_last", "sae_softmax"
+        ]
+        
+        for activation_type in activation_types:
+            logger.log(f"      - Computing {activation_type} activations...")
+            try:
+                # Get all texts from the dataset
+                all_texts = ds.df['text'].tolist()
+                
+                # Compute activations using the new activation_type parameter
+                acts, masks = ds.act_manager.get_activations_for_texts(
+                    all_texts, layer, component, activation_type
+                )
+                logger.log(f"        - Successfully computed {activation_type}: shape={acts.shape}")
+                
+            except Exception as e:
+                logger.log(f"        - 💀 ERROR computing {activation_type}: {e}")
+                # Continue with other activation types even if one fails
+        
+        logger.log(f"    - Completed pre-aggregation for all activation types")
 
     except Exception as e:
         logger.log(f"    - 💀 ERROR extracting activations for {dataset_name}: {e}")
         raise
 
+
+def create_readonly_dataset(model_name, dataset_name, device, seed):
+    """
+    Create a dataset with read-only activation manager.
+    This is phase 2: use existing caches without loading the model.
+    """
+    return Dataset(dataset_name, model_name=model_name, device=device, seed=seed)
+
 def process_dataset_job(dataset_job, config, retrain, hyperparameter_tuning, retrain_with_best_hparams, reevaluate):
     """
     Processes a single dataset job (train and evaluate all probes on one dataset).
     This function is designed to be called by joblib in parallel.
+    Uses read-only activation managers since activations are already cached.
     """
     # Create a separate logger for this process
     log_file_path = dataset_job['log_file_path']
@@ -77,10 +113,10 @@ def process_dataset_job(dataset_job, config, retrain, hyperparameter_tuning, ret
     logger.log(f"🫠 Dataset Job: {dataset_job['experiment_name']}, {dataset_job['train_dataset']}, L{dataset_job['layer']}, {dataset_job['component']}, rebuild={rebuild_str}, seed={dataset_job['seed']}")
     
     try:
-        # Load model for this process
+        # Get model info without loading the model
+        model_name = config['model_name']
+        d_model = get_model_d_model(model_name)  # Import this function
         device = config.get("device")
-        model = HookedTransformer.from_pretrained(config['model_name'], device)
-        d_model = model.cfg.d_model
         
         # Validate train dataset for this specific seed
         try:
@@ -132,7 +168,7 @@ def process_dataset_job(dataset_job, config, retrain, hyperparameter_tuning, ret
             
             # Run non-trainable probe
             run_non_trainable_probe(
-                model=model, d_model=d_model, train_dataset_name=dataset_job['train_dataset'],
+                model_name=model_name, d_model=d_model, train_dataset_name=dataset_job['train_dataset'],
                 layer=dataset_job['layer'], component=dataset_job['component'], 
                 architecture_name=architecture_name, 
                 config_name=config_name,
@@ -152,7 +188,7 @@ def process_dataset_job(dataset_job, config, retrain, hyperparameter_tuning, ret
             
             # Train the probe
             train_probe(
-                model=model, d_model=d_model, train_dataset_name=dataset_job['train_dataset'],
+                model_name=model_name, d_model=d_model, train_dataset_name=dataset_job['train_dataset'],
                 layer=dataset_job['layer'], component=dataset_job['component'], 
                 architecture_name=architecture_name, 
                 config_name=config_name,
@@ -208,7 +244,7 @@ def process_dataset_job(dataset_job, config, retrain, hyperparameter_tuning, ret
                         layer=dataset_job['layer'], component=dataset_job['component'], 
                         architecture_config=arch_config,
                         results_dir=experiment_dir, logger=logger, seed=effective_seed,
-                        model=model, d_model=d_model, device=config['device'],
+                        model_name=config['model_name'], d_model=d_model, device=config['device'],
                         use_cache=config['cache_activations'], cache_dir=dataset_job['cache_dir'], 
                         reevaluate=reevaluate,
                         score_options=score_options, rebuild_config=dataset_job['rebuild_params'], 
@@ -404,13 +440,20 @@ def main():
                 for component in config['components']:
                     extract_activations_for_dataset(model, dataset_name, layer, component, device, all_seeds[0], logger)
 
+        # Unload model after activation extraction to free GPU memory
+        logger.log("\n" + "="*25 + " MODEL UNLOADING PHASE " + "="*25)
+        logger.log("Unloading model to free GPU memory for parallel processing...")
+        del model
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        logger.log("Model unloaded successfully")
+
         # Step 3: Process each dataset job (train and evaluate all probes on one dataset)
         logger.log("\n" + "="*25 + " DATASET PROCESSING PHASE " + "="*25)
-        logger.log(f"Processing {len(all_dataset_jobs)} dataset jobs in parallel...")
+        logger.log(f"Processing {len(all_dataset_jobs)} dataset jobs...")
         
-        # Use joblib to process dataset jobs in parallel
         # Use all available cores for maximum parallelization
-        n_jobs = min(100, len(all_dataset_jobs))  # Use up to 100 cores
+        n_jobs = 1  # n_jobs = min(100, len(all_dataset_jobs))  # Use up to 100 cores
         logger.log(f"Using {n_jobs} parallel jobs")
         
         all_eval_results_list = Parallel(n_jobs=n_jobs, verbose=10)(
