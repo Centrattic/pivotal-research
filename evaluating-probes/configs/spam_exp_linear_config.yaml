@@ -29,7 +29,6 @@ architectures:
     config_name: "act_sim_last"
   - name: "act_sim"
     config_name: "act_sim_softmax"
-  - 
 
 # List of experiments to run
 experiments:

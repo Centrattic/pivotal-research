@@ -486,7 +486,7 @@ class Dataset:
             
             return Dataset.from_dataframe(
                 test_df,
-                dataset_name=f"{original_dataset.dataset_name}_llm_upsampling",
+                dataset_name=original_dataset.dataset_name,  # Use original dataset name for shared cache
                 model=original_dataset.model,
                 model_name=original_dataset.model_name,
                 device=original_dataset.device,
@@ -567,7 +567,7 @@ class Dataset:
         # All LLM upsampling variants of the same base dataset will share the same activation cache
         return Dataset.from_dataframe(
             all_df,
-            dataset_name=f"{original_dataset.dataset_name}_llm_upsampling",  # Constant name for shared cache
+            dataset_name=original_dataset.dataset_name,  # Use original dataset name for shared cache
             model=original_dataset.model,
             model_name=original_dataset.model_name,
             device=original_dataset.device,

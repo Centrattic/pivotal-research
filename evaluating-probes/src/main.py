@@ -1,12 +1,15 @@
-import yaml
-from pathlib import Path
-import pandas as pd
 import argparse
+import yaml
+import pandas as pd
+import numpy as np
 import torch
-import os
-import sys
 import json
+import copy
+from pathlib import Path
+from typing import List, Dict, Any, Optional
 from joblib import Parallel, delayed
+import sys
+import os
 
 # Set CUDA device BEFORE importing transformer_lens
 parser = argparse.ArgumentParser()
@@ -46,11 +49,12 @@ from src.utils import should_skip_dataset, resample_params_to_str, get_effective
 from src.model_check.main import run_model_check
 from transformer_lens import HookedTransformer
 
-def extract_activations_for_dataset(model, dataset_name, layer, component, device, seed, logger):
+def extract_activations_for_dataset_with_llm(model, dataset_name, layer, component, device, seed, logger, run_name, include_llm_samples=True):
     """
     Extract activations for a dataset using the full model.
     This is phase 1: ensure all activations are cached.
     Also pre-compute aggregated activations for faster loading later.
+    If include_llm_samples=True, also extract activations for any LLM upsampled samples found.
     """
     logger.log(f"  - Extracting activations for {dataset_name}, L{layer}, {component}")
     
@@ -58,25 +62,43 @@ def extract_activations_for_dataset(model, dataset_name, layer, component, devic
         # Create dataset with full model to extract activations
         ds = Dataset(dataset_name, model=model, device=device, seed=seed)
         
-        # Check if full activations already exist
-        metadata_path, activations_path = ds.act_manager._paths(layer, component)
-        if activations_path.exists():
-            logger.log(f"    - Full activations already exist, skipping extraction")
-        else:
-            # First, extract all full activations
-            logger.log(f"    - Extracting full activations...")
-            acts, masks = ds.extract_all_activations(layer, component)
-            logger.log(f"    - Successfully extracted full activations: shape={acts.shape}")
-        
-        # Then compute and save all aggregated activations (only if missing)
+        # Ensure all dataset texts are cached (simpler, unified path)
+        logger.log(f"    - Ensuring full activations cached for dataset texts...")
+        dataset_texts = ds.X.tolist()
+        newly_added = ds.act_manager.ensure_texts_cached(dataset_texts, layer, component)
+        logger.log(f"    - Cached {newly_added} new activations (dataset)")
+
+        # If including LLM samples, scan results/<run_name>/seed_*/llm_samples/samples_*.csv for prompts and cache them
+        llm_samples_added = 0
+        if include_llm_samples:
+            try:
+                results_dir = Path('results') / run_name
+                llm_texts = []
+                for seed_dir in results_dir.glob('seed_*'):
+                    llm_dir = seed_dir / 'llm_samples'
+                    if not llm_dir.exists(): # like for eval datasets, ex. 87_is_spam
+                        continue
+                    for csv_file in llm_dir.glob('samples_*.csv'):
+                        try:
+                            df = pd.read_csv(csv_file)
+                            if 'prompt' in df.columns:
+                                llm_texts.extend(df['prompt'].astype(str).tolist())
+                        except Exception:
+                            continue
+                if llm_texts:
+                    llm_samples_added = ds.act_manager.ensure_texts_cached(llm_texts, layer, component)
+                    logger.log(f"    - Cached {llm_samples_added} new activations (LLM)")
+            except Exception as e:
+                logger.log(f"    - ⚠️ LLM sample caching skipped due to error: {e}")
+
+        # Then compute and save all aggregated activations (force if any new added)
         logger.log(f"    - Computing aggregated activations...")
-        ds.act_manager.compute_and_save_all_aggregations(layer, component)
+        ds.act_manager.compute_and_save_all_aggregations(layer, component, force_recompute=(newly_added > 0 or llm_samples_added > 0))
         logger.log(f"    - Completed aggregations")
 
     except Exception as e:
         logger.log(f"    - 💀 ERROR extracting activations for {dataset_name}: {e}")
         raise
-
 
 def create_readonly_dataset(model_name, dataset_name, device, seed):
     """
@@ -94,11 +116,11 @@ def process_dataset_job(dataset_job, config, retrain, hyperparameter_tuning, ret
     # Create a separate logger for this process
     log_file_path = dataset_job['log_file_path']
     logger = Logger(log_file_path)
-    
+
     logger.log("-" * 80)
     rebuild_str = resample_params_to_str(dataset_job['rebuild_params']) if dataset_job['rebuild_params'] else "default"
     logger.log(f"🫠 Dataset Job: {dataset_job['experiment_name']}, {dataset_job['train_dataset']}, L{dataset_job['layer']}, {dataset_job['component']}, rebuild={rebuild_str}, seed={dataset_job['seed']}")
-    
+
     try:
         # Get model info without loading the model
         model_name = config['model_name']
@@ -201,7 +223,7 @@ def process_dataset_job(dataset_job, config, retrain, hyperparameter_tuning, ret
                 if should_skip_dataset(eval_dataset, data=None, logger=logger):
                     logger.log(f"        - Skipping evaluation due to eval dataset validation failure")
                     continue
-                             
+                                
             except Exception as e:
                 logger.log(f"        - 💀 ERROR validating eval dataset '{eval_dataset}' with seed {dataset_job['seed']}: {e}")
                 continue
@@ -289,7 +311,7 @@ def main():
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
         torch.cuda.synchronize()  # Wait for all CUDA operations to complete
-    
+
     global config_yaml, retrain, reevaluate, hyperparameter_tuning, retrain_with_best_hparams
 
     # Load config (already loaded at top, but reload to be safe)
@@ -317,10 +339,10 @@ def main():
         log_file_path = Path(log_file_path)
         if not log_file_path.is_absolute():
             log_file_path = results_dir / log_file_path
-    
+
     # Ensure the log file directory exists
     log_file_path.parent.mkdir(parents=True, exist_ok=True)
-    
+
     logger = Logger(log_file_path)
 
     # Get all seeds to process
@@ -417,7 +439,8 @@ def main():
         for dataset_name in train_and_eval_datasets:
             for layer in config['layers']:
                 for component in config['components']:
-                    extract_activations_for_dataset(model, dataset_name, layer, component, device, all_seeds[0], logger)
+                    # Seed doesn't matter here, we're extracting over the whole dataset (even parts we wont use)
+                    extract_activations_for_dataset_with_llm(model, dataset_name, layer, component, device, all_seeds[0], logger, include_llm_samples=True, run_name=run_name)
 
         # Unload model after activation extraction to free GPU memory
         logger.log("\n" + "="*25 + " MODEL UNLOADING PHASE " + "="*25)
@@ -432,7 +455,7 @@ def main():
         logger.log(f"Processing {len(all_dataset_jobs)} dataset jobs...")
         
         # Use all available cores for maximum parallelization
-        n_jobs = min(32, len(all_dataset_jobs))  # Use up to 32 cores (conservative for memory)
+        n_jobs = min(60, len(all_dataset_jobs))  # Use up to 32 cores (conservative for memory)
         logger.log(f"Using {n_jobs} parallel jobs")
         
         all_eval_results_list = Parallel(n_jobs=n_jobs, verbose=10)(
@@ -453,7 +476,7 @@ def main():
         logger.log(f"Completed {completed_jobs}/{len(all_dataset_jobs)} dataset jobs successfully")
         
         # Save combined evaluation results if any jobs completed
-            if all_eval_results:
+        if all_eval_results:
             logger.log("Combining and saving evaluation results...")
             # Note: Individual job results are already saved by each process
             # This is just for logging purposes

@@ -472,6 +472,9 @@ def run_llm_upsampling(config_path: Path, api_key: str):
         api_key: OpenAI API key
     """
     
+    # Ensure we're in the right working directory
+    print(f"Current working directory: {Path.cwd()}")
+    
     # Extract parameters from config
     seeds, num_real_samples, upsampling_factors, train_on = extract_config_parameters(config_path)
     
@@ -509,7 +512,7 @@ def run_llm_upsampling(config_path: Path, api_key: str):
             # Check if samples file already exists
             output_filename = f"samples_{n_real_samples}.csv"
             output_path = seed_output_dir / output_filename
-            
+                        
             # Load existing data if available
             existing_df = None
             if output_path.exists():
@@ -531,10 +534,12 @@ def run_llm_upsampling(config_path: Path, api_key: str):
                 if existing_samples >= max_needed_samples:
                     print(f"✅ Already have enough samples for {max_needed_factor}x upsampling")
                     print(f"   Skipping LLM generation for n_real_samples = {n_real_samples}")
-                    continue
+                    # Still need to extract activations even if we skip generation
+                    skip_generation = True
                 else:
                     print(f"🔄 Need to generate {max_needed_samples - existing_samples} more samples")
                     print(f"   Current: {existing_samples}, Target: {max_needed_samples}")
+                    skip_generation = False
             else:
                 print(f"🆕 No existing samples file found, starting from scratch")
                 current_upsampling_factor = 0
@@ -560,49 +565,57 @@ def run_llm_upsampling(config_path: Path, api_key: str):
             batch_size = 3
             all_new_samples = []
             
-            while len(current_upsampled_df) < max_target_samples:
-                samples_needed = max_target_samples - len(current_upsampled_df)
-                current_batch_size = min(batch_size, samples_needed)
+            if not skip_generation:
+                while len(current_upsampled_df) < max_target_samples:
+                    samples_needed = max_target_samples - len(current_upsampled_df)
+                    current_batch_size = min(batch_size, samples_needed)
+                    
+                    print(f"\n--- Generating batch of {current_batch_size} samples ---")
+                    print(f"Current samples: {len(current_upsampled_df)}")
+                    print(f"Target samples: {max_target_samples}")
+                    print(f"Samples needed: {samples_needed}")
+                    
+                    # Request batch upsampling
+                    new_samples_df = state_machine.request_upsampling_batch(
+                        original_df, current_batch_size, current_upsampled_df
+                    )
+                    
+                    if new_samples_df is None:
+                        print(f"❌ Failed to generate batch of {current_batch_size} samples")
+                        break
+                    
+                    # Add new samples to our collection
+                    all_new_samples.append(new_samples_df)
+                    current_upsampled_df = pd.concat([current_upsampled_df, new_samples_df], ignore_index=True)
+                    
+                    print(f"✅ Added {len(new_samples_df)} new samples, total: {len(current_upsampled_df)}")
                 
-                print(f"\n--- Generating batch of {current_batch_size} samples ---")
-                print(f"Current samples: {len(current_upsampled_df)}")
-                print(f"Target samples: {max_target_samples}")
-                print(f"Samples needed: {samples_needed}")
-                
-                # Request batch upsampling
-                new_samples_df = state_machine.request_upsampling_batch(
-                    original_df, current_batch_size, current_upsampled_df
-                )
-                
-                if new_samples_df is None:
-                    print(f"❌ Failed to generate batch of {current_batch_size} samples")
-                    break
-                
-                # Add new samples to our collection
-                all_new_samples.append(new_samples_df)
-                current_upsampled_df = pd.concat([current_upsampled_df, new_samples_df], ignore_index=True)
-                
-                print(f"✅ Added {len(new_samples_df)} new samples, total: {len(current_upsampled_df)}")
-            
-            # Create the final upsampled dataset
-            if all_new_samples:
-                final_df = current_upsampled_df.copy()
-                
-                # Calculate what upsampling factors we achieved
-                achieved_factors = []
-                for factor in upsampling_factors:
-                    target_for_factor = factor * n_real_samples
-                    if len(final_df) >= target_for_factor:
-                        achieved_factors.append(factor)
-                
-                print(f"✅ Achieved upsampling factors: {achieved_factors}")
-                print(f"✅ Final dataset has {len(final_df)} samples")
-                
-                # Store the final dataset
-                all_generated_samples = {max(achieved_factors): final_df}
+                # Create the final upsampled dataset
+                if all_new_samples:
+                    final_df = current_upsampled_df.copy()
+                    
+                    # Calculate what upsampling factors we achieved
+                    achieved_factors = []
+                    for factor in upsampling_factors:
+                        target_for_factor = factor * n_real_samples
+                        if len(final_df) >= target_for_factor:
+                            achieved_factors.append(factor)
+                    
+                    print(f"✅ Achieved upsampling factors: {achieved_factors}")
+                    print(f"✅ Final dataset has {len(final_df)} samples")
+                    
+                    # Store the final dataset
+                    all_generated_samples = {max(achieved_factors): final_df}
+                else:
+                    print(f"❌ No new samples generated")
+                    all_generated_samples = {}
             else:
-                print(f"❌ No new samples generated")
-                all_generated_samples = {}
+                # We're skipping generation, so use the existing dataset
+                print(f"📁 Using existing dataset for activation extraction")
+                final_df = current_upsampled_df.copy()
+                all_generated_samples = {max(upsampling_factors): final_df}
+                print(f"   Debug: final_df has {len(final_df)} samples, original_df has {len(original_df)} samples")
+                print(f"   Debug: LLM samples (after original) should be {len(final_df) - len(original_df)}")
             
             # Save the final cumulative dataset for this n_real_samples
             if all_generated_samples:
@@ -620,10 +633,22 @@ def run_llm_upsampling(config_path: Path, api_key: str):
                 # Save as samples_{n_real_samples}.csv
                 output_filename = f"samples_{n_real_samples}.csv"
                 output_path = seed_output_dir / output_filename
+                
+                # Safety check: ensure directory exists before saving
+                if not seed_output_dir.exists():
+                    print(f"⚠️  Output directory {seed_output_dir} no longer exists, recreating...")
+                    seed_output_dir.mkdir(parents=True, exist_ok=True)
+                
+                if not os.access(seed_output_dir, os.W_OK):
+                    print(f"❌ Output directory {seed_output_dir} is not writable!")
+                    print(f"   Trying to save to current directory instead...")
+                    output_path = Path(f"samples_{n_real_samples}_seed_{seed}.csv")
+                
                 final_df.to_csv(output_path, index=False)
                 
                 print(f"✅ Saved complete dataset with {len(final_df)} samples to: {output_path}")
                 print(f"   (Includes {len(original_df)} original + {len(final_df) - len(original_df)} generated samples)")
+            
                 
                 # Check if we reached the maximum upsampling factor
                 max_needed_factor = max(upsampling_factors)

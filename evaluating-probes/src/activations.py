@@ -146,6 +146,74 @@ class ActivationManager:
         else:
             return self._get_full_activations_with_masks(texts, layer, component, activations_path)
 
+    def ensure_texts_cached(
+        self,
+        texts: Iterable[str],
+        layer: int,
+        component: str,
+    ) -> int:
+        """
+        Ensure that full activations for the provided texts are present in the cache.
+        This will compute and append any missing activations to the full activations file.
+
+        Returns the number of newly computed activations.
+        """
+        if self.model is None or self.tokenizer is None:
+            raise ValueError("ActivationManager is read-only. A full model is required to compute activations.")
+
+        texts = list(texts)
+        _, activations_path = self._paths(layer, component)
+
+        # Load existing activations (if any)
+        existing: Dict[str, np.ndarray] = {}
+        if activations_path.exists():
+            existing = dict(np.load(activations_path, allow_pickle=True))
+
+        # Determine which texts are missing
+        missing_texts: List[str] = []
+        for text in texts:
+            text_hash = self._hash(text)
+            if text_hash not in existing:
+                missing_texts.append(text)
+
+        if not missing_texts:
+            return 0
+
+        hook_name = f"blocks.{layer}.hook_{component}"
+
+        # Compute activations for missing texts in small batches to control memory
+        new_entries: Dict[str, np.ndarray] = {}
+        batch_size = 1
+        self.model.eval()
+        with torch.no_grad():
+            for i in tqdm(range(0, len(missing_texts), batch_size)):
+                batch_texts = missing_texts[i:i+batch_size]
+                # Use model.to_tokens to ensure correct tokenization compatible with HookedTransformer
+                tokens = self.model.to_tokens(batch_texts, prepend_bos=True).to(self.device)
+                _, cache = self.model.run_with_cache(
+                    tokens,
+                    names_filter=lambda n: n == hook_name,
+                )
+                acts_tensor = cache[hook_name]  # [B, S, D]
+                acts_tensor = acts_tensor.detach().to("cpu")
+
+                for j, text in enumerate(batch_texts):
+                    text_hash = self._hash(text)
+                    if text_hash in existing or text_hash in new_entries:
+                        continue
+                    activation = acts_tensor[j].numpy()  # [S, D]
+                    new_entries[text_hash] = activation
+
+                # Free cache for this batch
+                del cache
+
+        # Merge and save
+        if new_entries:
+            to_save = {**existing, **new_entries}
+            np.savez_compressed(activations_path, **to_save)
+
+        return len(new_entries)
+
     def _get_full_activations_with_masks(self, texts: List[str], layer: int, component: str, activations_path: Path) -> Tuple[np.ndarray, np.ndarray]:
         """Helper method to get full activations with masks. ONLY retrieves existing activations."""
         # Check if activations exist
@@ -204,68 +272,64 @@ class ActivationManager:
         
         return activations_array, masks_array
 
-    def compute_and_save_all_aggregations(self, layer: int, component: str):
-        """Compute and save all aggregated activations from the full activations file."""
-        metadata_path, activations_path = self._paths(layer, component)
+    def compute_and_save_all_aggregations(self, layer: int, component: str, force_recompute: bool = False):
+        """Compute and save aggregated activations from the full activations file.
+        Incrementally updates existing aggregated files with any newly added texts.
+        """
+        _, activations_path = self._paths(layer, component)
         
         # If full activations don't exist, we can't compute aggregations
         if not activations_path.exists():
             raise ValueError(f"Full activations file {activations_path} does not exist. Extract activations first.")
         
-        print(f"[DEBUG] Checking for existing aggregated activations...")
+        # Load all full activations once
+        all_activations: Dict[str, np.ndarray] = dict(np.load(activations_path, allow_pickle=True, mmap_mode='r'))
+        print(f"[DEBUG] Loaded {len(all_activations)} full activations for aggregation")
         
-        # Check which aggregations already exist
-        aggregation_methods = get_aggregation_methods()
-        existing_aggregations = []
-        missing_aggregations = []
+        from scipy.special import softmax
         
-        for aggregation in aggregation_methods:
+        for aggregation in get_aggregation_methods():
             aggregated_path = activations_path.parent / f"{activations_path.stem}_aggregated_{aggregation}.npz"
-            if aggregated_path.exists():
-                existing_aggregations.append(aggregation)
-                print(f"[DEBUG] Found existing {aggregation} aggregated activations")
+            # Load existing aggregated if present
+            if aggregated_path.exists() and not force_recompute:
+                aggregated_dict: Dict[str, np.ndarray] = dict(np.load(aggregated_path, allow_pickle=True))
+                print(f"[DEBUG] Existing {aggregation} aggregated entries: {len(aggregated_dict)}")
             else:
-                missing_aggregations.append(aggregation)
-                print(f"[DEBUG] Missing {aggregation} aggregated activations")
-        
-        # If all aggregations exist, we're done
-        if not missing_aggregations:
-            print(f"[DEBUG] All aggregated activations already exist, skipping computation")
-            return
-        
-        # Only compute missing aggregations
-        print(f"[DEBUG] Computing missing aggregations: {missing_aggregations}")
-        
-        # Load all full activations
-        all_activations = dict(np.load(activations_path, allow_pickle=True, mmap_mode='r'))
-        print(f"[DEBUG] Loaded {len(all_activations)} full activations")
-        
-        # Compute only missing aggregations
-        for aggregation in missing_aggregations:
-            print(f"[DEBUG] Computing {aggregation} aggregation...")
-            aggregated_activations = {}
+                aggregated_dict = {}
+                if force_recompute:
+                    print(f"[DEBUG] Force recompute enabled for {aggregation}; computing from scratch")
+                else:
+                    print(f"[DEBUG] No existing {aggregation} aggregated file, computing from scratch")
             
-            for text_hash, activation in all_activations.items():
-                # Aggregate based on method
+            # Compute for missing hashes only
+            missing_keys = [k for k in all_activations.keys() if k not in aggregated_dict]
+            if not missing_keys and not force_recompute:
+                print(f"[DEBUG] {aggregation}: no missing entries; skipping")
+                continue
+            if force_recompute:
+                print(f"[DEBUG] {aggregation}: force recompute over all {len(all_activations)} entries")
+                missing_keys = list(all_activations.keys())
+            else:
+                print(f"[DEBUG] {aggregation}: computing {len(missing_keys)} missing entries")
+            
+            for text_hash in missing_keys:
+                activation = all_activations[text_hash]
                 if aggregation == "mean":
                     aggregated = np.mean(activation, axis=0)
                 elif aggregation == "max":
                     aggregated = np.max(activation, axis=0)
                 elif aggregation == "last":
-                    aggregated = activation[-1]  # Last token
+                    aggregated = activation[-1]
                 elif aggregation == "softmax":
-                    from scipy.special import softmax
                     weights = softmax(activation, axis=0)
                     aggregated = np.sum(weights * activation, axis=0)
-                
-                aggregated_activations[text_hash] = aggregated
+                aggregated_dict[text_hash] = aggregated
             
-            # Save aggregated activations
-            aggregated_path = activations_path.parent / f"{activations_path.stem}_aggregated_{aggregation}.npz"
-            np.savez_compressed(aggregated_path, **aggregated_activations)
-            print(f"[DEBUG] Saved {aggregation} aggregated activations to {aggregated_path}")
+            # Save updated aggregated dict
+            np.savez_compressed(aggregated_path, **aggregated_dict)
+            print(f"[DEBUG] Saved updated {aggregation} aggregated activations to {aggregated_path} ({len(aggregated_dict)} entries)")
         
-        print(f"[DEBUG] Completed missing aggregations")
+        print(f"[DEBUG] Aggregation update complete")
 
     def get_actual_max_len(self, layer: int, component: str) -> Optional[int]:
         """Get the actual maximum token length from activations if available."""
