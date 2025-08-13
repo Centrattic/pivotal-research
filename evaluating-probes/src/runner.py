@@ -543,16 +543,26 @@ def evaluate_probe(
 
     if 'filtered' in score_options:
         logger.log(f"  - 🤗 Calculating filtered metrics...")
-        if config_name == "attention" or config_name.startswith("act_sim"):
-            # Attention probes and act_sim probes don't use masks
-            filtered_metrics = probe.score_filtered(test_acts, y_test, dataset_name=eval_dataset_name, 
-                                                  results_dir=results_dir, seed=seed, test_size=test_size)
-        else:
-            # Other probes use masks
-            filtered_metrics = probe.score_filtered(test_acts, y_test, masks=test_masks, 
-                                                  dataset_name=eval_dataset_name, results_dir=results_dir, 
-                                                  seed=seed, test_size=test_size)
-        combined_metrics["filtered_examples"] = filtered_metrics
+        try:
+            if config_name == "attention" or config_name.startswith("act_sim"):
+                # Attention probes and act_sim probes don't use masks
+                filtered_metrics = probe.score_filtered(test_acts, y_test, dataset_name=eval_dataset_name, 
+                                                      results_dir=results_dir, seed=seed, test_size=test_size)
+            else:
+                # Other probes use masks
+                filtered_metrics = probe.score_filtered(test_acts, y_test, masks=test_masks, 
+                                                      dataset_name=eval_dataset_name, results_dir=results_dir, 
+                                                      seed=seed, test_size=test_size)
+            combined_metrics["filtered_examples"] = filtered_metrics
+        except Exception as e:
+            logger.log(f"  - 😵‍💫 Filtered scoring failed with error: {str(e)}")
+            logger.log(f"  - 🔍 Debug info: eval_dataset_name={eval_dataset_name}, results_dir={results_dir}")
+            # Set a default filtered metrics structure to indicate failure
+            combined_metrics["filtered_examples"] = {
+                "filtered": False,
+                "error": str(e),
+                "fallback_to_all": True
+            }
 
     # Save metrics and per-datapoint scores/labels
     # Compute per-datapoint probe scores (logits) and labels
@@ -588,23 +598,25 @@ def evaluate_probe(
             runthrough_dir = parent_dir / f"runthrough_{eval_dataset_name}"
             
             csv_files = list(runthrough_dir.glob("*logit_diff*.csv"))
-            if csv_files:
-                df = pd.read_csv(csv_files[0])
-                if 'use_in_filtered_scoring' in df.columns:
-                    # Use the use_in_filtered_scoring column directly
-                    use_in_filtered = df['use_in_filtered_scoring'].values
-                    filtered_indices = np.where(use_in_filtered == 1)[0]
-                    
-                    if len(filtered_indices) > 0:
-                        output_dict["filtered_scores"] = {
-                            "scores": [test_scores[i] for i in filtered_indices],
-                            "labels": [test_labels[i] for i in filtered_indices],
-                            "filtered": True,
-                            "filter_method": "use_in_filtered_scoring",
-                            "original_size": len(test_scores),
-                            "filtered_size": len(filtered_indices),
-                            "removed_count": len(test_scores) - len(filtered_indices)
-                        }
+            logger.log(f"  - Found CSV file: {csv_files[0]}")
+            df = pd.read_csv(csv_files[0]) # will only be one csv file in the directory.
+            use_in_filtered = df['use_in_filtered_scoring'].values
+            filtered_indices = np.where(use_in_filtered == 1)[0]
+            
+            if len(filtered_indices) == 0:
+                logger.log(f"  - 😱 No examples passed the filter (all use_in_filtered_scoring values are 0)")
+                logger.log(f"  - Filter statistics: total={len(use_in_filtered)}, passed={len(filtered_indices)}")
+            else:
+                logger.log(f"  - 💪🏼 Successfully filtered {len(filtered_indices)} examples from {len(test_scores)} total")
+                output_dict["filtered_scores"] = {
+                    "scores": [test_scores[i] for i in filtered_indices],
+                    "labels": [test_labels[i] for i in filtered_indices],
+                    "filtered": True,
+                    "filter_method": "use_in_filtered_scoring",
+                    "original_size": len(test_scores),
+                    "filtered_size": len(filtered_indices),
+                    "removed_count": len(test_scores) - len(filtered_indices)
+                }
     
     with open(eval_results_path, "w") as f:
         json.dump(output_dict, f, indent=2)
@@ -619,7 +631,9 @@ def evaluate_probe(
         if filtered_metrics.get("filtered", False):
             logger.log(f"  - 🙃 Filtered examples metrics: {filtered_metrics}")
         else:
-            logger.log(f"  - 😵‍💫 Filtered scoring failed, using all examples")
+            error_msg = filtered_metrics.get("error", "Unknown error")
+            logger.log(f"  - 😵‍💫 Filtered scoring failed: {error_msg}")
+            logger.log(f"  - 📊 Falling back to using all examples for evaluation")
     if return_metrics:
         return combined_metrics
 
