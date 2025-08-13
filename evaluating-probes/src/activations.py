@@ -120,8 +120,11 @@ class ActivationManager:
         # For pre-aggregated types, load from separate files
         if activation_type in get_all_activation_types() and activation_type != "full":
             # Extract the aggregation method from the activation_type
-            # "linear_mean" -> "mean", "sae_max" -> "max", etc.
-            aggregation = activation_type.split("_", 1)[1]  # Split on first underscore
+            # Use the suffix after the last underscore so that
+            #   - "linear_mean" -> "mean"
+            #   - "sae_max" -> "max"
+            #   - "act_sim_mean" -> "mean" (not "sim_mean")
+            aggregation = activation_type.rsplit("_", 1)[1]
             aggregated_path = activations_path.parent / f"{activations_path.stem}_aggregated_{aggregation}.npz"
             
             if not aggregated_path.exists():

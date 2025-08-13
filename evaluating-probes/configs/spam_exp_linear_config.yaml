@@ -73,6 +73,7 @@ experiments:
     train_on: 94_better_spam
     evaluate_on:
       - 94_better_spam
+      - 87_is_spam
     score:
       - filtered
     rebuild_config:
