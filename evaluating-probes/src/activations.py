@@ -11,6 +11,31 @@ from tqdm import tqdm
 from transformer_lens import HookedTransformer
 
 
+def get_aggregation_methods() -> List[str]:
+    """Get all supported aggregation methods."""
+    return ["mean", "max", "last", "softmax"]
+
+
+def get_linear_activation_types() -> List[str]:
+    """Get all supported linear activation types."""
+    return [f"linear_{method}" for method in get_aggregation_methods()]
+
+
+def get_sae_activation_types() -> List[str]:
+    """Get all supported SAE activation types."""
+    return [f"sae_{method}" for method in get_aggregation_methods()]
+
+
+def get_act_sim_activation_types() -> List[str]:
+    """Get all supported activation similarity activation types."""
+    return [f"act_sim_{method}" for method in get_aggregation_methods()]
+
+
+def get_all_activation_types() -> List[str]:
+    """Get all supported activation types across all probe types."""
+    return ["full"] + get_linear_activation_types() + get_sae_activation_types() + get_act_sim_activation_types()
+
+
 class ActivationManager:
     """Individual activation storage with per-activation lengths.
 
@@ -74,6 +99,7 @@ class ActivationManager:
     ) -> Tuple[np.ndarray, np.ndarray]:
         """
         Return activations based on activation_type.
+        This method ONLY retrieves existing activations - no extraction.
         
         Args:
             texts: List of texts to get activations for
@@ -81,13 +107,9 @@ class ActivationManager:
             component: Component name (e.g., 'resid_post')
             activation_type: Type of activations to return:
                 - "full": Full activations (N, S, D) with masks
-                - "linear_mean": Pre-aggregated mean activations (N, D)
-                - "linear_max": Pre-aggregated max activations (N, D)
-                - "linear_last": Pre-aggregated last token activations (N, D)
-                - "linear_softmax": Pre-aggregated softmax activations (N, D)
-                - "attention": Full activations for attention probes
-                - "sae_mean": Pre-aggregated mean activations for SAE
-                - etc.
+                - "linear_mean", "linear_max", "linear_last", "linear_softmax": Linear probe aggregations
+                - "sae_mean", "sae_max", "sae_last", "sae_softmax": SAE probe aggregations
+                - "act_sim_mean", "act_sim_max", "act_sim_last", "act_sim_softmax": Activation similarity aggregations
         
         Returns:
             Tuple of (activations, masks) where masks might be None for pre-aggregated activations
@@ -95,36 +117,44 @@ class ActivationManager:
         texts = list(texts)
         metadata_path, activations_path = self._paths(layer, component)
 
-        # Handle pre-aggregated activation types
-        if activation_type.startswith("linear_") or activation_type.startswith("sae_"):
-            aggregation = activation_type.split("_", 1)[1]  # Extract "mean", "max", "last", "softmax"
-            aggregated_acts = self.get_pre_aggregated_activations(texts, layer, component, aggregation)
-            return aggregated_acts, None  # No masks for pre-aggregated activations
+        # For pre-aggregated types, load from separate files
+        if activation_type in get_all_activation_types() and activation_type != "full":
+            # Extract the aggregation method from the activation_type
+            # "linear_mean" -> "mean", "sae_max" -> "max", etc.
+            aggregation = activation_type.split("_", 1)[1]  # Split on first underscore
+            aggregated_path = activations_path.parent / f"{activations_path.stem}_aggregated_{aggregation}.npz"
+            
+            if not aggregated_path.exists():
+                raise ValueError(f"Aggregated activations file {aggregated_path} does not exist. Run extract_activations_for_dataset first.")
+            
+            print(f"[DEBUG] Loading {activation_type} aggregated activations from {aggregated_path}")
+            aggregated_data = np.load(aggregated_path, mmap_mode='r')
+            
+            # Load in the order of texts
+            aggregated_list = []
+            for text in texts:
+                text_hash = self._hash(text)
+                if text_hash not in aggregated_data:
+                    raise ValueError(f"Text not found in aggregated activations: {text[:50]}...")
+                aggregated_list.append(aggregated_data[text_hash])
+            
+            result = np.stack(aggregated_list)
+            print(f"[DEBUG] Loaded {activation_type} aggregated activations: {result.shape}")
+            return result, None
         
-        # Handle attention probes (need full activations)
-        elif activation_type == "attention":
-            return self._get_full_activations_with_masks(texts, layer, component, activations_path)
-        
-        # Default: full activations with masks
-        elif activation_type == "full":
-            return self._get_full_activations_with_masks(texts, layer, component, activations_path)
-        
+        # For full activations, use the original method
         else:
-            raise ValueError(f"Unknown activation_type: {activation_type}. Supported types: full, linear_mean, linear_max, linear_last, linear_softmax, attention, sae_mean, etc.")
+            return self._get_full_activations_with_masks(texts, layer, component, activations_path)
 
     def _get_full_activations_with_masks(self, texts: List[str], layer: int, component: str, activations_path: Path) -> Tuple[np.ndarray, np.ndarray]:
-        """Helper method to get full activations with masks."""
-        # Simple approach: just load all activations and return them
+        """Helper method to get full activations with masks. ONLY retrieves existing activations."""
+        # Check if activations exist
         if not activations_path.exists():
-            if self.model is None:
-                raise ValueError(f"Activations file {activations_path} does not exist and no model available to extract them")
-            else:
-                # Extract activations for all texts
-                self._extract_activations_for_texts(texts, layer, component, activations_path)
+            raise ValueError(f"Activations file {activations_path} does not exist. Run extract_activations_for_dataset first.")
 
         # Load all activations
         print(f"[DEBUG] Loading activations from {activations_path}")
-        all_activations = dict(np.load(activations_path, allow_pickle=True))
+        all_activations = dict(np.load(activations_path, allow_pickle=True, mmap_mode='r'))
         print(f"[DEBUG] Loaded {len(all_activations)} activations from file")
         
         # Convert to list in the order of texts
@@ -174,99 +204,68 @@ class ActivationManager:
         
         return activations_array, masks_array
 
-    def get_pre_aggregated_activations(
-        self,
-        texts: Iterable[str],
-        layer: int,
-        component: str,
-        aggregation: str = "mean"
-    ) -> np.ndarray:
-        """Return pre-aggregated activations (N, D) for faster loading."""
-        texts = list(texts)
+    def compute_and_save_all_aggregations(self, layer: int, component: str):
+        """Compute and save all aggregated activations from the full activations file."""
         metadata_path, activations_path = self._paths(layer, component)
         
-        # Check if pre-aggregated file exists
-        aggregated_path = activations_path.parent / f"{activations_path.stem}_aggregated_{aggregation}.npz"
-        
-        if aggregated_path.exists():
-            print(f"[DEBUG] Loading pre-aggregated {aggregation} activations from {aggregated_path}")
-            aggregated_data = np.load(aggregated_path)
-            
-            # Check if all requested texts are in the aggregated file
-            missing_texts = []
-            for text in texts:
-                text_hash = self._hash(text)
-                if text_hash not in aggregated_data:
-                    missing_texts.append(text[:50] + "...")
-            
-            if missing_texts:
-                print(f"[DEBUG] Found {len(missing_texts)} missing texts in aggregated file, recomputing...")
-                print(f"[DEBUG] Missing texts: {missing_texts[:3]}...")
-                # Remove the incomplete aggregated file and recompute
-                aggregated_path.unlink()
-            else:
-                # All texts found, load in the order of texts
-                aggregated_list = []
-                for text in texts:
-                    text_hash = self._hash(text)
-                    aggregated_list.append(aggregated_data[text_hash])
-                
-                result = np.stack(aggregated_list)
-                print(f"[DEBUG] Loaded pre-aggregated activations: {result.shape}")
-                return result
-        
-        # If not pre-aggregated or missing texts, compute and save them
-        print(f"[DEBUG] Computing pre-aggregated {aggregation} activations...")
+        # If full activations don't exist, we can't compute aggregations
         if not activations_path.exists():
-            if self.model is None:
-                raise ValueError(f"Activations file {activations_path} does not exist and no model available to extract them")
-            else:
-                # Extract activations for all texts
-                self._extract_activations_for_texts(texts, layer, component, activations_path)
+            raise ValueError(f"Full activations file {activations_path} does not exist. Extract activations first.")
         
-        # Load full activations and aggregate
-        print(f"[DEBUG] Loading full activations for aggregation...")
-        all_activations = dict(np.load(activations_path, allow_pickle=True))
+        print(f"[DEBUG] Checking for existing aggregated activations...")
+        
+        # Check which aggregations already exist
+        aggregation_methods = get_aggregation_methods()
+        existing_aggregations = []
+        missing_aggregations = []
+        
+        for aggregation in aggregation_methods:
+            aggregated_path = activations_path.parent / f"{activations_path.stem}_aggregated_{aggregation}.npz"
+            if aggregated_path.exists():
+                existing_aggregations.append(aggregation)
+                print(f"[DEBUG] Found existing {aggregation} aggregated activations")
+            else:
+                missing_aggregations.append(aggregation)
+                print(f"[DEBUG] Missing {aggregation} aggregated activations")
+        
+        # If all aggregations exist, we're done
+        if not missing_aggregations:
+            print(f"[DEBUG] All aggregated activations already exist, skipping computation")
+            return
+        
+        # Only compute missing aggregations
+        print(f"[DEBUG] Computing missing aggregations: {missing_aggregations}")
+        
+        # Load all full activations
+        all_activations = dict(np.load(activations_path, allow_pickle=True, mmap_mode='r'))
         print(f"[DEBUG] Loaded {len(all_activations)} full activations")
         
-        # Aggregate each activation
-        print(f"[DEBUG] Aggregating {len(texts)} texts...")
-        aggregated_activations = {}
-        for i, text in enumerate(texts):
-            text_hash = self._hash(text)
-            if text_hash not in all_activations:
-                raise ValueError(f"Text not found in activations: {text[:50]}...")
+        # Compute only missing aggregations
+        for aggregation in missing_aggregations:
+            print(f"[DEBUG] Computing {aggregation} aggregation...")
+            aggregated_activations = {}
             
-            activation = all_activations[text_hash]  # Shape: (seq_len, d_model)
+            for text_hash, activation in all_activations.items():
+                # Aggregate based on method
+                if aggregation == "mean":
+                    aggregated = np.mean(activation, axis=0)
+                elif aggregation == "max":
+                    aggregated = np.max(activation, axis=0)
+                elif aggregation == "last":
+                    aggregated = activation[-1]  # Last token
+                elif aggregation == "softmax":
+                    from scipy.special import softmax
+                    weights = softmax(activation, axis=0)
+                    aggregated = np.sum(weights * activation, axis=0)
+                
+                aggregated_activations[text_hash] = aggregated
             
-            # Aggregate based on method
-            if aggregation == "mean":
-                aggregated = np.mean(activation, axis=0)
-            elif aggregation == "max":
-                aggregated = np.max(activation, axis=0)
-            elif aggregation == "last":
-                aggregated = activation[-1]  # Last token
-            elif aggregation == "softmax":
-                from scipy.special import softmax
-                weights = softmax(activation, axis=0)
-                aggregated = np.sum(weights * activation, axis=0)
-            else:
-                raise ValueError(f"Unknown aggregation method: {aggregation}")
-            
-            aggregated_activations[text_hash] = aggregated
-            
-            if (i + 1) % 1000 == 0:
-                print(f"[DEBUG] Aggregated {i + 1}/{len(texts)} texts")
+            # Save aggregated activations
+            aggregated_path = activations_path.parent / f"{activations_path.stem}_aggregated_{aggregation}.npz"
+            np.savez_compressed(aggregated_path, **aggregated_activations)
+            print(f"[DEBUG] Saved {aggregation} aggregated activations to {aggregated_path}")
         
-        # Save aggregated activations
-        print(f"[DEBUG] Saving aggregated activations to {aggregated_path}")
-        np.savez_compressed(aggregated_path, **aggregated_activations)
-        print(f"[DEBUG] Saved pre-aggregated {aggregation} activations to {aggregated_path}")
-        
-        # Return in the order of texts
-        result = np.stack([aggregated_activations[self._hash(text)] for text in texts])
-        print(f"[DEBUG] Computed pre-aggregated activations: {result.shape}")
-        return result
+        print(f"[DEBUG] Completed missing aggregations")
 
     def get_actual_max_len(self, layer: int, component: str) -> Optional[int]:
         """Get the actual maximum token length from activations if available."""
@@ -276,7 +275,7 @@ class ActivationManager:
             return None
         
         # Load activations and find max length
-        all_activations = dict(np.load(activations_path, allow_pickle=True))
+        all_activations = dict(np.load(activations_path, allow_pickle=True, mmap_mode='r'))
         if not all_activations:
             return None
         

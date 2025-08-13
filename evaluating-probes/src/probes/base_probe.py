@@ -32,59 +32,6 @@ class BaseProbe:
     def _init_model(self):
         raise NotImplementedError("Subclasses must implement _init_model to set self.model")
 
-    def _aggregate_activations_with_masks(self, activations: np.ndarray, masks: np.ndarray, aggregation: str = "mean") -> np.ndarray:
-        """
-        Aggregate activations across sequence dimension using attention masks.
-        
-        Args:
-            activations: Activation array with shape (N, seq_len, d_model)
-            masks: Attention mask array with shape (N, seq_len) where True indicates actual tokens
-            aggregation: Aggregation method ("mean", "max", "last", "softmax")
-            
-        Returns:
-            Aggregated activations, shape (N, d_model)
-        """
-        if activations.size == 0:
-            return np.empty((0, self.d_model), dtype=np.float16)
-        
-        N, seq_len, d_model = activations.shape
-        
-        if aggregation == "mean":
-            # Mean pooling across sequence dimension, ignoring padding
-            # Use masks to compute mean only over actual tokens
-            masked_activations = activations * masks[:, :, np.newaxis]  # Broadcast mask to d_model dimension
-            token_counts = masks.sum(axis=1, keepdims=True)  # Count of actual tokens per sequence
-            # Avoid division by zero
-            token_counts = np.maximum(token_counts, 1)
-            result = masked_activations.sum(axis=1) / token_counts
-            
-        elif aggregation == "max":
-            # Max pooling across sequence dimension, ignoring padding
-            # Set padding tokens to -inf so they don't affect max
-            masked_activations = activations.copy()
-            masked_activations[~masks] = -np.inf
-            result = np.max(masked_activations, axis=1)
-            
-        elif aggregation == "last":
-            # Take the last token (since we pad on the left, this is always the actual last token)
-            result = activations[:, -1, :]
-            
-        elif aggregation == "softmax":
-            # Softmax-weighted mean, ignoring padding
-            # Apply softmax only to actual tokens
-            masked_activations = activations.copy()
-            masked_activations[~masks] = -np.inf  # Set padding to -inf for softmax
-            from scipy.special import softmax
-            softmax_weights = softmax(masked_activations, axis=1)
-            
-            # Weighted mean
-            result = (softmax_weights * activations).sum(axis=1)
-            
-        else:
-            raise ValueError(f"Unknown aggregation method: {aggregation}")
-        
-        return result
-
     def fit(self, X: List[np.ndarray], y: np.ndarray, **kwargs) -> None:
         """Fit the probe to the data. Must be implemented by subclasses."""
         raise NotImplementedError("Subclasses must implement fit method")

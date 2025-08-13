@@ -125,7 +125,7 @@ def train_probe(
     else:
         # Determine activation_type based on config_name
         if config_name == "attention":
-            activation_type = "attention"
+            activation_type = "full"
         elif config_name.startswith("sklearn_linear"):
             # Extract aggregation method from config_name (e.g., "sklearn_linear_mean" -> "linear_mean")
             aggregation = config_name.split("_")[-1] if "_" in config_name else "mean"
@@ -137,6 +137,10 @@ def train_probe(
             # SAE probes use pre-aggregated activations
             aggregation = config_name.split("_")[-1] if "_" in config_name else "mean"
             activation_type = f"sae_{aggregation}"
+        elif config_name.startswith("act_sim"):
+            # Activation similarity probes use pre-aggregated activations
+            aggregation = config_name.split("_")[-1] if "_" in config_name else "mean"
+            activation_type = f"act_sim_{aggregation}"
         else:
             # Default to full activations
             activation_type = "full"
@@ -144,12 +148,18 @@ def train_probe(
         logger.log(f"  [DEBUG] Using activation_type: {activation_type}")
         
         # Get activations using the unified method
-        train_acts, train_masks, y_train = train_ds.get_train_set_activations(layer, component, use_masks=True, activation_type=activation_type)
-        val_acts, val_masks, y_val = train_ds.get_val_set_activations(layer, component, use_masks=True, activation_type=activation_type)
+        train_result = train_ds.get_train_set_activations(layer, component, use_masks=True, activation_type=activation_type)
+        
+        # Handle different return formats (with/without masks)
+        if len(train_result) == 3:
+            train_acts, train_masks, y_train = train_result
+        else:
+            train_acts, y_train = train_result
+            train_masks = None
+        
         logger.log(f"  [DEBUG] Got activations with type: {activation_type}")
     
     print(f"Train activations: {len(train_acts) if isinstance(train_acts, list) else train_acts.shape}")
-    print(f"Val activations: {len(val_acts) if isinstance(val_acts, list) else val_acts.shape}")
 
     # Create probe based on config_name
     logger.log(f"  [DEBUG] Creating probe for config_name: {config_name}")
@@ -186,13 +196,23 @@ def train_probe(
             logger.log(f"  [DEBUG] Fitted probe with best hyperparameters")
         elif hyperparameter_tuning:
             logger.log(f"  [DEBUG] Starting hyperparameter tuning...")
-            best_params = probe.find_best_fit(
-                train_acts, y_train, val_acts, y_val,
-                epochs=probe_config.get('epochs', 100),  # Get epochs from probe config
-                n_trials=20, direction=None, metric=metric,
-                probe_save_dir=probe_save_dir, probe_filename_base=probe_filename_base,
-                n_jobs=1  # Use single-threaded to avoid conflicts with main parallelization
-            )
+            # Sklearn probes don't use epochs, PyTorch probes do
+            if config_name.startswith("sklearn_linear"):
+                best_params = probe.find_best_fit(
+                    train_acts, y_train,
+                    verbose=True,
+                    probe_save_dir=probe_save_dir, probe_filename_base=probe_filename_base,
+                    n_jobs=1  # Use single-threaded to avoid conflicts with main parallelization
+                )
+            else:
+                # PyTorch-based probes use epochs
+                best_params = probe.find_best_fit(
+                    train_acts, y_train,
+                    epochs=probe_config.get('epochs', 100),  # Get epochs from probe config
+                    n_trials=20, direction=None, metric=metric,
+                    probe_save_dir=probe_save_dir, probe_filename_base=probe_filename_base,
+                    n_jobs=1  # Use single-threaded to avoid conflicts with main parallelization
+                )
             logger.log(f"  [DEBUG] Completed hyperparameter tuning")
         else:
             logger.log(f"  [DEBUG] Fitting probe normally...")

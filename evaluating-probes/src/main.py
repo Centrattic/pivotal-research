@@ -57,34 +57,21 @@ def extract_activations_for_dataset(model, dataset_name, layer, component, devic
     try:
         # Create dataset with full model to extract activations
         ds = Dataset(dataset_name, model=model, device=device, seed=seed)
-        acts, masks = ds.extract_all_activations(layer, component)
         
-        logger.log(f"    - Successfully extracted activations: shape={acts.shape}")
+        # Check if full activations already exist
+        metadata_path, activations_path = ds.act_manager._paths(layer, component)
+        if activations_path.exists():
+            logger.log(f"    - Full activations already exist, skipping extraction")
+        else:
+            # First, extract all full activations
+            logger.log(f"    - Extracting full activations...")
+            acts, masks = ds.extract_all_activations(layer, component)
+            logger.log(f"    - Successfully extracted full activations: shape={acts.shape}")
         
-        # Pre-compute aggregated activations for faster loading later
-        logger.log(f"    - Pre-computing aggregated activations...")
-        activation_types = [
-            "linear_mean", "linear_max", "linear_last", "linear_softmax",
-            # "sae_mean", "sae_max", "sae_last", "sae_softmax"
-        ]
-        
-        for activation_type in activation_types:
-            logger.log(f"      - Computing {activation_type} activations...")
-            try:
-                # Get all texts from the dataset
-                all_texts = ds.df['text'].tolist()
-                
-                # Compute activations using the new activation_type parameter
-                acts, masks = ds.act_manager.get_activations_for_texts(
-                    all_texts, layer, component, activation_type
-                )
-                logger.log(f"        - Successfully computed {activation_type}: shape={acts.shape}")
-                
-            except Exception as e:
-                logger.log(f"        - 💀 ERROR computing {activation_type}: {e}")
-                # Continue with other activation types even if one fails
-        
-        logger.log(f"    - Completed pre-aggregation for all activation types")
+        # Then compute and save all aggregated activations (only if missing)
+        logger.log(f"    - Computing aggregated activations...")
+        ds.act_manager.compute_and_save_all_aggregations(layer, component)
+        logger.log(f"    - Completed aggregations")
 
     except Exception as e:
         logger.log(f"    - 💀 ERROR extracting activations for {dataset_name}: {e}")
@@ -453,7 +440,7 @@ def main():
         logger.log(f"Processing {len(all_dataset_jobs)} dataset jobs...")
         
         # Use all available cores for maximum parallelization
-        n_jobs = 1  # n_jobs = min(100, len(all_dataset_jobs))  # Use up to 100 cores
+        n_jobs = min(32, len(all_dataset_jobs))  # Use up to 32 cores (conservative for memory)
         logger.log(f"Using {n_jobs} parallel jobs")
         
         all_eval_results_list = Parallel(n_jobs=n_jobs, verbose=10)(

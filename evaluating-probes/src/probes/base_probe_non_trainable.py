@@ -18,84 +18,32 @@ class BaseProbeNonTrainable:
         self.model = None  # No trainable model for these probes
         self.loss_history = []  # Empty for non-trainable probes
 
-    def _aggregate_activations(self, activations: List[np.ndarray], aggregation: str = "mean") -> np.ndarray:
-        """
-        Aggregate activations across sequence dimension.
-        
-        Args:
-            activations: List of activation arrays, each with shape (seq_len, d_model) where seq_len varies
-            aggregation: Aggregation method ("mean", "max", "last", "mass_mean")
-            
-        Returns:
-            Aggregated activations, shape (N, d_model)
-        """
-        if not activations:
-            return np.empty((0, self.d_model), dtype=np.float16)
-        
-        aggregated = []
-        
-        for act in activations:
-            if act.size == 0:
-                # Handle empty activations
-                aggregated.append(np.zeros(self.d_model, dtype=np.float16))
-                continue
-                
-            if aggregation == "mean":
-                # Mean pooling across sequence dimension
-                result = np.mean(act, axis=0)
-            elif aggregation == "max":
-                # Max pooling across sequence dimension
-                result = np.max(act, axis=0)
-            elif aggregation == "last":
-                # Take the last token
-                result = act[-1]
-            elif aggregation == "mass_mean":
-                # Mass mean aggregation (specific to mass mean probe)
-                # This is a placeholder - actual implementation depends on the specific probe
-                result = np.mean(act, axis=0)
-            else:
-                raise ValueError(f"Unknown aggregation method: {aggregation}")
-            
-            aggregated.append(result)
-        
-        return np.stack(aggregated)
-
-    def fit(self, X: List[np.ndarray], y: np.ndarray) -> None:
+    def fit(self, X: np.ndarray, y: np.ndarray) -> None:
         """Fit the non-trainable probe to the data."""
-        if not hasattr(self, 'aggregation'):
-            raise ValueError("Probe must have aggregation attribute set")
-        
-        # Aggregate activations
-        X_aggregated = self._aggregate_activations(X, self.aggregation)
-        
-        # Store the aggregated activations and labels for later use
-        self.X_aggregated = X_aggregated
+        # X should already be pre-aggregated activations (N, d_model)
+        # Store the activations and labels for later use
+        self.X_aggregated = X
         self.y = y
 
-    def predict(self, X: List[np.ndarray]) -> np.ndarray:
+    def predict(self, X: np.ndarray) -> np.ndarray:
         """Predict binary labels."""
         logits = self.predict_logits(X)
         return (logits > 0).astype(int)
 
-    def predict_proba(self, X: List[np.ndarray]) -> np.ndarray:
+    def predict_proba(self, X: np.ndarray) -> np.ndarray:
         """Predict probabilities."""
         logits = self.predict_logits(X)
         probs = 1 / (1 + np.exp(-logits))
         return np.column_stack([1 - probs, probs])
 
-    def predict_logits(self, X: List[np.ndarray]) -> np.ndarray:
+    def predict_logits(self, X: np.ndarray) -> np.ndarray:
         """Predict logits."""
-        if not hasattr(self, 'aggregation'):
-            raise ValueError("Probe must have aggregation attribute set")
-        
-        # Aggregate activations
-        X_aggregated = self._aggregate_activations(X, self.aggregation)
-        
+        # X should already be pre-aggregated activations (N, d_model)
         # For non-trainable probes, we need to implement the specific prediction logic
         # This is a placeholder - subclasses should override this method
         raise NotImplementedError("Subclasses must implement predict_logits")
 
-    def score(self, X: List[np.ndarray], y: np.ndarray) -> dict[str, float]:
+    def score(self, X: np.ndarray, y: np.ndarray) -> dict[str, float]:
         """Calculate accuracy score."""
         predictions = self.predict(X)
         accuracy = np.mean(predictions == y)

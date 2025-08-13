@@ -22,7 +22,7 @@ class SklearnLinearProbe(BaseProbe):
     
     def __init__(self, d_model: int, device: str = "cpu", task_type: str = "classification", 
                  aggregation: str = "mean", solver: str = "liblinear", C: float = 1.0, 
-                 max_iter: int = 1000, class_weight: str = "balanced", random_state: int = 42):
+                 max_iter: int = 1500, class_weight: str = "balanced", random_state: int = 42):
         self.aggregation = aggregation
         self.solver = solver
         self.C = C
@@ -52,23 +52,20 @@ class SklearnLinearProbe(BaseProbe):
         self.model = nn.Linear(self.d_model, 1)
         # We won't actually use this for training, but it's needed for compatibility
     
-    def fit(self, X: np.ndarray, y: np.ndarray, masks: np.ndarray = None, **kwargs):
+    def fit(self, X: np.ndarray, y: np.ndarray, masks: np.ndarray = None) -> 'SklearnLinearProbe':
         """
-        Fit the sklearn linear probe.
+        Fit the sklearn linear probe to the data.
         
         Args:
-            X: Activations array, shape (N, seq_len, d_model)
+            X: Pre-aggregated activations array, shape (N, d_model)
             y: Labels, shape (N,)
-            masks: Attention masks, shape (N, seq_len) where True indicates actual tokens
+            masks: Ignored (kept for compatibility)
         """
         # Validate input data
         self._validate_input_data(X, y, masks)
         
-        # Aggregate activations using masks
-        if masks is not None:
-            X_aggregated = self._aggregate_activations_with_masks(X, masks, self.aggregation)
-        else:
-            raise ValueError("Masks are required for sklearn probe aggregation")
+        # X should already be pre-aggregated, no need to aggregate
+        X_aggregated = X
         
         # Validate aggregated data
         self._validate_aggregated_data(X_aggregated, y)
@@ -116,6 +113,13 @@ class SklearnLinearProbe(BaseProbe):
             # Clip to reasonable range
             X = np.clip(X, -1e10, 1e10)
             print(f"[INFO] Clipped values to range [-1e10, 1e10]")
+        
+        # Validate input shape (should be pre-aggregated: N, d_model)
+        if len(X.shape) != 2:
+            raise ValueError(f"Expected pre-aggregated activations with shape (N, d_model), got {X.shape}")
+        
+        if X.shape[1] != self.d_model:
+            raise ValueError(f"Expected d_model={self.d_model}, got {X.shape[1]}")
 
     def _validate_aggregated_data(self, X_aggregated, y):
         """Validate aggregated data."""
@@ -157,20 +161,17 @@ class SklearnLinearProbe(BaseProbe):
 
     def predict(self, X: np.ndarray, masks: np.ndarray = None) -> np.ndarray:
         """
-        Make predictions using the sklearn linear probe.
+        Get predictions.
         
         Args:
-            X: Activations array, shape (N, seq_len, d_model)
-            masks: Attention masks, shape (N, seq_len) where True indicates actual tokens
+            X: Pre-aggregated activations array, shape (N, d_model)
+            masks: Ignored (kept for compatibility)
             
         Returns:
             Predictions, shape (N,)
         """
-        # Aggregate activations using masks
-        if masks is not None:
-            X_aggregated = self._aggregate_activations_with_masks(X, masks, self.aggregation)
-        else:
-            raise ValueError("Masks are required for sklearn probe aggregation")
+        # X should already be pre-aggregated, no need to aggregate
+        X_aggregated = X
         
         # Scale features
         X_scaled = self.scaler.transform(X_aggregated)
@@ -183,17 +184,14 @@ class SklearnLinearProbe(BaseProbe):
         Get prediction probabilities.
         
         Args:
-            X: Activations array, shape (N, seq_len, d_model)
-            masks: Attention masks, shape (N, seq_len) where True indicates actual tokens
+            X: Pre-aggregated activations array, shape (N, d_model)
+            masks: Ignored (kept for compatibility)
             
         Returns:
             Probabilities, shape (N,)
         """
-        # Aggregate activations using masks
-        if masks is not None:
-            X_aggregated = self._aggregate_activations_with_masks(X, masks, self.aggregation)
-        else:
-            raise ValueError("Masks are required for sklearn probe aggregation")
+        # X should already be pre-aggregated, no need to aggregate
+        X_aggregated = X
         
         # Scale features
         X_scaled = self.scaler.transform(X_aggregated)
@@ -208,17 +206,14 @@ class SklearnLinearProbe(BaseProbe):
         Get raw logits (decision function values).
         
         Args:
-            X: Activations array, shape (N, seq_len, d_model)
-            masks: Attention masks, shape (N, seq_len) where True indicates actual tokens
+            X: Pre-aggregated activations array, shape (N, d_model)
+            masks: Ignored (kept for compatibility)
             
         Returns:
             Logits, shape (N,)
         """
-        # Aggregate activations using masks
-        if masks is not None:
-            X_aggregated = self._aggregate_activations_with_masks(X, masks, self.aggregation)
-        else:
-            raise ValueError("Masks are required for sklearn probe aggregation")
+        # X should already be pre-aggregated, no need to aggregate
+        X_aggregated = X
         
         # Scale features
         X_scaled = self.scaler.transform(X_aggregated)
@@ -231,9 +226,9 @@ class SklearnLinearProbe(BaseProbe):
         Calculate performance metrics.
         
         Args:
-            X: Activations array, shape (N, seq_len, d_model)
+            X: Pre-aggregated activations array, shape (N, d_model)
             y: Labels, shape (N,)
-            masks: Attention masks, shape (N, seq_len) where True indicates actual tokens
+            masks: Ignored (kept for compatibility)
             
         Returns:
             Dictionary of metrics
@@ -252,7 +247,7 @@ class SklearnLinearProbe(BaseProbe):
         
         return {"acc": float(acc), "auc": float(auc), "precision": float(precision), "recall": float(recall), "fpr": float(fpr)}
 
-    def find_best_fit(self, X_train: List[np.ndarray], y_train: np.ndarray, masks_train: np.ndarray = None,
+    def find_best_fit(self, X_train: np.ndarray, y_train: np.ndarray,
                      C_values: List[float] = None, fit_patience: None = None, verbose: bool = True,
                      probe_save_dir: Path = None, probe_filename_base: str = None, 
                      n_jobs: int = -1) -> dict:
@@ -261,13 +256,14 @@ class SklearnLinearProbe(BaseProbe):
         Saves all probes to hyperparameter_sweep folder and selects best based on training loss.
         
         Args:
-            X_train: Training features (list of activation arrays)
-            y_train: Training labels
-            masks_train: Training masks for aggregation (optional)
-            C_values: List of C values to try (default: logspace from 1e-4 to 1e2)
-            fit_patience: Number of epochs to average training loss over (not used for sklearn)
-            verbose: Verbosity
-            probe_save_dir: Directory to save probes (will create hyperparameter_sweep subfolder)
+            X_train: Pre-aggregated training activations, shape (N_train, d_model)
+            y_train: Training labels, shape (N_train,)
+            X_val: Pre-aggregated validation activations, shape (N_val, d_model) (optional)
+            y_val: Validation labels, shape (N_val,) (optional)
+            C_values: List of C values to try
+            fit_patience: Ignored (kept for compatibility)
+            verbose: Whether to print progress
+            probe_save_dir: Directory to save probes
             probe_filename_base: Base filename for saving
             n_jobs: Number of jobs for parallelization (-1 for all CPUs)
             
@@ -276,7 +272,7 @@ class SklearnLinearProbe(BaseProbe):
         """
         # Set default C values if not provided
         if C_values is None:
-            C_values = np.logspace(-4, 2, 20).tolist()
+            C_values = np.logspace(-5, 5, 20).tolist()
         
         def train_and_evaluate_probe(C):
             """Train a probe with given C value and return training loss."""
@@ -293,11 +289,11 @@ class SklearnLinearProbe(BaseProbe):
                 random_state=self.random_state
             )
             
-            # Fit the probe
-            trial_probe.fit(X_train, y_train, masks_train)
+            # Fit the probe (X_train is already pre-aggregated)
+            trial_probe.fit(X_train, y_train)
             
             # Calculate training loss (using negative log likelihood)
-            y_pred_proba = trial_probe.predict_proba(X_train, masks_train)
+            y_pred_proba = trial_probe.predict_proba(X_train)
             # Clip probabilities to avoid log(0)
             y_pred_proba = np.clip(y_pred_proba, 1e-15, 1 - 1e-15)
             # Calculate negative log likelihood
@@ -305,9 +301,14 @@ class SklearnLinearProbe(BaseProbe):
             
             # Save probe if directory provided
             if probe_save_dir is not None and probe_filename_base is not None:
+                # Ensure parent directory exists first
+                probe_save_dir.mkdir(parents=True, exist_ok=True)
+                
                 # Create hyperparameter_sweep subfolder
                 sweep_dir = probe_save_dir / "hyperparameter_sweep"
                 sweep_dir.mkdir(exist_ok=True)
+                
+                print(f"[DEBUG] Created sweep directory: {sweep_dir}")
                 
                 # Create filename with C value
                 C_str = f"{C:.2e}".replace("+", "").replace(".", "p")
@@ -316,6 +317,9 @@ class SklearnLinearProbe(BaseProbe):
                 
                 # Save probe in .npz format
                 trial_probe.save_state(probe_path)
+                print(f"[DEBUG] Saved hyperparameter sweep probe: {probe_path}")
+            else:
+                print(f"[DEBUG] Not saving hyperparameter sweep probe - probe_save_dir={probe_save_dir}, probe_filename_base={probe_filename_base}")
             
             return C, loss, trial_probe
         
@@ -351,6 +355,9 @@ class SklearnLinearProbe(BaseProbe):
         
         # Save best hyperparameters if directory provided
         if probe_save_dir is not None and probe_filename_base is not None:
+            # Ensure parent directory exists first
+            probe_save_dir.mkdir(parents=True, exist_ok=True)
+            
             best_hparams_path = probe_save_dir / f"{probe_filename_base}_best_hparams.json"
             best_params = {
                 'C': best_C,
@@ -363,6 +370,9 @@ class SklearnLinearProbe(BaseProbe):
             }
             with open(best_hparams_path, 'w') as f:
                 json.dump(best_params, f, indent=2)
+            print(f"[DEBUG] Saved best hyperparameters: {best_hparams_path}")
+        else:
+            print(f"[DEBUG] Not saving best hyperparameters - probe_save_dir={probe_save_dir}, probe_filename_base={probe_filename_base}")
         
         return {'C': best_C, 'training_loss': best_loss}
 

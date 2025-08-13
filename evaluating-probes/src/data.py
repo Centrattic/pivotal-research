@@ -269,20 +269,6 @@ class Dataset:
         else:
             return acts, self.y_train
 
-    def get_train_set_aggregated_activations(self, layer: int, component: str, aggregation: str = "mean"):
-        """Get pre-aggregated activations for training set (much faster than full activations)."""
-        if self.X_train_text is None:
-            raise ValueError("Data not split yet. Split data first.")
-        if self.act_manager is None:
-            raise ValueError("No activation manager available. Model may not be loaded.")
-        
-        acts = self.act_manager.get_pre_aggregated_activations(self.X_train_text, layer, component, aggregation)
-        
-        # Validate activations for numerical issues
-        self._validate_activations(acts, "train")
-        
-        return acts, self.y_train
-
     def get_val_set_activations(self, layer: int, component: str, use_masks: bool = True, activation_type: str = "full"):
         if self.X_val_text is None:
             raise ValueError("Data not split yet. Split data first.")
@@ -300,20 +286,6 @@ class Dataset:
         else:
             return acts, self.y_val
 
-    def get_val_set_aggregated_activations(self, layer: int, component: str, aggregation: str = "mean"):
-        """Get pre-aggregated activations for validation set (much faster than full activations)."""
-        if self.X_val_text is None:
-            raise ValueError("Data not split yet. Split data first.")
-        if self.act_manager is None:
-            raise ValueError("No activation manager available. Model may not be loaded.")
-        
-        acts = self.act_manager.get_pre_aggregated_activations(self.X_val_text, layer, component, aggregation)
-        
-        # Validate activations for numerical issues
-        self._validate_activations(acts, "val")
-        
-        return acts, self.y_val
-
     def get_test_set_activations(self, layer: int, component: str, use_masks: bool = True, activation_type: str = "full"):
         if self.X_test_text is None:
             raise ValueError("Data not split yet. Split data first.")
@@ -330,20 +302,6 @@ class Dataset:
             return acts, masks, self.y_test
         else:
             return acts, self.y_test
-
-    def get_test_set_aggregated_activations(self, layer: int, component: str, aggregation: str = "mean"):
-        """Get pre-aggregated activations for test set (much faster than full activations)."""
-        if self.X_test_text is None:
-            raise ValueError("Data not split yet. Split data first.")
-        if self.act_manager is None:
-            raise ValueError("No activation manager available. Model may not be loaded.")
-        
-        acts = self.act_manager.get_pre_aggregated_activations(self.X_test_text, layer, component, aggregation)
-        
-        # Validate activations for numerical issues
-        self._validate_activations(acts, "test")
-        
-        return acts, self.y_test
     
     def extract_all_activations(self, layer: int, component: str):
         """Extract activations for all texts in the dataset without requiring splits."""
