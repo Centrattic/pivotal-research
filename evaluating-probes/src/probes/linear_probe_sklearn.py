@@ -61,84 +61,12 @@ class SklearnLinearProbe(BaseProbe):
             y: Labels, shape (N,)
             masks: Ignored (kept for compatibility)
         """
-        # Validate input data
-        self._validate_input_data(X, y, masks)
         
-        # X should already be pre-aggregated, no need to aggregate
         X_aggregated = X
-        
-        # Validate aggregated data
-        self._validate_aggregated_data(X_aggregated, y)
-        
-        # Fit scaler and transform features
         X_scaled = self.scaler.fit_transform(X_aggregated)
-        
-        # Validate scaled data
-        self._validate_scaled_data(X_scaled)
-        
-        # Fit the sklearn model
         self.sklearn_model.fit(X_scaled, y)
         
         return self
-
-    def _validate_input_data(self, X, y, masks):
-        """Validate input data for numerical issues."""
-        print(f"[DEBUG] Input X shape: {X.shape}, dtype: {X.dtype}")
-        print(f"[DEBUG] Input y shape: {y.shape}, dtype: {y.dtype}")
-        if masks is not None:
-            print(f"[DEBUG] Input masks shape: {masks.shape}, dtype: {masks.dtype}")
-        
-        # Check for infinity in X
-        if np.any(np.isinf(X)):
-            inf_count = np.sum(np.isinf(X))
-            total_elements = X.size
-            print(f"[WARNING] Found {inf_count}/{total_elements} infinity values in input X")
-            # Replace infinity with large finite values
-            X[np.isinf(X)] = np.sign(X[np.isinf(X)]) * 1e10
-            print(f"[INFO] Replaced infinity values with ±1e10")
-        
-        # Check for NaN in X
-        if np.any(np.isnan(X)):
-            nan_count = np.sum(np.isnan(X))
-            total_elements = X.size
-            print(f"[WARNING] Found {nan_count}/{total_elements} NaN values in input X")
-            # Replace NaN with zeros
-            X[np.isnan(X)] = 0.0
-            print(f"[INFO] Replaced NaN values with 0.0")
-        
-        # Check for extremely large values
-        max_abs_val = np.max(np.abs(X))
-        if max_abs_val > 1e10:
-            print(f"[WARNING] Found extremely large values in input X: max_abs={max_abs_val}")
-            # Clip to reasonable range
-            X = np.clip(X, -1e10, 1e10)
-            print(f"[INFO] Clipped values to range [-1e10, 1e10]")
-        
-        # Validate input shape (should be pre-aggregated: N, d_model)
-        if len(X.shape) != 2:
-            raise ValueError(f"Expected pre-aggregated activations with shape (N, d_model), got {X.shape}")
-        
-        if X.shape[1] != self.d_model:
-            raise ValueError(f"Expected d_model={self.d_model}, got {X.shape[1]}")
-
-    def _validate_aggregated_data(self, X_aggregated, y):
-        """Validate aggregated data."""
-        print(f"[DEBUG] Aggregated X shape: {X_aggregated.shape}, dtype: {X_aggregated.dtype}")
-        print(f"[DEBUG] Aggregated X range: [{np.min(X_aggregated):.6f}, {np.max(X_aggregated):.6f}]")
-        
-        # Check for infinity in aggregated data
-        if np.any(np.isinf(X_aggregated)):
-            inf_count = np.sum(np.isinf(X_aggregated))
-            total_elements = X_aggregated.size
-            print(f"[WARNING] Found {inf_count}/{total_elements} infinity values in aggregated X")
-            X_aggregated[np.isinf(X_aggregated)] = np.sign(X_aggregated[np.isinf(X_aggregated)]) * 1e10
-        
-        # Check for NaN in aggregated data
-        if np.any(np.isnan(X_aggregated)):
-            nan_count = np.sum(np.isnan(X_aggregated))
-            total_elements = X_aggregated.size
-            print(f"[WARNING] Found {nan_count}/{total_elements} NaN values in aggregated X")
-            X_aggregated[np.isnan(X_aggregated)] = 0.0
 
     def _validate_scaled_data(self, X_scaled):
         """Validate scaled data."""

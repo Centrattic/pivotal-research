@@ -256,7 +256,7 @@ def train_probe(
         elif hyperparameter_tuning:
             logger.log(f"  [DEBUG] Starting PyTorch linear hyperparameter tuning...")
             best_params = probe.find_best_fit(
-                train_acts, y_train, val_acts, y_val,
+                train_acts, y_train,
                 epochs=probe_config.get('epochs', 100),  # Get epochs from probe config
                 n_trials=20, direction=None, metric=metric,
                 probe_save_dir=probe_save_dir, probe_filename_base=probe_filename_base
@@ -298,7 +298,7 @@ def train_probe(
         elif hyperparameter_tuning:
             logger.log(f"  [DEBUG] Starting attention hyperparameter tuning...")
             best_params = probe.find_best_fit(
-                train_acts, y_train, val_acts, y_val,
+                train_acts, y_train,
                 epochs=probe_config.get('epochs', 100),  # Get epochs from probe config
                 n_trials=20, direction=None, verbose=True, metric=metric,
                 probe_save_dir=probe_save_dir, probe_filename_base=probe_filename_base
@@ -340,7 +340,7 @@ def train_probe(
         elif hyperparameter_tuning:
             logger.log(f"  [DEBUG] Starting SAE hyperparameter tuning...")
             best_params = probe.find_best_fit(
-                train_acts, y_train, val_acts, y_val,
+                train_acts, y_train,
                 epochs=probe_config.get('epochs', 100),  # Get epochs from probe config
                 n_trials=20, direction=None, metric=metric,
                 probe_save_dir=probe_save_dir, probe_filename_base=probe_filename_base
@@ -713,7 +713,6 @@ def run_non_trainable_probe(
     
     # Get activations using the unified method
     train_result = ds.get_train_set_activations(layer, component, activation_type=activation_type)
-    val_result = ds.get_val_set_activations(layer, component, activation_type=activation_type)
     test_result = ds.get_test_set_activations(layer, component, activation_type=activation_type)
     
     # Handle different return formats (with/without masks)
@@ -723,12 +722,6 @@ def run_non_trainable_probe(
         train_acts, y_train = train_result
         train_masks = None
         
-    if len(val_result) == 3:
-        val_acts, val_masks, y_val = val_result
-    else:
-        val_acts, y_val = val_result
-        val_masks = None
-        
     if len(test_result) == 3:
         test_acts, test_masks, y_test = test_result
     else:
@@ -736,7 +729,6 @@ def run_non_trainable_probe(
         test_masks = None
     
     print(f"Train activations: {len(train_acts) if isinstance(train_acts, list) else train_acts.shape}")
-    print(f"Val activations: {len(val_acts) if isinstance(val_acts, list) else val_acts.shape}") 
     print(f"Test activations: {len(test_acts) if isinstance(test_acts, list) else test_acts.shape}")
     
     # Fit the non-trainable probe
