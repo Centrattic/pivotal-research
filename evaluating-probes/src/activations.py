@@ -381,7 +381,7 @@ class ActivationManager:
         Returns the module whose forward output is the per-token hidden states at that layer.
         """
         m = self.model
-        # Common: Llama/Gemma: model.model.layers
+        # For llama/gemma: model.model.layers
         return m.model.layers[layer_index]
         raise ValueError(f"Could not locate transformer block module for layer {layer_index}")
 

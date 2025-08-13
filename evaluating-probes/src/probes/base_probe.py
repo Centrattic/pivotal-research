@@ -57,7 +57,7 @@ class BaseProbe:
         """Calculate accuracy score. Must be implemented by subclasses."""
         raise NotImplementedError("Subclasses must implement score method")
 
-    def score_filtered(self, X: np.ndarray, y: np.ndarray, masks: np.ndarray = None, 
+    def score_filtered(self, X, y: np.ndarray, masks: np.ndarray = None, 
                       dataset_name: str = None, results_dir: Path = None, 
                       seed: int = None, test_size: float = 0.15) -> dict[str, float]:
         """
@@ -85,11 +85,13 @@ class BaseProbe:
         runthrough_dir = parent_dir / f"runthrough_{dataset_name}"
         
         if not runthrough_dir.exists():
+            print(f"[DEBUG] Runthrough directory not found: {runthrough_dir}")
             return self.score(X, y, masks)
         
         # Look for CSV files with logit_diff in the filename
         csv_files = list(runthrough_dir.glob("*logit_diff*.csv"))
         if not csv_files:
+            print(f"[DEBUG] No logit_diff CSV files found in: {runthrough_dir}")
             return self.score(X, y, masks)
         
         csv_path = csv_files[0]
@@ -98,6 +100,7 @@ class BaseProbe:
             
             # Check if we have the required columns
             if 'logit_diff' not in df.columns or 'label' not in df.columns:
+                print(f"[DEBUG] Missing required columns. Available columns: {list(df.columns)}")
                 return self.score(X, y, masks)
             
             # Calculate use_in_filtered_scoring based on logit_diff and true label
@@ -120,16 +123,26 @@ class BaseProbe:
             
             # Check if the number of samples matches
             if len(use_in_filtered) != len(y):
+                print(f"[DEBUG] Sample count mismatch: CSV has {len(use_in_filtered)} samples, but y has {len(y)}")
                 return self.score(X, y, masks)
             
             # Filter based on use_in_filtered_scoring
             filtered_indices = [i for i, use in enumerate(use_in_filtered) if use == 1]
             
             if len(filtered_indices) == 0:
+                print(f"[DEBUG] No samples passed the filter criteria")
                 return self.score(X, y, masks)
             
             # Apply the filter to X, y, and masks
-            X_filtered = X[filtered_indices]
+            # Handle both numpy arrays and lists of arrays
+            if isinstance(X, np.ndarray):
+                X_filtered = X[filtered_indices]
+            elif isinstance(X, list):
+                X_filtered = [X[i] for i in filtered_indices]
+            else:
+                print(f"[DEBUG] Unexpected X type: {type(X)}")
+                return self.score(X, y, masks)
+                
             y_filtered = y[filtered_indices]
             masks_filtered = masks[filtered_indices] if masks is not None else None
             
@@ -147,6 +160,7 @@ class BaseProbe:
             
         except Exception as e:
             # If anything goes wrong, fall back to regular scoring
+            print(f"[DEBUG] Exception in score_filtered: {e}")
             return self.score(X, y, masks)
 
     def save_state(self, path: Path):

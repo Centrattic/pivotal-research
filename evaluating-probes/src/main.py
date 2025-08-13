@@ -475,7 +475,7 @@ def main():
         logger.log(f"Processing {len(all_dataset_jobs)} dataset jobs...")
         
         # Use all available cores for maximum parallelization
-        n_jobs = min(48, len(all_dataset_jobs))  # Use up to 32 cores (conservative for memory)
+        n_jobs = min(40, len(all_dataset_jobs))  # Use up to 32 cores (conservative for memory)
         logger.log(f"Using {n_jobs} parallel jobs")
         
         all_eval_results_list = Parallel(n_jobs=n_jobs, verbose=10)(

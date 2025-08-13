@@ -44,12 +44,29 @@ class BaseProbeNonTrainable:
         raise NotImplementedError("Subclasses must implement predict_logits")
 
     def score(self, X: np.ndarray, y: np.ndarray) -> dict[str, float]:
-        """Calculate accuracy score."""
+        """Calculate accuracy and AUC scores."""
+        from sklearn.metrics import roc_auc_score
+        
         predictions = self.predict(X)
         accuracy = np.mean(predictions == y)
-        return {"accuracy": accuracy}
+        
+        # Calculate AUC using probabilities
+        try:
+            y_prob = self.predict_proba(X)
+            # For binary classification, use the positive class probability
+            if y_prob.shape[1] == 2:
+                y_prob_positive = y_prob[:, 1]  # Probability of positive class
+            else:
+                y_prob_positive = y_prob.flatten()
+            
+            auc = roc_auc_score(y, y_prob_positive) if len(np.unique(y)) > 1 else 0.5
+        except Exception as e:
+            print(f"Warning: Could not calculate AUC: {e}")
+            auc = 0.5
+        
+        return {"accuracy": accuracy, "auc": float(auc)}
 
-    def score_filtered(self, X: np.ndarray, y: np.ndarray, dataset_name: str = None, 
+    def score_filtered(self, X, y: np.ndarray, dataset_name: str = None, 
                       results_dir: Path = None, seed: int = None, test_size: float = 0.15) -> dict[str, float]:
         """
         Calculate metrics only on examples where the model's logit_diff indicates correct prediction.
@@ -75,11 +92,13 @@ class BaseProbeNonTrainable:
         runthrough_dir = parent_dir / f"runthrough_{dataset_name}"
         
         if not runthrough_dir.exists():
+            print(f"[DEBUG] Runthrough directory not found: {runthrough_dir}")
             return self.score(X, y)
         
         # Look for CSV files with logit_diff in the filename
         csv_files = list(runthrough_dir.glob("*logit_diff*.csv"))
         if not csv_files:
+            print(f"[DEBUG] No logit_diff CSV files found in: {runthrough_dir}")
             return self.score(X, y)
         
         csv_path = csv_files[0]
@@ -88,6 +107,7 @@ class BaseProbeNonTrainable:
             
             # Check if we have the required columns
             if 'logit_diff' not in df.columns or 'label' not in df.columns:
+                print(f"[DEBUG] Missing required columns. Available columns: {list(df.columns)}")
                 return self.score(X, y)
             
             # Calculate use_in_filtered_scoring based on logit_diff and true label
@@ -110,16 +130,26 @@ class BaseProbeNonTrainable:
             
             # Check if the number of samples matches
             if len(use_in_filtered) != len(y):
+                print(f"[DEBUG] Sample count mismatch: CSV has {len(use_in_filtered)} samples, but y has {len(y)}")
                 return self.score(X, y)
             
             # Filter based on use_in_filtered_scoring
             filtered_indices = [i for i, use in enumerate(use_in_filtered) if use == 1]
             
             if len(filtered_indices) == 0:
+                print(f"[DEBUG] No samples passed the filter criteria")
                 return self.score(X, y)
             
             # Apply the filter to X and y
-            X_filtered = X[filtered_indices]
+            # Handle both numpy arrays and lists of arrays
+            if isinstance(X, np.ndarray):
+                X_filtered = X[filtered_indices]
+            elif isinstance(X, list):
+                X_filtered = [X[i] for i in filtered_indices]
+            else:
+                print(f"[DEBUG] Unexpected X type: {type(X)}")
+                return self.score(X, y)
+                
             y_filtered = y[filtered_indices]
             
             # Calculate metrics on filtered data
@@ -136,6 +166,7 @@ class BaseProbeNonTrainable:
             
         except Exception as e:
             # If anything goes wrong, fall back to regular scoring
+            print(f"[DEBUG] Exception in score_filtered: {e}")
             return self.score(X, y)
 
     def save_state(self, path: Path):
