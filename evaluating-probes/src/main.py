@@ -47,7 +47,7 @@ from src.runner import evaluate_probe, train_probe, run_non_trainable_probe
 from src.logger import Logger
 from src.utils import should_skip_dataset, resample_params_to_str, get_effective_seeds, get_effective_seed_for_rebuild_config, generate_llm_upsampling_configs
 from src.model_check.main import run_model_check
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 
 def extract_activations_for_dataset_with_llm(model, tokenizer, model_name, dataset_name, layer, component, device, seed, logger, run_name, include_llm_samples=True):
     """
@@ -381,7 +381,25 @@ def main():
         # Single model instance
         logger.log(f"Loading model '{config['model_name']}' to get config...")
         device = config.get("device")
-        model = AutoModelForCausalLM.from_pretrained(config['model_name'], device_map="auto" if "cuda" in (device or "") else None, torch_dtype=torch.float16 if torch.cuda.is_available() and "cuda" in (device or "") else torch.float32)
+        if config['model_name'] == "meta-llama/Llama-3.3-70B-Instruct": # quantize large model
+            bnb_config = BitsAndBytesConfig(
+                load_in_4bit=True,
+                bnb_4bit_quant_type="nf4",      # NormalFloat4, better for LLMs
+                bnb_4bit_use_double_quant=True, # Second quantization for smaller memory footprint
+                bnb_4bit_compute_dtype=torch.float16
+            )
+            model = AutoModelForCausalLM.from_pretrained(
+                config['model_name'],
+                device_map=config['device'],
+                quantization_config=bnb_config
+            )
+        else:
+            model = AutoModelForCausalLM.from_pretrained(
+                config['model_name'], 
+                device_map=config['device'], 
+                torch_dtype=torch.float16
+            )
+            
         tokenizer = AutoTokenizer.from_pretrained(config['model_name'])
         d_model = get_model_d_model(config['model_name'])
 
