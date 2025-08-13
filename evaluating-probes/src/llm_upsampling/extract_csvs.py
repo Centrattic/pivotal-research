@@ -5,7 +5,7 @@ import os
 import sys
 import pandas as pd
 from src.data import Dataset
-from transformer_lens import HookedTransformer
+from transformers import AutoModelForCausalLM, AutoTokenizer
 
 def extract_imbalanced_csvs(config_path):
     with open(config_path, 'r') as f:
@@ -17,7 +17,8 @@ def extract_imbalanced_csvs(config_path):
     results_dir = Path('results') / run_name / 'imbalanced_csvs'
     results_dir.mkdir(parents=True, exist_ok=True)
 
-    model = HookedTransformer.from_pretrained(model_name, device)
+    model = AutoModelForCausalLM.from_pretrained(model_name, device_map="auto" if "cuda" in (device or "") else None, torch_dtype=torch.float16 if (device and "cuda" in device) else torch.float32)
+    tokenizer = AutoTokenizer.from_pretrained(model_name)
 
     for experiment in config['experiments']:
         train_on = experiment['train_on']
@@ -33,7 +34,7 @@ def extract_imbalanced_csvs(config_path):
                 else:
                     continue
                 # Load original dataset
-                orig_ds = Dataset(train_on, model=model, device=device, seed=seed)
+                orig_ds = Dataset(train_on, model=model, tokenizer=tokenizer, model_name=model_name, device=device, seed=seed)
                 # Build imbalanced split
                 ds = Dataset.rebuild_train_balanced_eval(
                     orig_ds,

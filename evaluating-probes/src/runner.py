@@ -73,9 +73,13 @@ def train_probe(
         probe_filename = f"{probe_filename_base}_{suffix}_state.npz"
         probe_state_path = probe_save_dir / probe_filename
         probe_json_path = probe_save_dir / f"{probe_filename_base}_{suffix}_meta.json"
+        # For hyperparameter tuning, use the complete filename base with suffix
+        hyperparam_filename_base = f"{probe_filename_base}_{suffix}"
     else:
         probe_state_path = probe_save_dir / f"{probe_filename_base}_state.npz"
         probe_json_path = probe_save_dir / f"{probe_filename_base}_meta.json"
+        # For hyperparameter tuning, use the base filename
+        hyperparam_filename_base = probe_filename_base
     
     # EARLY CHECK: If probe already exists and we're not retraining, skip immediately
     if use_cache and probe_state_path.exists() and not retrain:
@@ -203,7 +207,7 @@ def train_probe(
                 best_params = probe.find_best_fit(
                     train_acts, y_train,
                     verbose=True,
-                    probe_save_dir=probe_save_dir, probe_filename_base=probe_filename_base,
+                    probe_save_dir=probe_save_dir, probe_filename_base=hyperparam_filename_base,
                     n_jobs=1  # Use single-threaded to avoid conflicts with main parallelization
                 )
             else:
@@ -212,7 +216,7 @@ def train_probe(
                     train_acts, y_train,
                     epochs=probe_config.get('epochs', 100),  # Get epochs from probe config
                     n_trials=20, direction=None, metric=metric,
-                    probe_save_dir=probe_save_dir, probe_filename_base=probe_filename_base,
+                    probe_save_dir=probe_save_dir, probe_filename_base=hyperparam_filename_base,
                     n_jobs=1  # Use single-threaded to avoid conflicts with main parallelization
                 )
             logger.log(f"  [DEBUG] Completed hyperparameter tuning")
@@ -259,7 +263,7 @@ def train_probe(
                 train_acts, y_train,
                 epochs=probe_config.get('epochs', 100),  # Get epochs from probe config
                 n_trials=20, direction=None, metric=metric,
-                probe_save_dir=probe_save_dir, probe_filename_base=probe_filename_base
+                probe_save_dir=probe_save_dir, probe_filename_base=hyperparam_filename_base
             )
             logger.log(f"  [DEBUG] Completed PyTorch linear hyperparameter tuning")
         else:
@@ -301,7 +305,7 @@ def train_probe(
                 train_acts, y_train,
                 epochs=probe_config.get('epochs', 100),  # Get epochs from probe config
                 n_trials=20, direction=None, verbose=True, metric=metric,
-                probe_save_dir=probe_save_dir, probe_filename_base=probe_filename_base
+                probe_save_dir=probe_save_dir, probe_filename_base=hyperparam_filename_base
             )
             logger.log(f"  [DEBUG] Completed attention hyperparameter tuning")
         else:
@@ -343,7 +347,7 @@ def train_probe(
                 train_acts, y_train,
                 epochs=probe_config.get('epochs', 100),  # Get epochs from probe config
                 n_trials=20, direction=None, metric=metric,
-                probe_save_dir=probe_save_dir, probe_filename_base=probe_filename_base
+                probe_save_dir=probe_save_dir, probe_filename_base=hyperparam_filename_base
             )
             logger.log(f"  [DEBUG] Completed SAE hyperparameter tuning")
         else:

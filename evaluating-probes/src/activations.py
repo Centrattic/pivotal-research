@@ -2,13 +2,13 @@ from __future__ import annotations
 
 import hashlib
 from pathlib import Path
-from typing import List, Tuple, Iterable, Dict, Optional
+from typing import List, Tuple, Iterable, Dict, Optional, Any
 import json
 
 import numpy as np
 import torch
 from tqdm import tqdm
-from transformer_lens import HookedTransformer
+from transformers import PreTrainedModel, PreTrainedTokenizerBase
 
 
 def get_aggregation_methods() -> List[str]:
@@ -69,14 +69,15 @@ class ActivationManager:
 
     def __init__(
         self,
-        model: HookedTransformer,
+        model: PreTrainedModel,
+        tokenizer: PreTrainedTokenizerBase,
         device: str,
         d_model: int,
         cache_dir: Path,
     ):
-        self.model = model
-        self.tokenizer = model.tokenizer
-        assert self.tokenizer is not None, "Model must carry tokenizer"
+        self.model: PreTrainedModel = model
+        self.tokenizer: PreTrainedTokenizerBase = tokenizer
+        assert self.tokenizer is not None, "Tokenizer must be provided with the model"
         self.tokenizer.padding_side = "right"
         self.tokenizer.truncation_side = "right"
 
@@ -188,17 +189,24 @@ class ActivationManager:
         new_entries: Dict[str, np.ndarray] = {}
         batch_size = 1
         self.model.eval()
+        self.model.to(self.device)
         with torch.no_grad():
             for i in tqdm(range(0, len(missing_texts), batch_size)):
                 batch_texts = missing_texts[i:i+batch_size]
-                # Use model.to_tokens to ensure correct tokenization compatible with HookedTransformer
-                tokens = self.model.to_tokens(batch_texts, prepend_bos=True).to(self.device)
-                _, cache = self.model.run_with_cache(
-                    tokens,
-                    names_filter=lambda n: n == hook_name,
+                enc = self.tokenizer(
+                    batch_texts,
+                    return_tensors="pt",
+                    padding=False,
+                    truncation=False,
+                    add_special_tokens=True,
                 )
-                acts_tensor = cache[hook_name]  # [B, S, D]
-                acts_tensor = acts_tensor.detach().to("cpu")
+                input_ids = enc["input_ids"].to(self.device)
+                attention_mask = enc.get("attention_mask")
+                if attention_mask is not None:
+                    attention_mask = attention_mask.to(self.device)
+
+                acts_tensor = self._run_and_capture(layer=layer, component=component, input_ids=input_ids, attention_mask=attention_mask)
+                acts_tensor = acts_tensor.detach().to("cpu")  # [B, S, D]
 
                 for j, text in enumerate(batch_texts):
                     text_hash = self._hash(text)
@@ -206,9 +214,6 @@ class ActivationManager:
                         continue
                     activation = acts_tensor[j].numpy()  # [S, D]
                     new_entries[text_hash] = activation
-
-                # Free cache for this batch
-                del cache
 
         # Merge and save
         if new_entries:
@@ -364,3 +369,46 @@ class ActivationManager:
         """Clear activation cache to free memory."""
         import gc
         gc.collect()
+
+    # Backwards-compatible alias used by Dataset
+    def clear_activation_cache(self):
+        self.clear_metadata_cache()
+
+    # HF hooking utilities #
+    def _get_block_module(self, layer_index: int) -> Any:
+        """
+        Try to resolve a transformer block module across popular architectures.
+        Returns the module whose forward output is the per-token hidden states at that layer.
+        """
+        m = self.model
+        # Common: Llama/Gemma: model.model.layers
+        return m.model.layers[layer_index]
+        raise ValueError(f"Could not locate transformer block module for layer {layer_index}")
+
+    def _run_and_capture(self, layer: int, component: str, input_ids: torch.Tensor, attention_mask: Optional[torch.Tensor]) -> torch.Tensor:
+        """
+        Run the model and capture per-token activations at the specified layer/component.
+        Only 'resid_post' is currently supported and maps to the block output hidden states.
+        Returns tensor of shape [B, S, D].
+        """
+        if component != "resid_post":
+            raise NotImplementedError(f"Component '{component}' is not supported without TransformerLens. Supported: 'resid_post'.")
+
+        block_module = self._get_block_module(layer)
+        captured: Dict[str, torch.Tensor] = {"x": None}
+
+        def hook_fn(module, inputs, output):  # type: ignore[override]
+            hidden = output[0] if isinstance(output, (tuple, list)) else output
+            captured["x"] = hidden
+
+        handle = block_module.register_forward_hook(hook_fn)
+        try:
+            _ = self.model(input_ids=input_ids, attention_mask=attention_mask, use_cache=False, output_hidden_states=False)
+        finally:
+            handle.remove()
+
+        if captured["x"] is None:
+            raise RuntimeError("Failed to capture activations; hook did not run.")
+        
+        print(f"[DEBUG] Captured activation shape: {captured['x'].shape}")
+        return captured["x"]

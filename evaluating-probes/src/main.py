@@ -47,9 +47,9 @@ from src.runner import evaluate_probe, train_probe, run_non_trainable_probe
 from src.logger import Logger
 from src.utils import should_skip_dataset, resample_params_to_str, get_effective_seeds, get_effective_seed_for_rebuild_config, generate_llm_upsampling_configs
 from src.model_check.main import run_model_check
-from transformer_lens import HookedTransformer
+from transformers import AutoModelForCausalLM, AutoTokenizer
 
-def extract_activations_for_dataset_with_llm(model, dataset_name, layer, component, device, seed, logger, run_name, include_llm_samples=True):
+def extract_activations_for_dataset_with_llm(model, tokenizer, model_name, dataset_name, layer, component, device, seed, logger, run_name, include_llm_samples=True):
     """
     Extract activations for a dataset using the full model.
     This is phase 1: ensure all activations are cached.
@@ -60,7 +60,7 @@ def extract_activations_for_dataset_with_llm(model, dataset_name, layer, compone
     
     try:
         # Create dataset with full model to extract activations
-        ds = Dataset(dataset_name, model=model, device=device, seed=seed)
+        ds = Dataset(dataset_name, model=model, tokenizer=tokenizer, model_name=model_name, device=device, seed=seed)
         
         # Ensure all dataset texts are cached (simpler, unified path)
         logger.log(f"    - Ensuring full activations cached for dataset texts...")
@@ -381,8 +381,9 @@ def main():
         # Single model instance
         logger.log(f"Loading model '{config['model_name']}' to get config...")
         device = config.get("device")
-        model = HookedTransformer.from_pretrained(config['model_name'], device) # Load to get activations if needed
-        d_model = model.cfg.d_model
+        model = AutoModelForCausalLM.from_pretrained(config['model_name'], device_map="auto" if "cuda" in (device or "") else None, torch_dtype=torch.float16 if torch.cuda.is_available() and "cuda" in (device or "") else torch.float32)
+        tokenizer = AutoTokenizer.from_pretrained(config['model_name'])
+        d_model = get_model_d_model(config['model_name'])
 
         available_datasets = get_available_datasets()
 
@@ -440,12 +441,13 @@ def main():
             for layer in config['layers']:
                 for component in config['components']:
                     # Seed doesn't matter here, we're extracting over the whole dataset (even parts we wont use)
-                    extract_activations_for_dataset_with_llm(model, dataset_name, layer, component, device, all_seeds[0], logger, include_llm_samples=True, run_name=run_name)
+                    extract_activations_for_dataset_with_llm(model, tokenizer, config['model_name'], dataset_name, layer, component, device, all_seeds[0], logger, include_llm_samples=True, run_name=run_name)
 
         # Unload model after activation extraction to free GPU memory
         logger.log("\n" + "="*25 + " MODEL UNLOADING PHASE " + "="*25)
         logger.log("Unloading model to free GPU memory for parallel processing...")
         del model
+        del tokenizer
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
         logger.log("Model unloaded successfully")

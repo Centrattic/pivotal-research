@@ -7,7 +7,7 @@ from typing import Dict, List, Optional, Tuple
 import numpy as np
 import pandas as pd
 from sklearn.model_selection import train_test_split
-from transformer_lens import HookedTransformer
+from transformers import PreTrainedModel, PreTrainedTokenizerBase, AutoModelForCausalLM, AutoTokenizer
 
 from src.logger import Logger
 from src.activations import ActivationManager
@@ -32,7 +32,7 @@ def get_main_csv_metadata() -> pd.DataFrame:  # type: ignore[override]
 def get_model_d_model(model_name: str) -> int:
     """Get the d_model dimension for a given model name."""
     model_dims = {
-        'gemma-2-9b': 3584,
+        'google/gemma-2-9b': 3584,
         'meta-llama/Llama-3.3-70B-Instruct': 8192,
     }
     if model_name not in model_dims:
@@ -47,7 +47,8 @@ class Dataset:
         self,
         dataset_name: str,
         *,
-        model: HookedTransformer | None = None,
+        model: PreTrainedModel | None = None,
+        tokenizer: PreTrainedTokenizerBase | None = None,
         model_name: str = None,  # Alternative to passing the full model
         device: str = "cuda:0",
         data_dir: Path = Path("datasets/cleaned"),
@@ -57,7 +58,8 @@ class Dataset:
     ):
         self.dataset_name = dataset_name
         self.model = model
-        self.model_name = model_name or (model.cfg.model_name if model is not None else None)
+        self.tokenizer = tokenizer
+        self.model_name = model_name
         self.device = device
         self.cache_root = cache_root
         self.seed = seed
@@ -154,12 +156,21 @@ class Dataset:
                 print(f"[DEBUG] model parameter: {model}")
                 print(f"[DEBUG] model type: {type(model)}")
                 
-                if model is not None:
-                    # Full model provided - use it
+                if model is not None and tokenizer is not None:
+                    # Full model and tokenizer provided - use them
+                    # Get d_model from model config
+                    d_model = getattr(model.config, 'hidden_size', None)
+                    if d_model is None:
+                        # Try alternative attribute names
+                        d_model = getattr(model.config, 'n_embd', None)  # GPT-2 style
+                    if d_model is None:
+                        raise ValueError(f"Could not determine d_model from model config: {model.config}")
+                    
                     self.act_manager = ActivationManager(
                         model=model,
+                        tokenizer=tokenizer,
                         device=device,
-                        d_model=model.cfg.d_model,
+                        d_model=d_model,
                         cache_dir=cache_dir,
                     )
                 else:
@@ -349,7 +360,7 @@ class Dataset:
             self.act_manager.clear_activation_cache()
 
     @classmethod
-    def from_dataframe(cls, df, *, dataset_name, model=None, model_name=None, device, cache_root, seed, task_type=None, n_classes=None, max_len=None, train_indices=None, val_indices=None, test_indices=None):
+    def from_dataframe(cls, df, *, dataset_name, model=None, tokenizer=None, model_name=None, device, cache_root, seed, task_type=None, n_classes=None, max_len=None, train_indices=None, val_indices=None, test_indices=None):
         """
         Construct a Dataset from a DataFrame, using the same model/device/etc. as the original.
         If train/val/test indices are provided, set all split attributes accordingly.
@@ -359,7 +370,8 @@ class Dataset:
         obj.dataset_name = dataset_name
         obj.df = df.copy()
         obj.model = model
-        obj.model_name = model_name or (model.cfg.model_name if model is not None else None)
+        obj.tokenizer = tokenizer
+        obj.model_name = model_name or (getattr(model, 'config', {}).get('name_or_path', None) if model is not None else None)
         obj.device = device
         obj.cache_root = cache_root
         obj.seed = seed
@@ -401,14 +413,23 @@ class Dataset:
         
         # Initialize ActivationManager
         obj.act_manager = None
-        if model is not None or model_name is not None:
+        if (model is not None and tokenizer is not None) or model_name is not None:
             try:
                 cache_dir = cache_root / obj.model_name / dataset_name
-                if model is not None:
+                if model is not None and tokenizer is not None:
+                    # Get d_model from model config
+                    d_model = getattr(model.config, 'hidden_size', None)
+                    if d_model is None:
+                        # Try alternative attribute names
+                        d_model = getattr(model.config, 'n_embd', None)  # GPT-2 style
+                    if d_model is None:
+                        raise ValueError(f"Could not determine d_model from model config: {model.config}")
+                    
                     obj.act_manager = ActivationManager(
                         model=model,
+                        tokenizer=tokenizer,
                         device=device,
-                        d_model=model.cfg.d_model,
+                        d_model=d_model,
                         cache_dir=cache_dir,
                     )
                 else:
