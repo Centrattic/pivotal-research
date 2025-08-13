@@ -32,7 +32,94 @@ architectures:
 
 # List of experiments to run
 experiments:
-  - name: 1-spam-pred-auc
+  # - name: 1-spam-pred-auc
+  #   metric: auc
+  #   class_names: {0: "Ham", 1: "Spam"}
+  #   train_on: 94_better_spam
+  #   evaluate_on:
+  #     - 94_better_spam
+  #     - 87_is_spam
+  #   score:
+  #     - filtered
+  # - name: 2-spam-pred-auc-increasing-spam-fixed-total
+  #   metric: auc
+  #   class_names: {0: "Ham", 1: "Spam"}
+  #   train_on: 94_better_spam
+  #   evaluate_on:
+  #     - 94_better_spam
+  #     - 87_is_spam
+  #   score:
+  #     - filtered
+  #   rebuild_config:
+  #     increasing_spam_fixed_total:
+  #       - {class_counts: {0: 3000, 1: 1}} # we should use all of our examples
+  #       - {class_counts: {0: 3000, 1: 2}}
+  #       - {class_counts: {0: 3000, 1: 5}}
+  #       - {class_counts: {0: 3000, 1: 10}}
+  #       - {class_counts: {0: 3000, 1: 15}}
+  #       - {class_counts: {0: 3000, 1: 20}}
+  #       - {class_counts: {0: 3000, 1: 25}}
+  #       - {class_counts: {0: 3000, 1: 35}}
+  #       - {class_counts: {0: 3000, 1: 45}}
+  #       - {class_counts: {0: 3000, 1: 50}}
+  #       - {class_counts: {0: 3000, 1: 100}}
+  #       - {class_counts: {0: 3000, 1: 150}}
+  #       - {class_counts: {0: 3000, 1: 250}}
+  #       - {class_counts: {0: 3000, 1: 500}}
+  #       # - {class_counts: {0: 3250, 1: 750}} don't have that many samples
+  # - name: 3-spam-pred-auc-llm-upsampling
+  #   metric: auc
+  #   class_names: {0: "Ham", 1: "Spam"}
+  #   train_on: 94_better_spam
+  #   evaluate_on:
+  #     - 94_better_spam
+  #     - 87_is_spam
+  #   score:
+  #     - filtered
+  #   rebuild_config:
+  #     llm_upsampling_experiments:
+  #       - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 10, upsampling_factor: 10}
+  #       - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 10, upsampling_factor: 5}
+  #       - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 10, upsampling_factor: 1}
+  #       - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 10, upsampling_factor: 2}
+  #       - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 10, upsampling_factor: 3}
+  #       - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 10, upsampling_factor: 4}
+
+  #       - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 1, upsampling_factor: 10}
+  #       - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 1, upsampling_factor: 5}
+  #       - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 1, upsampling_factor: 1}
+  #       - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 1, upsampling_factor: 2}
+  #       - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 1, upsampling_factor: 3}
+  #       - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 1, upsampling_factor: 4}
+
+  #       - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 2, upsampling_factor: 10}
+  #       - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 2, upsampling_factor: 5}
+  #       - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 2, upsampling_factor: 1}
+  #       - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 2, upsampling_factor: 2}
+  #       - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 2, upsampling_factor: 3}
+  #       - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 2, upsampling_factor: 4}
+        
+  #       - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 3, upsampling_factor: 10}
+  #       - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 3, upsampling_factor: 5}
+  #       - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 3, upsampling_factor: 1}
+  #       - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 3, upsampling_factor: 2}
+  #       - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 3, upsampling_factor: 3}
+  #       - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 3, upsampling_factor: 4}
+        
+  #       - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 4, upsampling_factor: 10}
+  #       - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 4, upsampling_factor: 5}
+  #       - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 4, upsampling_factor: 1}
+  #       - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 4, upsampling_factor: 2}
+  #       - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 4, upsampling_factor: 3}
+  #       - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 4, upsampling_factor: 4}
+        
+  #       - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 5, upsampling_factor: 10}
+  #       - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 5, upsampling_factor: 5}
+  #       - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 5, upsampling_factor: 1}
+  #       - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 5, upsampling_factor: 2}
+  #       - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 5, upsampling_factor: 3}
+  #       - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 5, upsampling_factor: 4}
+  - name: 4-spam-pred-auc-balanced-class-counts
     metric: auc
     class_names: {0: "Ham", 1: "Spam"}
     train_on: 94_better_spam
@@ -40,89 +127,28 @@ experiments:
       - 94_better_spam
       - 87_is_spam
     score:
-      - filtered
-  - name: 2-spam-pred-auc-increasing-spam-fixed-total
-    metric: auc
-    class_names: {0: "Ham", 1: "Spam"}
-    train_on: 94_better_spam
-    evaluate_on:
-      - 94_better_spam
-      - 87_is_spam
-    score:
-      - filtered
+      - all
     rebuild_config:
       increasing_spam_fixed_total:
-        - {class_counts: {0: 3000, 1: 1}} # we should use all of our examples
-        - {class_counts: {0: 3000, 1: 2}}
-        - {class_counts: {0: 3000, 1: 5}}
-        - {class_counts: {0: 3000, 1: 10}}
-        - {class_counts: {0: 3000, 1: 15}}
-        - {class_counts: {0: 3000, 1: 20}}
-        - {class_counts: {0: 3000, 1: 25}}
-        - {class_counts: {0: 3000, 1: 35}}
-        - {class_counts: {0: 3000, 1: 45}}
-        - {class_counts: {0: 3000, 1: 50}}
-        - {class_counts: {0: 3000, 1: 100}}
-        - {class_counts: {0: 3000, 1: 150}}
-        - {class_counts: {0: 3000, 1: 250}}
-        - {class_counts: {0: 3000, 1: 500}}
+        - {class_counts: {0: 1, 1: 1}} # we should use all of our examples
+        - {class_counts: {0: 2, 1: 2}}
+        - {class_counts: {0: 5, 1: 5}}
+        - {class_counts: {0: 10, 1: 10}}
+        - {class_counts: {0: 15, 1: 15}}
+        - {class_counts: {0: 20, 1: 20}}
+        - {class_counts: {0: 25, 1: 25}}
+        - {class_counts: {0: 35, 1: 35}}
+        - {class_counts: {0: 45, 1: 45}}
+        - {class_counts: {0: 50, 1: 50}}
+        - {class_counts: {0: 100, 1: 100}}
+        - {class_counts: {0: 150, 1: 150}}
+        - {class_counts: {0: 250, 1: 250}}
+        - {class_counts: {0: 500, 1: 500}}
         # - {class_counts: {0: 3250, 1: 750}} don't have that many samples
-  - name: 3-spam-pred-auc-llm-upsampling
-    metric: auc
-    class_names: {0: "Ham", 1: "Spam"}
-    train_on: 94_better_spam
-    evaluate_on:
-      - 94_better_spam
-      - 87_is_spam
-    score:
-      - filtered
-    rebuild_config:
-      llm_upsampling_experiments:
-        - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 10, upsampling_factor: 10}
-        - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 10, upsampling_factor: 5}
-        - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 10, upsampling_factor: 1}
-        - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 10, upsampling_factor: 2}
-        - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 10, upsampling_factor: 3}
-        - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 10, upsampling_factor: 4}
-
-        - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 1, upsampling_factor: 10}
-        - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 1, upsampling_factor: 5}
-        - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 1, upsampling_factor: 1}
-        - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 1, upsampling_factor: 2}
-        - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 1, upsampling_factor: 3}
-        - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 1, upsampling_factor: 4}
-
-        - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 2, upsampling_factor: 10}
-        - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 2, upsampling_factor: 5}
-        - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 2, upsampling_factor: 1}
-        - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 2, upsampling_factor: 2}
-        - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 2, upsampling_factor: 3}
-        - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 2, upsampling_factor: 4}
-        
-        - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 3, upsampling_factor: 10}
-        - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 3, upsampling_factor: 5}
-        - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 3, upsampling_factor: 1}
-        - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 3, upsampling_factor: 2}
-        - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 3, upsampling_factor: 3}
-        - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 3, upsampling_factor: 4}
-        
-        - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 4, upsampling_factor: 10}
-        - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 4, upsampling_factor: 5}
-        - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 4, upsampling_factor: 1}
-        - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 4, upsampling_factor: 2}
-        - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 4, upsampling_factor: 3}
-        - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 4, upsampling_factor: 4}
-        
-        - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 5, upsampling_factor: 10}
-        - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 5, upsampling_factor: 5}
-        - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 5, upsampling_factor: 1}
-        - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 5, upsampling_factor: 2}
-        - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 5, upsampling_factor: 3}
-        - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 5, upsampling_factor: 4}
         
 model_check:
   - name: spam-pred
-    hf_model_name: "google/gemma-2-9b-it"
+    hf_model_name: "google/gemma-2-9b" # not using it model since not probing it
     check_on: ["94_better_spam", "87_is_spam"]
     check_prompt: "Is this email spam? Answer with either Yes or No. \n {prompt}"
     class_names: {0: ["Yes", "yes", " Yes", " yes"], 1: ["No", "no", " No", " no"]}

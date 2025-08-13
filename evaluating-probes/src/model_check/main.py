@@ -53,10 +53,10 @@ def run_single_model_check(check, ds_name, model, tokenizer, config):
     seed = config.get("seed")  # Use the same seed as the main run
     num_tokens_to_generate = check.get('num_tokens_to_generate', 1)  # Default to 5 tokens
     
-    # Use the same dataset creation method as in evaluation to ensure consistency
-    # For model_check, we only need test data, so use only_test=True to avoid split issues
-    ds = Dataset(ds_name, model=model, device=device, seed=seed, only_test=True)
-    X_test, y_test = ds.get_test_set() # only need test set
+    # Use the full dataset (not just test set) to ensure consistency across seeds
+    # We'll align by prompts later during filtering
+    ds = Dataset(ds_name, model=model, device=device, seed=seed)
+    X_full, y_full = ds.X, ds.y  # Get the full dataset
     
     # Add debugging information
     # print(f"Dataset total size: {len(ds.df)}")
@@ -64,12 +64,12 @@ def run_single_model_check(check, ds_name, model, tokenizer, config):
     # print(f"Test set shape: {y_test.shape if hasattr(y_test, 'shape') else 'no shape'}")
     # print(f"Test set type: {type(y_test)}")
     
-    # Validate that we have the expected test set size and class distribution
-    if len(X_test) == 0:
-        raise ValueError("Test set is empty! This indicates an issue with the data splitting.")
+    # Validate that we have the expected dataset size and class distribution
+    if len(X_full) == 0:
+        raise ValueError("Dataset is empty! This indicates an issue with the data loading.")
     
-    unique_labels, counts = np.unique(y_test, return_counts=True)
-    # print(f"Test set class distribution: {dict(zip(unique_labels, counts))}")
+    unique_labels, counts = np.unique(y_full, return_counts=True)
+    # print(f"Full dataset class distribution: {dict(zip(unique_labels, counts))}")
     
     # Get class names from config
     class_names = check.get('class_names')
@@ -114,9 +114,9 @@ def run_single_model_check(check, ds_name, model, tokenizer, config):
             token = tokenizer.decode([token_id])
             print(f"    '{name}' -> token_id={token_id}, token='{token}'")
 
-    # Create messages for each test prompt
+    # Create messages for each dataset example
     messages_list = []
-    for prompt in X_test:
+    for prompt in X_full:
         formatted_prompt = prompt_template.format(prompt=prompt)
         messages = [{"role": "user", "content": formatted_prompt}]
         messages_list.append(messages)
@@ -134,11 +134,18 @@ def run_single_model_check(check, ds_name, model, tokenizer, config):
     for i, messages in tqdm(enumerate(messages_list)):
         # print(f"Processing prompt {i+1}/{len(messages_list)}")
         
-        # Apply chat template and get logits
-        input_ids = tokenizer.apply_chat_template(messages, return_tensors="pt", return_dict=True, add_generation_prompt=True)
-        
-        # Print the tokenized prompt after applying chat template
-        # print(f"Tokenized prompt after chat template (full): {tokenizer.decode(input_ids['input_ids'][0])}")
+        # Try to use chat template, fallback to direct tokenization if not available
+        try:
+            input_ids = tokenizer.apply_chat_template(messages, return_tensors="pt", return_dict=True, add_generation_prompt=True)
+            # print(f"Tokenized prompt after chat template (full): {tokenizer.decode(input_ids['input_ids'][0])}")
+        except ValueError as e:
+            if "chat_template" in str(e):
+                # Fallback to direct tokenization
+                formatted_prompt = messages[0]["content"]
+                input_ids = tokenizer(formatted_prompt, return_tensors="pt")
+                # print(f"Tokenized prompt directly (full): {tokenizer.decode(input_ids['input_ids'][0])}")
+            else:
+                raise e
         
         if torch.cuda.is_available():
             input_ids = {k: v.cuda() for k, v in input_ids.items()}
@@ -218,14 +225,14 @@ def run_single_model_check(check, ds_name, model, tokenizer, config):
         # Debug: Print top 5 tokens in the logit distribution (for the first position)
         values, indices = torch.topk(all_logits[0], 5)
         # print(f"\n=== Prompt {i+1}/{len(messages_list)} ===")
-        # print(f"Prompt: {X_test[i][:100]}...")
-        # print(f"True label: {y_test[i]}")
+        # print(f"Prompt: {X_full[i][:100]}...")
+        # print(f"True label: {y_full[i]}")
         
         # print(f"\nTop 5 tokens for position 0:")
         for j, (value, index) in enumerate(zip(values.tolist(), indices.tolist())):
             token = tokenizer.decode([index])
             log_prob = all_log_probs[0, index].item()
-            # print(f"  {j+1}. Token '{token}' (ID: {index}): logit={value:.3f}, log_prob={log_prob:.3f}")
+            print(f"  {j+1}. Token '{token}' (ID: {index}): logit={value:.3f}, log_prob={log_prob:.3f}")
         
         # Show the class token logits specifically
         # print(f"\nClass token analysis (best across all {num_tokens_to_generate} positions):")
@@ -239,17 +246,17 @@ def run_single_model_check(check, ds_name, model, tokenizer, config):
         # Show logit difference for binary classification
         if len(logit_values) == 2:
             logit_diff = logit_values[0] - logit_values[1]
-            # print(f"  Logit difference (Class 0 - Class 1): {logit_diff:.3f}")
+            print(f"  Logit difference (Class 0 - Class 1): {logit_diff:.3f}")
             predicted_class = 0 if logit_diff > 0 else 1
-            correct = predicted_class == y_test[i]
+            correct = predicted_class == y_full[i]
             # print(f"  Predicted: Class {predicted_class}, Correct: {correct}")
         
         # print("-" * 80)
         
         # Create CSV row
         row = {
-            "prompt": X_test[i], 
-            "label": y_test[i]
+            "prompt": X_full[i], 
+            "label": y_full[i]
         }
         
         # Add logits
@@ -275,7 +282,7 @@ def run_single_model_check(check, ds_name, model, tokenizer, config):
             # Add new column for filtered scoring
             # For class 0 samples: don't use if logit_diff >= 0, use otherwise
             # For class 1 samples: don't use if logit_diff <= 0, use otherwise
-            true_class = y_test[i]
+            true_class = y_full[i]
             if true_class == 0:
                 # Class 0: use if logit_diff < 0 (model correctly predicts class 0)
                 use_in_filtered = 1 if logit_diff < 0 else 0

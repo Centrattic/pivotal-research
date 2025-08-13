@@ -555,7 +555,7 @@ def evaluate_probe(
                                                       seed=seed, test_size=test_size)
             combined_metrics["filtered_examples"] = filtered_metrics
         except Exception as e:
-            logger.log(f"  - 😵‍💫 Filtered scoring failed with error: {str(e)}")
+            logger.log(f"  - 😵‍💫Filtered scoring failed with error: {str(e)}")
             logger.log(f"  - 🔍 Debug info: eval_dataset_name={eval_dataset_name}, results_dir={results_dir}")
             # Set a default filtered metrics structure to indicate failure
             combined_metrics["filtered_examples"] = {
@@ -593,21 +593,67 @@ def evaluate_probe(
         filtered_metrics = combined_metrics["filtered_examples"]
         if filtered_metrics.get("filtered", False) and filtered_metrics.get("removed_count", 0) > 0:
             # Get filtered indices from the CSV file
-            # Runthrough directory is always in the parent directory (results/{experiment_name}/)
-            parent_dir = results_dir.parent
-            runthrough_dir = parent_dir / f"runthrough_{eval_dataset_name}"
+            # Runthrough directory is in the run_name directory (results/{run_name}/runthrough_{dataset_name}/)
+            # results_dir is like: results/{run_name}/seed_{seed}/...
+            # So we need to go up to the run_name level
+            run_name_dir = results_dir.parent.parent  # Go up two levels to get to run_name
+            runthrough_dir = run_name_dir / f"runthrough_{eval_dataset_name}"
             
+            # Check if runthrough directory exists
+            if not runthrough_dir.exists():
+                logger.log(f"  - 🚨 Runthrough directory not found: {runthrough_dir}")
+                logger.log(f"  - 📁 Parent directory contents: {list(parent_dir.glob('*'))}")
+                return
+            
+            # Find CSV files
             csv_files = list(runthrough_dir.glob("*logit_diff*.csv"))
-            logger.log(f"  - Found CSV file: {csv_files[0]}")
-            df = pd.read_csv(csv_files[0]) # will only be one csv file in the directory.
-            use_in_filtered = df['use_in_filtered_scoring'].values
-            filtered_indices = np.where(use_in_filtered == 1)[0]
+            if not csv_files:
+                logger.log(f"  - 🚨 No logit_diff CSV files found in: {runthrough_dir}")
+                logger.log(f"  - 📁 Directory contents: {list(runthrough_dir.glob('*'))}")
+                return
+            
+            logger.log(f"  - ✅ Found CSV file: {csv_files[0]}")
+            
+            # Read CSV and check for required column
+            df = pd.read_csv(csv_files[0])
+            if 'use_in_filtered_scoring' not in df.columns:
+                logger.log(f"  - 🚨 Column 'use_in_filtered_scoring' not found in CSV")
+                logger.log(f"  - 📋 Available columns: {list(df.columns)}")
+                return
+            
+            # Align prompts between model check CSV and current test set
+            # Model check runs on full dataset, but we need to match with current test set
+            if 'prompt' not in df.columns:
+                logger.log(f"  - 🚨 Column 'prompt' not found in CSV for prompt alignment")
+                logger.log(f"  - 📋 Available columns: {list(df.columns)}")
+                return
+            
+            # Create a mapping from prompt to use_in_filtered_scoring
+            prompt_to_filter = dict(zip(df['prompt'], df['use_in_filtered_scoring']))
+            
+            # Get the current test prompts and align them
+            test_prompts = [str(prompt) for prompt in X_test]  # Convert to strings for matching
+            
+            # Find which test examples should be included in filtered scoring
+            filtered_indices = []
+            matched_count = 0
+            for i, test_prompt in enumerate(test_prompts):
+                if test_prompt in prompt_to_filter:
+                    matched_count += 1
+                    if prompt_to_filter[test_prompt] == 1:
+                        filtered_indices.append(i)
+            
+            filtered_indices = np.array(filtered_indices)
+            
+            # Log alignment statistics
+            logger.log(f"  - 📊 Prompt alignment: {matched_count}/{len(test_prompts)} test prompts found in model check CSV")
+            logger.log(f"  - 📊 Model check CSV has {len(df)} total prompts")
             
             if len(filtered_indices) == 0:
-                logger.log(f"  - 😱 No examples passed the filter (all use_in_filtered_scoring values are 0)")
-                logger.log(f"  - Filter statistics: total={len(use_in_filtered)}, passed={len(filtered_indices)}")
+                logger.log(f"  - ⚠️ No examples passed the filter (all use_in_filtered_scoring values are 0)")
+                logger.log(f"  - 📊 Filter statistics: total={len(use_in_filtered)}, passed={len(filtered_indices)}")
             else:
-                logger.log(f"  - 💪🏼 Successfully filtered {len(filtered_indices)} examples from {len(test_scores)} total")
+                logger.log(f"  - ✅ Successfully filtered {len(filtered_indices)} examples from {len(test_scores)} total")
                 output_dict["filtered_scores"] = {
                     "scores": [test_scores[i] for i in filtered_indices],
                     "labels": [test_labels[i] for i in filtered_indices],
@@ -632,7 +678,7 @@ def evaluate_probe(
             logger.log(f"  - 🙃 Filtered examples metrics: {filtered_metrics}")
         else:
             error_msg = filtered_metrics.get("error", "Unknown error")
-            logger.log(f"  - 😵‍💫 Filtered scoring failed: {error_msg}")
+            logger.log(f"  - 😵‍💫Filtered scoring failed: {error_msg}")
             logger.log(f"  - 📊 Falling back to using all examples for evaluation")
     if return_metrics:
         return combined_metrics
