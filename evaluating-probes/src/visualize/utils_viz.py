@@ -320,6 +320,11 @@ def plot_all_probe_loss_curves_in_folder(folder, save_path=None, max_probes=40, 
     
     log_files = sorted(glob.glob(os.path.join(folder, '*_train_log.json')))
     n = min(len(log_files), max_probes)
+    
+    if n == 0:
+        print(f"No training log files found in {folder}")
+        return
+    
     ncols = min(4, n)
     nrows = math.ceil(n / ncols)
     fig, axs = plt.subplots(nrows, ncols, figsize=(4*ncols, 2.5*nrows), squeeze=False)  # Smaller figure size for bigger text

@@ -1,0 +1,51 @@
+run_name: "llama_honesty_experiment"
+model_name: "meta-llama/Llama-3.3-70B-Instruct" # Llama-2-70b model
+d_model: 8192 # 8192 for Llama-2-70b
+device: "cuda:0"
+use_grouped_training: True
+cache_activations: True
+log_file: "logs/llama_honesty_experiment_seeds_10.log"  # Custom log file path
+seeds: [42, 43, 44, 45, 46, 47, 48, 49, 50, 51]  # Multi-seed format
+
+layers: [22] # Where SAE probes found layers perform the best
+components:
+  - "resid_post"
+
+# IMPORTANT: Running with test set = 15%, train_set = 85%, val set = 0 (we don't use it anyway)
+
+architectures:
+  - name: "attention"
+    config_name: "attention"
+
+# List of experiments to run
+experiments:
+  - name: 1-honesty-pred-auc
+    metric: auc
+    class_names: {0: "Dishonest", 1: "Honest"}
+    train_on: 97_llama_combined_honesty
+    evaluate_on:
+      - 97_llama_combined_honesty
+    score:
+      - all # mask does the filtering for us
+  - name: 2-honesty-pred-auc-increasing-honest-fixed-total
+    metric: auc
+    class_names: {0: "Dishonest", 1: "Honest"}
+    train_on: 97_llama_combined_honesty
+    evaluate_on:
+      - 97_llama_combined_honesty
+    score:
+      - all
+    rebuild_config:
+      increasing_honest_fixed_total:
+        - {class_counts: {0: 275, 1: 1}} # we should use all of our examples
+        - {class_counts: {0: 275, 1: 2}}
+        - {class_counts: {0: 275, 1: 5}}
+        - {class_counts: {0: 275, 1: 10}}
+        - {class_counts: {0: 275, 1: 15}}
+        - {class_counts: {0: 275, 1: 20}}
+        - {class_counts: {0: 275, 1: 25}}
+        - {class_counts: {0: 275, 1: 35}}
+        - {class_counts: {0: 275, 1: 45}}
+        - {class_counts: {0: 275, 1: 50}}
+        - {class_counts: {0: 275, 1: 60}}
+        - {class_counts: {0: 275, 1: 75}}

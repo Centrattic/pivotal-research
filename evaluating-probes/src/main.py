@@ -185,7 +185,10 @@ def process_dataset_job(dataset_job, config, retrain, hyperparameter_tuning, ret
                 seed=effective_seed,
                 results_dir=experiment_dir, cache_dir=dataset_job['cache_dir'], logger=logger, 
                 retrain=retrain,
-                rebuild_config=dataset_job['rebuild_params'], metric=metric
+                rebuild_config=dataset_job['rebuild_params'], metric=metric,
+                train_size=0.85,
+                val_size=0,
+                test_size=0.15
             )
         
         # Process trainable probes individually
@@ -207,7 +210,10 @@ def process_dataset_job(dataset_job, config, retrain, hyperparameter_tuning, ret
                 retrain=retrain,
                 hyperparameter_tuning=hyperparameter_tuning, 
                 rebuild_config=dataset_job['rebuild_params'], metric=metric,
-                retrain_with_best_hparams=retrain_with_best_hparams
+                retrain_with_best_hparams=retrain_with_best_hparams,
+                train_size=0.85,
+                val_size=0,
+                test_size=0.15
             )
         
         # Evaluate all probes on all evaluation datasets
@@ -256,7 +262,10 @@ def process_dataset_job(dataset_job, config, retrain, hyperparameter_tuning, ret
                         use_cache=config['cache_activations'], cache_dir=dataset_job['cache_dir'], 
                         reevaluate=reevaluate,
                         score_options=score_options, rebuild_config=dataset_job['rebuild_params'], 
-                        return_metrics=True
+                        return_metrics=True,
+                        train_size=0.85,
+                        val_size=0,
+                        test_size=0.15
                     )
                     
                     # Store results by rebuild config and eval dataset
@@ -475,7 +484,7 @@ def main():
         logger.log(f"Processing {len(all_dataset_jobs)} dataset jobs...")
         
         # Use all available cores for maximum parallelization
-        n_jobs = min(36, len(all_dataset_jobs))  # Use up to 32 cores (conservative for memory)
+        n_jobs = min(2, len(all_dataset_jobs))  # Use up to 32 cores (conservative for memory)
         logger.log(f"Using {n_jobs} parallel jobs")
         
         all_eval_results_list = Parallel(n_jobs=n_jobs, verbose=10)(

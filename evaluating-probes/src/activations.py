@@ -150,6 +150,30 @@ class ActivationManager:
         else:
             return self._get_full_activations_with_masks(texts, layer, component, activations_path)
 
+    def get_activations_for_responses(
+        self,
+        responses: Iterable[str],
+        layer: int,
+        component: str,
+        activation_type: str = "full"
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        """
+        Return activations for response texts that were computed using ensure_conversation_texts_cached.
+        This method ONLY retrieves existing activations - no extraction.
+        
+        Args:
+            responses: List of response texts to get activations for
+            layer: Layer number
+            component: Component name (e.g., 'resid_post')
+            activation_type: Type of activations to return (same as get_activations_for_texts)
+        
+        Returns:
+            Tuple of (activations, masks) where masks might be None for pre-aggregated activations
+        """
+        # This method is essentially the same as get_activations_for_texts
+        # since we store response activations using the response text as the key
+        return self.get_activations_for_texts(responses, layer, component, activation_type)
+
     def ensure_texts_cached(
         self,
         texts: Iterable[str],
@@ -214,6 +238,103 @@ class ActivationManager:
                         continue
                     activation = acts_tensor[j].numpy()  # [S, D]
                     new_entries[text_hash] = activation
+
+        # Merge and save
+        if new_entries:
+            to_save = {**existing, **new_entries}
+            np.savez_compressed(activations_path, **to_save)
+
+        return len(new_entries)
+
+    def ensure_conversation_texts_cached(
+        self,
+        conversations: Iterable[Tuple[str, str]],  # (full_conversation, response_only)
+        layer: int,
+        component: str,
+    ) -> int:
+        """
+        Ensure that activations for response tokens in conversations are present in the cache.
+        This runs the model over the full conversation but extracts activations only for the response tokens.
+        
+        Args:
+            conversations: Iterable of (full_conversation, response_only) tuples
+            layer: Layer number
+            component: Component name (e.g., 'resid_post')
+            
+        Returns:
+            Number of newly computed activations
+        """
+        if self.model is None or self.tokenizer is None:
+            raise ValueError("ActivationManager is read-only. A full model is required to compute activations.")
+
+        conversations = list(conversations)
+        _, activations_path = self._paths(layer, component)
+
+        # Load existing activations (if any)
+        existing: Dict[str, np.ndarray] = {}
+        if activations_path.exists():
+            existing = dict(np.load(activations_path, allow_pickle=True))
+
+        # Determine which responses are missing
+        missing_conversations: List[Tuple[str, str]] = []
+        for full_conv, response_only in conversations:
+            response_hash = self._hash(response_only)
+            if response_hash not in existing:
+                missing_conversations.append((full_conv, response_only))
+
+        if not missing_conversations:
+            return 0
+
+        # Compute activations for missing conversations in small batches to control memory
+        new_entries: Dict[str, np.ndarray] = {}
+        batch_size = 1
+        self.model.eval()
+        self.model.to(self.device)
+        with torch.no_grad():
+            for i in tqdm(range(0, len(missing_conversations), batch_size)):
+                batch_conversations = missing_conversations[i:i+batch_size]
+                full_convs = [conv[0] for conv in batch_conversations]
+                responses = [conv[1] for conv in batch_conversations]
+                
+                # Tokenize the full conversations
+                enc_full = self.tokenizer(
+                    full_convs,
+                    return_tensors="pt",
+                    padding=False,
+                    truncation=False,
+                    add_special_tokens=True,
+                )
+                input_ids_full = enc_full["input_ids"].to(self.device)
+                attention_mask_full = enc_full.get("attention_mask")
+                if attention_mask_full is not None:
+                    attention_mask_full = attention_mask_full.to(self.device)
+
+                # Tokenize just the responses to get their token positions
+                enc_responses = self.tokenizer(
+                    responses,
+                    return_tensors="pt",
+                    padding=False,
+                    truncation=False,
+                    add_special_tokens=True,
+                )
+                response_token_counts = [len(ids) for ids in enc_responses["input_ids"]]
+
+                # Run model on full conversations
+                acts_tensor = self._run_and_capture(layer=layer, component=component, input_ids=input_ids_full, attention_mask=attention_mask_full)
+                acts_tensor = acts_tensor.detach().to("cpu")  # [B, S, D]
+
+                for j, (full_conv, response_only) in enumerate(batch_conversations):
+                    response_hash = self._hash(response_only)
+                    if response_hash in existing or response_hash in new_entries:
+                        continue
+                    
+                    # Extract activations for response tokens only
+                    full_activation = acts_tensor[j].numpy()  # [S, D]
+                    response_token_count = response_token_counts[j]
+                    
+                    # Get the last response_token_count tokens as the response activations
+                    response_activation = full_activation[-response_token_count:]
+                    new_entries[response_hash] = response_activation
 
         # Merge and save
         if new_entries:

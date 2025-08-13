@@ -123,37 +123,44 @@ def main():
     if exp2_exists:
         print(f"Creating experiment 2 visualizations (aggregated across seeds)")
         
-        # Get evaluation datasets from experiment 2 config
+        # Get evaluation datasets from experiment 2 config - make it flexible
         eval_datasets = []
+        exp2_name = None
         for exp in config.get('experiments', []):
-            if exp.get('name') == '2-spam-pred-auc-increasing-spam-fixed-total':
+            if exp.get('name', '').startswith('2-') and 'increasing' in exp.get('name', ''):
                 eval_datasets = exp.get('evaluate_on', [])
+                exp2_name = exp.get('name')
                 break
         
         if not eval_datasets:
             print("No evaluation datasets found in experiment 2 config")
             return
         
-        # Define probe groups
+        # Define probe groups - make them flexible based on config
         probe_groups = {
             'best_probes': None,  # Will be filled with best probes of each type
-            'sae_probes': ['sae_16k_l0_408', 'sae_262k_l0_259'],
-            'linear_attention_probes': ['linear_last', 'linear_max', 'linear_mean', 'linear_softmax', 'attention_attention'],
-            'act_sim_probes': ['act_sim_max_max', 'act_sim_last_last']
         }
         
-        # Define probe label mapping for clearer legends
-        probe_labels = {
-            'linear_last': 'Linear (last token)',
-            'linear_max': 'Linear (max)',
-            'linear_mean': 'Linear (mean)',
-            'linear_softmax': 'Linear (softmax)',
-            'sae_16k_l0_408': 'SAE (width=16k, L0=408)',
-            'sae_262k_l0_259': 'SAE (width=262k, L0=259)',
-            'attention_attention': 'Attention',
-            'act_sim_max_max': 'Activation Cosine Similarity (max)',
-            'act_sim_last_last': 'Activation Cosine Similarity (last token)'
-        }
+        # Get probe names from config
+        config_probes = []
+        for arch in config.get('architectures', []):
+            config_probes.append(arch.get('config_name', arch.get('name', '')))
+        
+        # Define probe label mapping for clearer legends - make it flexible
+        probe_labels = {}
+        for probe_name in config_probes:
+            if 'sklearn_linear' in probe_name:
+                agg_method = probe_name.split('_')[-1] if '_' in probe_name else 'mean'
+                probe_labels[probe_name] = f'Linear ({agg_method})'
+            elif 'act_sim' in probe_name:
+                agg_method = probe_name.split('_')[-1] if '_' in probe_name else 'mean'
+                probe_labels[probe_name] = f'Activation Similarity ({agg_method})'
+            elif 'attention' in probe_name:
+                probe_labels[probe_name] = 'Attention'
+            elif 'sae' in probe_name:
+                probe_labels[probe_name] = f'SAE ({probe_name})'
+            else:
+                probe_labels[probe_name] = probe_name
         
         # Define metrics
         metrics = ['auc', 'recall_at_fpr']
@@ -161,7 +168,7 @@ def main():
         # Get the training dataset from experiment 2 config
         train_dataset = None
         for exp in config.get('experiments', []):
-            if exp.get('name') == '2-spam-pred-auc-increasing-spam-fixed-total':
+            if exp.get('name') == exp2_name:
                 train_dataset = exp.get('train_on')
                 break
         
@@ -177,33 +184,27 @@ def main():
             probe_groups['best_probes'] = list(best_probes.values()) if len(best_probes) >= 4 else None
             
             for metric in metrics:
-                for group_name, probe_names in probe_groups.items():
-                    if probe_names is None:
-                        continue
-                    if group_name != 'best_probes':
-                        continue
+                # Create plot title
+                if is_ood:
+                    title = "OOD (Email Spam to Text Spam)"
+                else:
+                    title = "Varying number of positive training examples\nwith 3000 negative examples"
+                
+                # Create filename
+                filename = f'experiment_2_best_probes_comparison_{metric}_{eval_dataset}.png'
+                save_path = viz_root / filename
+                
+                if not save_path.exists() or args.force:
+                    print(f"Creating best_probes comparison plot for {metric} on {eval_dataset}")
                     
-                    # Create plot title
-                    if is_ood:
-                        title = "OOD (Email Spam to Text Spam)"
-                    else:
-                        title = "Varying number of positive training examples\nwith 3000 negative examples"
-                    
-                    # Create filename
-                    filename = f'experiment_2_{group_name}_comparison_{metric}_{eval_dataset}.png'
-                    save_path = viz_root / filename
-                    
-                    if not save_path.exists() or args.force:
-                        print(f"Creating {group_name} comparison plot for {metric} on {eval_dataset}")
-                        
-                        # Create the plot
-                        plot_experiment_2_unified(
-                            results_dir, probe_names, save_path=save_path, 
-                            metric=metric, fpr_target=0.01, filtered=args.filtered, seeds=args.seeds,
-                            plot_title=title, eval_dataset=eval_dataset, probe_labels=probe_labels
-                        )
-                    else:
-                        print(f"Skipping {save_path} (already exists, use --force to overwrite)")
+                    # Create the plot
+                    plot_experiment_2_unified(
+                        results_dir, probe_groups['best_probes'], save_path=save_path, 
+                        metric=metric, fpr_target=0.01, filtered=args.filtered, seeds=args.seeds,
+                        plot_title=title, eval_dataset=eval_dataset, probe_labels=probe_labels
+                    )
+                else:
+                    print(f"Skipping {save_path} (already exists, use --force to overwrite)")
         
     else:
         print(f"Experiment 2 not found")

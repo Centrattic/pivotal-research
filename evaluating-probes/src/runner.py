@@ -534,7 +534,7 @@ def evaluate_probe(
     if 'all' in score_options:
         logger.log(f"  - 🤗 Calculating all examples metrics...")
         if config_name == "attention" or config_name.startswith("act_sim"):
-            # Attention probes and act_sim probes don't use masks
+            # Attention probes and activation similarity probes don't use masks
             all_metrics = probe.score(test_acts, y_test)
         else:
             # Other probes use masks
@@ -545,7 +545,7 @@ def evaluate_probe(
         logger.log(f"  - 🤗 Calculating filtered metrics...")
         try:
             if config_name == "attention" or config_name.startswith("act_sim"):
-                # Attention probes and act_sim probes don't use masks
+                # Attention probes and activation similarity probes don't use masks
                 filtered_metrics = probe.score_filtered(test_acts, y_test, dataset_name=eval_dataset_name, 
                                                       results_dir=results_dir, seed=seed, test_size=test_size)
             else:
@@ -567,7 +567,7 @@ def evaluate_probe(
     # Save metrics and per-datapoint scores/labels
     # Compute per-datapoint probe scores (logits) and labels
     if config_name == "attention" or config_name.startswith("act_sim"):
-        # Attention probes and act_sim probes don't use masks
+        # Attention probes and activation similarity probes don't use masks
         test_scores = probe.predict_logits(test_acts)
     else:
         # Other probes use masks
