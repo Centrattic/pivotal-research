@@ -1,0 +1,48 @@
+run_name: "test_refactored"
+model_name: "google/gemma-2-9b-it"
+d_model: 3584
+device: "cuda:0"
+use_grouped_training: True
+cache_activations: True
+seeds: [42]
+
+layers: [20]
+components:
+  - "resid_post"
+
+# Activation extraction configuration
+activation_extraction:
+  format_type: "r"  # Options: "qr" (on-policy), "r" (off-policy instruct), "r-no-it" (off-policy non-instruct)
+
+architectures:
+  - name: "sklearn_linear"
+    config_name: "sklearn_linear_mean"
+    sweep_params:
+      C: [0.01, 0.1, 1.0, 10.0, 100.0]
+  - name: "act_sim"
+    config_name: "act_sim_mean"
+
+experiments:
+  - name: test-experiment
+    metric: acc
+    class_names: {0: "Ham", 1: "Spam"}
+    train_on: 94_better_spam
+    evaluate_on:
+      - 94_better_spam
+      - 87_is_spam
+    score:
+      - all
+    on_policy: false
+
+model_check:
+  - name: spam-pred
+    hf_model_name: "google/gemma-2-9b"
+    check_on: ["94_better_spam", "87_is_spam"]
+    method: "no-it"  # Options: "it" (uses chat template), "no-it" (uses few-shot prompt)
+    check_prompt: "Is this email spam? Answer with either Yes or No. \n {prompt}"
+    few_shot_prompt: |
+      This email is spam: "Get rich quick! Make money fast with our amazing offer!"
+      This email is not spam: "Hi John, here's the meeting agenda for tomorrow."
+      What about this email: "{prompt}"
+      Answer with either Yes or No.
+    class_names: {0: ["Yes", "yes", " Yes", " yes"], 1: ["No", "no", " No", " no"]}

@@ -45,13 +45,15 @@ def print_top_logits(logits, tokenizer, topk=10):
     print("")
 
 def run_single_model_check(check, ds_name, model, tokenizer, config):
-    """Run model check on a single dataset"""
+    """Run model check on a single dataset. Only default to values if they might not be provided."""
     prompt_template = check['check_prompt']
-    run_name = config.get("run_name", "run")
+    few_shot_prompt = check.get('few_shot_prompt', prompt_template)  # Fallback to check_prompt if not provided
+    method = check.get('method')
+    run_name = config.get("run_name")
     device = config.get("device")
-    batch_size = check.get('batch_size', 2)  # Default batch size
+    batch_size = check.get('batch_size', 8)  # Default batch size
     seed = config.get("seed")  # Use the same seed as the main run
-    num_tokens_to_generate = check.get('num_tokens_to_generate', 1)  # Default to 5 tokens
+    num_tokens_to_generate = check.get('num_tokens_to_generate', 2) # Default to 5 tokens
     
     # Use the full dataset (not just test set) to ensure consistency across seeds
     # We'll align by prompts later during filtering
@@ -117,9 +119,17 @@ def run_single_model_check(check, ds_name, model, tokenizer, config):
     # Create messages for each dataset example
     messages_list = []
     for prompt in X_full:
-        formatted_prompt = prompt_template.format(prompt=prompt)
-        messages = [{"role": "user", "content": formatted_prompt}]
-        messages_list.append(messages)
+        if method == "it":
+            # Use chat template method
+            formatted_prompt = prompt_template.format(prompt=prompt)
+            messages = [{"role": "user", "content": formatted_prompt}]
+            messages_list.append(messages)
+        elif method == "no-it":
+            # Use few-shot method (no chat template)
+            formatted_prompt = few_shot_prompt.format(prompt=prompt)
+            messages_list.append(formatted_prompt)  # Just the raw text, no chat format
+        else:
+            raise ValueError(f"Unknown model check method: {method}. Must be 'it' or 'no-it'")
 
     print(f"Running model over all {len(messages_list)} prompts...")
     print(f"Looking at log probabilities across the next {num_tokens_to_generate} tokens for each class...")
@@ -133,19 +143,26 @@ def run_single_model_check(check, ds_name, model, tokenizer, config):
     # Process each message using apply_chat_template and extract logits
     for i, messages in tqdm(enumerate(messages_list)):
         # print(f"Processing prompt {i+1}/{len(messages_list)}")
-        
-        # Try to use chat template, fallback to direct tokenization if not available
-        try:
-            input_ids = tokenizer.apply_chat_template(messages, return_tensors="pt", return_dict=True, add_generation_prompt=True)
-            # print(f"Tokenized prompt after chat template (full): {tokenizer.decode(input_ids['input_ids'][0])}")
-        except ValueError as e:
-            if "chat_template" in str(e):
-                # Fallback to direct tokenization
-                formatted_prompt = messages[0]["content"]
-                input_ids = tokenizer(formatted_prompt, return_tensors="pt")
-                # print(f"Tokenized prompt directly (full): {tokenizer.decode(input_ids['input_ids'][0])}")
-            else:
-                raise e
+        if method == "it":
+            # Use chat template method
+            try:
+                input_ids = tokenizer.apply_chat_template(messages, return_tensors="pt", return_dict=True, add_generation_prompt=True)
+                # print(f"Tokenized prompt after chat template (full): {tokenizer.decode(input_ids['input_ids'][0])}")
+            except ValueError as e:
+                if "chat_template" in str(e):
+                    # Fallback to direct tokenization
+                    formatted_prompt = messages[0]["content"]
+                    input_ids = tokenizer(formatted_prompt, return_tensors="pt")
+                    # print(f"Tokenized prompt directly (full): {tokenizer.decode(input_ids['input_ids'][0])}")
+                else:
+                    raise e
+        elif method == "no-it":
+            # Use few-shot method (no chat template)
+            formatted_prompt = messages  # messages is already the raw text
+            input_ids = tokenizer(formatted_prompt, return_tensors="pt")
+            # print(f"Tokenized few-shot prompt (full): {tokenizer.decode(input_ids['input_ids'][0])}")
+        else:
+            raise ValueError(f"Unknown model check method: {method}")
         
         if torch.cuda.is_available():
             input_ids = {k: v.cuda() for k, v in input_ids.items()}

@@ -19,7 +19,7 @@ class SklearnLinearProbeConfig(ProbeConfig):
     max_iter: int = 1000
     class_weight: str = "balanced"  # balanced, None
     random_state: int = 42
-    # Add more as needed
+    batch_size: int = 1024  # For consistency with other probes
 
 @dataclass
 class PytorchLinearProbeConfig(ProbeConfig):
@@ -29,7 +29,10 @@ class PytorchLinearProbeConfig(ProbeConfig):
     epochs: int = 100
     batch_size: int = 1024 # H100: 2048, H200: 800, A6000: 32
     weight_decay: float = 0.0
-    # Add more as needed
+    verbose: bool = True
+    early_stopping: bool = True
+    patience: int = 10
+    min_delta: float = 1e-4
 
 @dataclass
 class PytorchAttentionProbeConfig(ProbeConfig):
@@ -38,7 +41,10 @@ class PytorchAttentionProbeConfig(ProbeConfig):
     epochs: int = 100
     batch_size: int = 1024 # H100: 2560, H200: 1024, A6000: 32
     weight_decay: float = 0.0
-    # Add more as needed
+    verbose: bool = True
+    early_stopping: bool = True
+    patience: int = 10
+    min_delta: float = 1e-4
 
 @dataclass
 class SAEProbeConfig(ProbeConfig):
@@ -53,6 +59,10 @@ class SAEProbeConfig(ProbeConfig):
     encoding_batch_size: int = 1280  # Batch size for SAE encoding (memory intensive) - H100: 100
     training_batch_size: int = 2560   # Batch size for probe training - H100: 512
     weight_decay: float = 0.0
+    verbose: bool = True
+    early_stopping: bool = True
+    patience: int = 10
+    min_delta: float = 1e-4
 
 @dataclass
 class MassMeanProbeConfig(ProbeConfig):
@@ -76,16 +86,6 @@ PROBE_CONFIGS = {
     "sklearn_linear_max": SklearnLinearProbeConfig(aggregation="max"),
     "sklearn_linear_last": SklearnLinearProbeConfig(aggregation="last"),
     "sklearn_linear_softmax": SklearnLinearProbeConfig(aggregation="softmax"),
-    # High reg variants
-    "sklearn_linear_mean_high_reg": SklearnLinearProbeConfig(aggregation="mean", C=0.01),
-    "sklearn_linear_max_high_reg": SklearnLinearProbeConfig(aggregation="max", C=0.01),
-    "sklearn_linear_last_high_reg": SklearnLinearProbeConfig(aggregation="last", C=0.01),
-    "sklearn_linear_softmax_high_reg": SklearnLinearProbeConfig(aggregation="softmax", C=0.01),
-    # No reg variants
-    "sklearn_linear_mean_no_reg": SklearnLinearProbeConfig(aggregation="mean", C=100.0),
-    "sklearn_linear_max_no_reg": SklearnLinearProbeConfig(aggregation="max", C=100.0),
-    "sklearn_linear_last_no_reg": SklearnLinearProbeConfig(aggregation="last", C=100.0),
-    "sklearn_linear_softmax_no_reg": SklearnLinearProbeConfig(aggregation="softmax", C=100.0),
     # Default sklearn configs (for backward compatibility)
     "default_sklearn_linear": SklearnLinearProbeConfig(),
     "high_reg_sklearn_linear": SklearnLinearProbeConfig(C=0.01),

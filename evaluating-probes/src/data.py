@@ -108,6 +108,11 @@ class Dataset:
         self.X = df["prompt"].astype(str).to_numpy()
         self.y = df["target"].to_numpy()
         
+        # Handle on-policy data (prompt + question)
+        self.question_texts = None
+        if 'question' in df.columns:
+            self.question_texts = df["question"].astype(str).to_numpy()
+        
         # Initialize split attributes
         self.X_train_text = None
         self.y_train = None
@@ -234,8 +239,8 @@ class Dataset:
         """Get activations for an arbitrary list of texts."""
         if self.act_manager is None:
             raise ValueError("No activation manager available. Model may not be loaded.")
-        acts, masks = self.act_manager.get_activations_for_texts(texts, layer, component, activation_type)
-        return acts, masks
+        acts = self.act_manager.get_activations_for_texts(texts, layer, component, activation_type)
+        return acts
 
     # Text getters
     def get_train_set(self):
@@ -263,56 +268,92 @@ class Dataset:
                 self.max_len = actual_max_len
 
     # Activation getters
-    def get_train_set_activations(self, layer: int, component: str, use_masks: bool = True, activation_type: str = "full"):
+    def get_train_set_activations(self, layer: int, component: str, activation_type: str = "full", on_policy: bool = False, format_type: str = "r-no-it"):
         if self.X_train_text is None:
             raise ValueError("Data not split yet. Split data first.")
         if self.act_manager is None:
             raise ValueError("No activation manager available. Model may not be loaded.")
+        
         # Update max_len from actual activations if available
         self.update_max_len_from_activations(layer, component)
-        acts, masks = self.act_manager.get_activations_for_texts(self.X_train_text, layer, component, activation_type)
+        
+        # Handle different activation extraction formats
+        if format_type == "qr" and self.question_texts is not None:
+            # On-policy: extract activations from question texts using chat template
+            question_train_texts = self.question_texts[self.train_indices].tolist()
+            acts = self.act_manager.get_activations_for_texts(
+                self.X_train_text, layer, component, activation_type, 
+                response_texts=question_train_texts, format_type=format_type
+            )
+        else:
+            # Off-policy: extract activations from prompt texts
+            acts = self.act_manager.get_activations_for_texts(
+                self.X_train_text, layer, component, activation_type, 
+                format_type=format_type
+            )
         
         # Validate activations for numerical issues
         self._validate_activations(acts, "train")
         
-        if use_masks and masks is not None:
-            return acts, masks, self.y_train
-        else:
-            return acts, self.y_train
+        return acts, self.y_train
 
-    def get_val_set_activations(self, layer: int, component: str, use_masks: bool = True, activation_type: str = "full"):
+    def get_val_set_activations(self, layer: int, component: str, activation_type: str = "full", on_policy: bool = False, format_type: str = "r-no-it"):
         if self.X_val_text is None:
             raise ValueError("Data not split yet. Split data first.")
         if self.act_manager is None:
             raise ValueError("No activation manager available. Model may not be loaded.")
+        
         # Update max_len from actual activations if available
         self.update_max_len_from_activations(layer, component)
-        acts, masks = self.act_manager.get_activations_for_texts(self.X_val_text, layer, component, activation_type)
+        
+        # Handle different activation extraction formats
+        if format_type == "qr" and self.question_texts is not None:
+            # On-policy: extract activations from question texts using chat template
+            question_val_texts = self.question_texts[self.val_indices].tolist()
+            acts = self.act_manager.get_activations_for_texts(
+                self.X_val_text, layer, component, activation_type, 
+                response_texts=question_val_texts, format_type=format_type
+            )
+        else:
+            # Off-policy: extract activations from prompt texts
+            acts = self.act_manager.get_activations_for_texts(
+                self.X_val_text, layer, component, activation_type, 
+                format_type=format_type
+            )
         
         # Validate activations for numerical issues
         self._validate_activations(acts, "val")
         
-        if use_masks and masks is not None:
-            return acts, masks, self.y_val
-        else:
-            return acts, self.y_val
+        return acts, self.y_val
 
-    def get_test_set_activations(self, layer: int, component: str, use_masks: bool = True, activation_type: str = "full"):
+    def get_test_set_activations(self, layer: int, component: str, activation_type: str = "full", on_policy: bool = False, format_type: str = "r-no-it"):
         if self.X_test_text is None:
             raise ValueError("Data not split yet. Split data first.")
         if self.act_manager is None:
             raise ValueError("No activation manager available. Model may not be loaded.")
+        
         # Update max_len from actual activations if available
         self.update_max_len_from_activations(layer, component)
-        acts, masks = self.act_manager.get_activations_for_texts(self.X_test_text, layer, component, activation_type)
+        
+        # Handle different activation extraction formats
+        if format_type == "qr" and self.question_texts is not None:
+            # On-policy: extract activations from question texts using chat template
+            question_test_texts = self.question_texts[self.test_indices].tolist()
+            acts = self.act_manager.get_activations_for_texts(
+                self.X_test_text, layer, component, activation_type, 
+                response_texts=question_test_texts, format_type=format_type
+            )
+        else:
+            # Off-policy: extract activations from prompt texts
+            acts = self.act_manager.get_activations_for_texts(
+                self.X_test_text, layer, component, activation_type, 
+                format_type=format_type
+            )
         
         # Validate activations for numerical issues
         self._validate_activations(acts, "test")
         
-        if use_masks and masks is not None:
-            return acts, masks, self.y_test
-        else:
-            return acts, self.y_test
+        return acts, self.y_test
     
     def extract_all_activations(self, layer: int, component: str):
         """Extract activations for all texts in the dataset without requiring splits."""
@@ -354,6 +395,43 @@ class Dataset:
         print(f"[DEBUG] {split_name} activations shape: {acts_array.shape}, dtype: {acts_array.dtype}")
         print(f"[DEBUG] {split_name} activations range: [{np.min(acts_array):.6f}, {np.max(acts_array):.6f}]")
     
+    def filter_data_by_model_check(self, run_name: str, check_name: str):
+        """
+        Filter data based on model_check results.
+        This should be called before splitting data for off-policy experiments.
+        """
+        # Load the model_check CSV file
+        csv_path = Path(f"results/{run_name}/runthrough_{self.dataset_name}/logit_diff_{check_name}_{self.dataset_name}_model_check.csv")
+        
+        if not csv_path.exists():
+            print(f"Warning: Model check CSV not found at {csv_path}")
+            return
+        
+        # Read the CSV
+        df_check = pd.read_csv(csv_path)
+        
+        # Create a mapping from prompt to use_in_filtered_scoring
+        prompt_to_filter = dict(zip(df_check['prompt'], df_check['use_in_filtered_scoring']))
+        
+        # Filter the dataset
+        filtered_indices = []
+        for i, prompt in enumerate(self.X):
+            if prompt in prompt_to_filter and prompt_to_filter[prompt] == 1:
+                filtered_indices.append(i)
+        
+        if len(filtered_indices) == 0:
+            print(f"Warning: No examples passed the filter for dataset {self.dataset_name}")
+            return
+        
+        # Apply the filter
+        filtered_indices = np.array(filtered_indices)
+        self.X = self.X[filtered_indices]
+        self.y = self.y[filtered_indices]
+        if self.response_texts is not None:
+            self.response_texts = self.response_texts[filtered_indices]
+        
+        print(f"Filtered dataset {self.dataset_name}: {len(filtered_indices)} examples passed the filter")
+
     def clear_activation_cache(self):
         """Clear activation cache to free memory."""
         if self.act_manager is not None:
@@ -495,8 +573,8 @@ class Dataset:
             val_indices.extend(cls_indices_shuffled[n_per_class_test:n_per_class_test+n_per_class_val])
             used_indices.update(cls_indices_shuffled[:n_per_class_test+n_per_class_val])
         
-        # If insufficient samples and only_test is True, use all data as test set
-        if insufficient_samples and only_test:
+        # If only_test is True, use all data as test set
+        if only_test:
             # Use all samples as test set
             all_indices = np.arange(n_total)
             test_df = df.iloc[all_indices]
@@ -652,8 +730,8 @@ class Dataset:
             val_indices.extend(cls_indices_shuffled[n_per_class_test:n_per_class_test+n_per_class_val])
             used_indices.update(cls_indices_shuffled[:n_per_class_test+n_per_class_val])
         
-        # If insufficient samples and only_test is True, use all data as test set
-        if insufficient_samples and only_test:
+        # If only_test is True, use all data as test set
+        if only_test:
             # Use all samples as test set
             all_indices = np.arange(n_total)
             test_df = df.iloc[all_indices]

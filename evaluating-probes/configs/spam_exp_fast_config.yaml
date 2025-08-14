@@ -1,5 +1,5 @@
 run_name: "spam_experiment_gemma"
-model_name: "google/gemma-2-9b" # 1.2 B multilignual model, 512 seq length
+model_name: "google/gemma-2-9b-it"
 d_model: 3584 # 3584 for gemma-2-9b
 device: "cuda:0" # will use these for extracting activations, but not for sklearn probes
 use_grouped_training: True
@@ -10,6 +10,10 @@ seeds: [42, 43, 44, 45, 46, 47, 48, 49, 50, 51]
 layers: [20] # Where SAE probes found layers peform the bestss
 components:
   - "resid_post"
+
+# Activation extraction configuration
+activation_extraction:
+  format_type: "qr"  # Options: "qr" (on-policy), "r" (off-policy instruct), "r-no-it" (off-policy non-instruct)
 
 # Evaluation dataset configurations with thresholds for filtered scoring
 architectures:
@@ -148,7 +152,13 @@ experiments:
         
 model_check:
   - name: spam-pred
-    hf_model_name: "google/gemma-2-9b" # not using it model since not probing it
+    hf_model_name: "google/gemma-2-9b-it" # not using it model since not probing it
     check_on: ["94_better_spam", "87_is_spam"]
+    method: "it"  # Options: "it" (uses chat template), "no-it" (uses few-shot prompt)
     check_prompt: "Is this email spam? Answer with either Yes or No. \n {prompt}"
+    few_shot_prompt: |
+      This email is spam: "Get rich quick! Make money fast with our amazing offer!"
+      This email is not spam: "Hi John, here's the meeting agenda for tomorrow."
+      What about this email? Answer with either Yes or No. "{prompt}"
+      
     class_names: {0: ["Yes", "yes", " Yes", " yes"], 1: ["No", "no", " No", " no"]}

@@ -96,59 +96,75 @@ class ActivationManager:
         texts: Iterable[str],
         layer: int,
         component: str,
-        activation_type: str = "full"
-    ) -> Tuple[np.ndarray, np.ndarray]:
+        activation_type: str = "full",
+        response_texts: Optional[Iterable[str]] = None,
+        format_type: str = "r-no-it"
+    ) -> np.ndarray:
         """
-        Return activations based on activation_type.
-        This method ONLY retrieves existing activations - no extraction.
+        Get activations for texts, with caching and aggregation support.
         
         Args:
-            texts: List of texts to get activations for
+            texts: Input texts (prompts)
             layer: Layer number
             component: Component name (e.g., 'resid_post')
-            activation_type: Type of activations to return:
-                - "full": Full activations (N, S, D) with masks
-                - "linear_mean", "linear_max", "linear_last", "linear_softmax": Linear probe aggregations
-                - "sae_mean", "sae_max", "sae_last", "sae_softmax": SAE probe aggregations
+            activation_type: Type of activation to return:
+                - "full": Full activations (padded to max length)
+                - "linear_mean", "linear_max", "linear_last": Linear aggregations
+                - "sae_mean", "sae_max", "sae_last": SAE aggregations
                 - "act_sim_mean", "act_sim_max", "act_sim_last", "act_sim_softmax": Activation similarity aggregations
+            response_texts: Optional list of response/question texts (for on-policy experiments)
+            format_type: Format for activation extraction:
+                - "qr": On-policy - format as prompt+question using chat template, extract question tokens
+                - "r": Off-policy instruct - format prompt as user prompt using chat template, extract prompt tokens
+                - "r-no-it": Off-policy non-instruct - use prompt text directly without chat template
         
         Returns:
-            Tuple of (activations, masks) where masks might be None for pre-aggregated activations
+            Activations array (no masks returned)
         """
         texts = list(texts)
         metadata_path, activations_path = self._paths(layer, component)
 
-        # For pre-aggregated types, load from separate files
-        if activation_type in get_all_activation_types() and activation_type != "full":
-            # Extract the aggregation method from the activation_type
-            # Use the suffix after the last underscore so that
-            #   - "linear_mean" -> "mean"
-            #   - "sae_max" -> "max"
-            #   - "act_sim_mean" -> "mean" (not "sim_mean")
-            aggregation = activation_type.rsplit("_", 1)[1]
-            aggregated_path = activations_path.parent / f"{activations_path.stem}_aggregated_{aggregation}.npz"
+        # Check which texts need extraction
+        existing: Dict[str, np.ndarray] = {}
+        if activations_path.exists():
+            existing = dict(np.load(activations_path, allow_pickle=True))
+
+        missing_texts: List[str] = []
+        missing_response_texts: List[str] = []
+        for i, text in enumerate(texts):
+            text_hash = self._hash(text)
+            if text_hash not in existing:
+                missing_texts.append(text)
+                if response_texts is not None:
+                    missing_response_texts.append(response_texts[i])
+
+        # Extract missing activations
+        if missing_texts:
+            print(f"[DEBUG] Extracting activations for {len(missing_texts)} missing texts")
+            new_activations = self._extract_activations(
+                missing_texts, layer, component, format_type, 
+                missing_response_texts if response_texts is not None else None
+            )
             
-            if not aggregated_path.exists():
-                raise ValueError(f"Aggregated activations file {aggregated_path} does not exist. Run extract_activations_for_dataset first.")
-            
-            print(f"[DEBUG] Loading {activation_type} aggregated activations from {aggregated_path}")
-            aggregated_data = np.load(aggregated_path, mmap_mode='r')
-            
-            # Load in the order of texts
-            aggregated_list = []
-            for text in texts:
+            # Save new activations
+            all_activations = {**existing}
+            for i, text in enumerate(missing_texts):
                 text_hash = self._hash(text)
-                if text_hash not in aggregated_data:
-                    raise ValueError(f"Text not found in aggregated activations: {text[:50]}...")
-                aggregated_list.append(aggregated_data[text_hash])
+                all_activations[text_hash] = new_activations[i]
             
-            result = np.stack(aggregated_list)
-            print(f"[DEBUG] Loaded {activation_type} aggregated activations: {result.shape}")
-            return result, None
-        
-        # For full activations, use the original method
-        else:
-            return self._get_full_activations_with_masks(texts, layer, component, activations_path)
+            np.savez(activations_path, **all_activations)
+
+        # Load all activations in the order of texts
+        activations_list = []
+        for text in texts:
+            text_hash = self._hash(text)
+            if text_hash not in existing and activations_path.exists():
+                # Reload to get newly saved activations
+                existing = dict(np.load(activations_path, allow_pickle=True))
+            activations_list.append(existing[text_hash])
+
+        # Return appropriate activations based on type
+        return self._get_activations_for_return(activations_list, activation_type, layer, component, texts)
 
     def get_activations_for_responses(
         self,
@@ -179,12 +195,21 @@ class ActivationManager:
         texts: Iterable[str],
         layer: int,
         component: str,
+        response_texts: Optional[Iterable[str]] = None,
+        format_type: str = "r-no-it"
     ) -> int:
         """
-        Ensure that full activations for the provided texts are present in the cache.
-        This will compute and append any missing activations to the full activations file.
-
-        Returns the number of newly computed activations.
+        Ensure texts are cached. Returns number of newly computed activations.
+        
+        Args:
+            texts: Input texts
+            layer: Layer number
+            component: Component name
+            response_texts: Optional response texts for on-policy
+            format_type: Format type for extraction
+            
+        Returns:
+            Number of newly computed activations
         """
         if self.model is None or self.tokenizer is None:
             raise ValueError("ActivationManager is read-only. A full model is required to compute activations.")
@@ -192,59 +217,39 @@ class ActivationManager:
         texts = list(texts)
         _, activations_path = self._paths(layer, component)
 
-        # Load existing activations (if any)
+        # Check which texts are missing
         existing: Dict[str, np.ndarray] = {}
         if activations_path.exists():
             existing = dict(np.load(activations_path, allow_pickle=True))
 
-        # Determine which texts are missing
         missing_texts: List[str] = []
-        for text in texts:
+        missing_response_texts: List[str] = []
+        for i, text in enumerate(texts):
             text_hash = self._hash(text)
             if text_hash not in existing:
                 missing_texts.append(text)
+                if response_texts is not None:
+                    missing_response_texts.append(response_texts[i])
 
         if not missing_texts:
             return 0
 
-        hook_name = f"blocks.{layer}.hook_{component}"
-
-        # Compute activations for missing texts in small batches to control memory
-        new_entries: Dict[str, np.ndarray] = {}
-        batch_size = 1
-        self.model.eval()
-        self.model.to(self.device)
-        with torch.no_grad():
-            for i in tqdm(range(0, len(missing_texts), batch_size)):
-                batch_texts = missing_texts[i:i+batch_size]
-                enc = self.tokenizer(
-                    batch_texts,
-                    return_tensors="pt",
-                    padding=False,
-                    truncation=False,
-                    add_special_tokens=True,
-                )
-                input_ids = enc["input_ids"].to(self.device)
-                attention_mask = enc.get("attention_mask")
-                if attention_mask is not None:
-                    attention_mask = attention_mask.to(self.device)
-
-                acts_tensor = self._run_and_capture(layer=layer, component=component, input_ids=input_ids, attention_mask=attention_mask)
-                acts_tensor = acts_tensor.detach().to("cpu")  # [B, S, D]
-
-                for j, text in enumerate(batch_texts):
-                    text_hash = self._hash(text)
-                    if text_hash in existing or text_hash in new_entries:
-                        continue
-                    activation = acts_tensor[j].numpy()  # [S, D]
-                    new_entries[text_hash] = activation
-
-        # Merge and save
-        if new_entries:
-            to_save = {**existing, **new_entries}
-            np.savez_compressed(activations_path, **to_save)
-
-        return len(new_entries)
+        # Extract missing activations
+        print(f"[DEBUG] Extracting activations for {len(missing_texts)} missing texts")
+        new_activations = self._extract_activations(
+            missing_texts, layer, component, format_type, 
+            missing_response_texts if response_texts is not None else None
+        )
+        
+        # Save new activations
+        all_activations = {**existing}
+        for i, text in enumerate(missing_texts):
+            text_hash = self._hash(text)
+            all_activations[text_hash] = new_activations[i]
+        
+        np.savez(activations_path, **all_activations)
+        
+        return len(missing_texts)
 
     def ensure_conversation_texts_cached(
         self,
@@ -343,63 +348,214 @@ class ActivationManager:
 
         return len(new_entries)
 
-    def _get_full_activations_with_masks(self, texts: List[str], layer: int, component: str, activations_path: Path) -> Tuple[np.ndarray, np.ndarray]:
-        """Helper method to get full activations with masks. ONLY retrieves existing activations."""
-        # Check if activations exist
-        if not activations_path.exists():
-            raise ValueError(f"Activations file {activations_path} does not exist. Run extract_activations_for_dataset first.")
+    def _extract_activations(
+        self,
+        texts: List[str],
+        layer: int,
+        component: str,
+        format_type: str,
+        response_texts: Optional[List[str]] = None
+    ) -> np.ndarray:
+        """
+        Core activation extraction logic based on format type.
+        
+        Args:
+            texts: Input texts (prompts)
+            layer: Layer number
+            component: Component name
+            format_type: Format type ("qr", "r", "r-no-it")
+            response_texts: Optional response/question texts for on-policy
+            
+        Returns:
+            Extracted activations array
+        """
+        if self.model is None or self.tokenizer is None:
+            raise ValueError("ActivationManager is read-only. A full model is required to compute activations.")
 
-        # Load all activations
-        print(f"[DEBUG] Loading activations from {activations_path}")
-        all_activations = dict(np.load(activations_path, allow_pickle=True, mmap_mode='r'))
-        print(f"[DEBUG] Loaded {len(all_activations)} activations from file")
-        
-        # Convert to list in the order of texts
-        print(f"[DEBUG] Converting {len(texts)} texts to activations list")
+        hook_name = f"blocks.{layer}.hook_{component}"
         activations_list = []
-        masks_list = []
         
-        for text in texts:
-            text_hash = self._hash(text)
-            if text_hash not in all_activations:
-                raise ValueError(f"Text not found in activations: {text[:50]}...")
+        self.model.eval()
+        self.model.to(self.device)
+        
+        with torch.no_grad():
+            for i in tqdm(range(len(texts)), desc=f"Extracting activations for {format_type}"):
+                text = texts[i]
+                
+                if format_type == "qr" and response_texts is not None:
+                    # On-policy: format as prompt+question using chat template, extract question tokens
+                    question = response_texts[i]
+                    if hasattr(self.tokenizer, 'apply_chat_template'):
+                        formatted = self.tokenizer.apply_chat_template([
+                            {"role": "user", "content": text},
+                            {"role": "assistant", "content": question}
+                        ], tokenize=False)
+                    else:
+                        formatted = f"{text}\n\n{question}"
+                    
+                    # Tokenize and get activations
+                    enc = self.tokenizer(
+                        formatted,
+                        return_tensors="pt",
+                        padding=False,
+                        truncation=False,
+                        add_special_tokens=True,
+                    )
+                    input_ids = enc["input_ids"].to(self.device)
+                    
+                    # Get activations and extract only question tokens
+                    question_enc = self.tokenizer(
+                        question,
+                        return_tensors="pt",
+                        padding=False,
+                        truncation=False,
+                        add_special_tokens=True,
+                    )
+                    question_ids = question_enc["input_ids"][0]
+                    
+                    # Find question token positions in full sequence
+                    full_ids = input_ids[0]
+                    question_start = None
+                    for j in range(len(full_ids) - len(question_ids) + 1):
+                        if torch.equal(full_ids[j:j+len(question_ids)], question_ids):
+                            question_start = j
+                            break
+                    
+                    if question_start is None:
+                        # Fallback: use all tokens
+                        activations = self._get_activations_for_input_ids(input_ids, hook_name)
+                    else:
+                        activations = self._get_activations_for_input_ids(input_ids, hook_name)
+                        activations = activations[:, question_start:question_start+len(question_ids), :]
+                
+                elif format_type == "r":
+                    # Off-policy instruct: format prompt as user prompt using chat template, extract prompt tokens
+                    if hasattr(self.tokenizer, 'apply_chat_template'):
+                        formatted = self.tokenizer.apply_chat_template([
+                            {"role": "user", "content": text}
+                        ], tokenize=False)
+                    else:
+                        formatted = text
+                    
+                    enc = self.tokenizer(
+                        formatted,
+                        return_tensors="pt",
+                        padding=False,
+                        truncation=False,
+                        add_special_tokens=True,
+                    )
+                    input_ids = enc["input_ids"].to(self.device)
+                    activations = self._get_activations_for_input_ids(input_ids, hook_name)
+                
+                elif format_type == "r-no-it":
+                    # Off-policy non-instruct: use prompt text directly without chat template
+                    enc = self.tokenizer(
+                        text,
+                        return_tensors="pt",
+                        padding=False,
+                        truncation=False,
+                        add_special_tokens=True,
+                    )
+                    input_ids = enc["input_ids"].to(self.device)
+                    activations = self._get_activations_for_input_ids(input_ids, hook_name)
+                
+                else:
+                    raise ValueError(f"Invalid format_type: {format_type}")
+                
+                activations_list.append(activations.cpu().numpy())
+        
+        return np.concatenate(activations_list, axis=0)
+
+    def _get_activations_for_input_ids(self, input_ids: torch.Tensor, hook_name: str) -> torch.Tensor:
+        """Helper to get activations for input_ids with hook."""
+        activations = None
+        
+        def hook_fn(module, input, output):
+            nonlocal activations
+            activations = output.detach()
+        
+        handle = self.model.register_forward_hook(hook_fn)
+        try:
+            self.model(input_ids)
+            return activations
+        finally:
+            handle.remove()
+
+    def _get_activations_for_return(
+        self,
+        activations_list: List[np.ndarray],
+        activation_type: str,
+        layer: int,
+        component: str,
+        texts: List[str]
+    ) -> np.ndarray:
+        """
+        Determine what activations to return based on activation_type.
+        
+        Args:
+            activations_list: List of activation arrays
+            activation_type: Type of activation to return
+            layer: Layer number
+            component: Component name
             
-            activation = all_activations[text_hash]
-            activations_list.append(activation)
+        Returns:
+            Appropriate activations array
+        """
+        if activation_type == "full":
+            # Pad to max length and stack
+            max_len = max(act.shape[1] for act in activations_list)
+            padded_activations = []
             
-            # Create mask (all True for actual tokens)
-            mask = np.ones(activation.shape[0], dtype=bool)
-            masks_list.append(mask)
-        
-        print(f"[DEBUG] Converted to lists, now padding to max length")
-        # Pad to max length
-        max_len = max(act.shape[0] for act in activations_list)
-        print(f"[DEBUG] Max length is {max_len}")
-        padded_activations = []
-        padded_masks = []
-        
-        for activation, mask in tqdm(zip(activations_list, masks_list)):
-            if activation.shape[0] < max_len:
-                # Pad activation
-                padding_size = max_len - activation.shape[0]
-                padded_act = np.pad(activation, ((0, padding_size), (0, 0)), mode='constant', constant_values=0)
-                # Pad mask
-                padded_mask = np.pad(mask, (0, padding_size), mode='constant', constant_values=False)
-            else:
-                padded_act = activation
-                padded_mask = mask
+            for act in activations_list:
+                if act.shape[1] < max_len:
+                    # Pad with zeros
+                    padding = np.zeros((act.shape[0], max_len - act.shape[1], act.shape[2]))
+                    act = np.concatenate([act, padding], axis=1)
+                padded_activations.append(act)
             
-            padded_activations.append(padded_act)
-            padded_masks.append(padded_mask)
+            return np.concatenate(padded_activations, axis=0)
         
-        print(f"[DEBUG] Padding complete, now stacking into arrays")
-        # Stack into arrays
-        activations_array = np.stack(padded_activations)
-        print(f"[DEBUG] Stacked activations: {activations_array.shape}")
-        masks_array = np.stack(padded_masks)
-        print(f"[DEBUG] Stacked masks: {masks_array.shape}")
-        
-        return activations_array, masks_array
+        else:
+            # For aggregated types, load from saved aggregation files
+            # Extract the aggregation method from the activation_type
+            # Use the suffix after the last underscore so that
+            #   - "linear_mean" -> "mean"
+            #   - "sae_max" -> "max"
+            #   - "act_sim_mean" -> "mean" (not "sim_mean")
+            aggregation = activation_type.rsplit("_", 1)[1]
+            aggregated_path = activations_path.parent / f"{activations_path.stem}_aggregated_{aggregation}.npz"
+            
+            if not aggregated_path.exists():
+                raise ValueError(f"Aggregated activations file {aggregated_path} does not exist. Run extract_activations_for_dataset first.")
+            
+            print(f"[DEBUG] Loading {activation_type} aggregated activations from {aggregated_path}")
+            aggregated_data = np.load(aggregated_path, mmap_mode='r')
+            
+            # Load in the order of texts
+            aggregated_list = []
+            for text in texts:
+                text_hash = self._hash(text)
+                if text_hash not in aggregated_data:
+                    raise ValueError(f"Text not found in aggregated activations: {text[:50]}...")
+                aggregated_list.append(aggregated_data[text_hash])
+            
+            result = np.stack(aggregated_list)
+            print(f"[DEBUG] Loaded {activation_type} aggregated activations: {result.shape}")
+            return result
+
+    def _aggregate_activations(self, activations: np.ndarray, method: str) -> np.ndarray:
+        """Helper to aggregate activations using specified method."""
+        if method == "mean":
+            return np.mean(activations, axis=1)
+        elif method == "max":
+            return np.max(activations, axis=1)
+        elif method == "last":
+            return activations[:, -1, :]
+        elif method == "softmax":
+            # For activation similarity
+            return activations[:, -1, :]  # Use last token for softmax
+        else:
+            raise ValueError(f"Unknown aggregation method: {method}")
 
     def compute_and_save_all_aggregations(self, layer: int, component: str, force_recompute: bool = False):
         """Compute and save aggregated activations from the full activations file.

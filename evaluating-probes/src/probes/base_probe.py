@@ -36,11 +36,6 @@ class BaseProbe:
         """Fit the probe to the data. Must be implemented by subclasses."""
         raise NotImplementedError("Subclasses must implement fit method")
 
-    def find_best_fit(self, X_train: List[np.ndarray], y_train: np.ndarray, X_val: List[np.ndarray], y_val: np.ndarray,
-                      **kwargs) -> dict:
-        """Find best hyperparameters. Must be implemented by subclasses."""
-        raise NotImplementedError("Subclasses must implement find_best_fit method")
-
     def predict(self, X: List[np.ndarray]) -> np.ndarray:
         """Predict binary labels. Must be implemented by subclasses."""
         raise NotImplementedError("Subclasses must implement predict method")
