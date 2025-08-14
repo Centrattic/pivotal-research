@@ -49,7 +49,6 @@ def get_probe_architecture(
     """Create probe architecture with filtered config parameters."""
     # Import probes inside function to avoid circular imports
     from src.probes import (
-        LinearProbe,
         SklearnLinearProbe,
         AttentionProbe,
         MassMeanProbe,
@@ -63,12 +62,7 @@ def get_probe_architecture(
             device=device,
             **config,
         )
-    elif architecture_name == "linear":
-        return LinearProbe(
-            d_model=d_model,
-            device=device,
-            **config,
-        )
+
     elif architecture_name == "attention":
         return AttentionProbe(
             d_model=d_model,

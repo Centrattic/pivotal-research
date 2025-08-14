@@ -23,21 +23,6 @@ class SklearnLinearProbeConfig(ProbeConfig):
     random_state: int = 42
     batch_size: int = 1024  # For consistency with other probes
 
-
-@dataclass
-class PytorchLinearProbeConfig(ProbeConfig):
-    """Hyperparameters for the PyTorch LinearProbe."""
-    aggregation: str = "mean"  # mean, max, last, softmax
-    lr: float = 5e-4
-    epochs: int = 100
-    batch_size: int = 1024  # H100: 2048, H200: 800, A6000: 32
-    weight_decay: float = 0.0
-    verbose: bool = True
-    early_stopping: bool = True
-    patience: int = 10
-    min_delta: float = 1e-4
-
-
 @dataclass
 class PytorchAttentionProbeConfig(ProbeConfig):
     """Hyperparameters for the PyTorch AttentionProbe."""
@@ -99,11 +84,7 @@ PROBE_CONFIGS = {
     "high_reg_sklearn_linear": SklearnLinearProbeConfig(C=0.01),
     "no_reg_sklearn_linear": SklearnLinearProbeConfig(C=100.0),
 
-    # Linear probe configs - now with aggregation as a parameter (legacy PyTorch)
-    "linear_mean": PytorchLinearProbeConfig(aggregation="mean"),
-    "linear_max": PytorchLinearProbeConfig(aggregation="max"),
-    "linear_last": PytorchLinearProbeConfig(aggregation="last"),
-    "linear_softmax": PytorchLinearProbeConfig(aggregation="softmax"),
+
 
     # Attention probe configs
     "attention": PytorchAttentionProbeConfig(),

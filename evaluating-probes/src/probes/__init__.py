@@ -1,6 +1,5 @@
 from src.probes.base_probe import BaseProbe
 from src.probes.base_probe_non_trainable import BaseProbeNonTrainable
-from src.probes.linear_probe_torch import LinearProbe, LinearProbeNet
 from src.probes.linear_probe_sklearn import SklearnLinearProbe
 from src.probes.attention_probe import AttentionProbe, AttentionProbeNet
 from src.probes.mass_mean_probe import MassMeanProbe
@@ -11,8 +10,6 @@ from src.probes.sae_probe import SAEProbe, SAEProbeNet
 __all__ = [
     'BaseProbe',
     'BaseProbeNonTrainable',
-    'LinearProbe',
-    'LinearProbeNet',
     'SklearnLinearProbe',
     'AttentionProbe',
     'AttentionProbeNet',

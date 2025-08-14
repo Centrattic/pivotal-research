@@ -15,8 +15,7 @@ from src.utils import (
     get_probe_filename_prefix,
     rebuild_suffix
 )
-from src.probe_configs import ProbeJob, LinearProbeConfig, SAEProbeConfig, AttentionProbeConfig, NonTrainableProbeConfig
-
+from src.probe_configs import ProbeJob, SAEProbeConfig, AttentionProbeConfig, NonTrainableProbeConfig
 
 def add_hyperparams_to_filename(base_filename: str, probe_config) -> str:
     """Add hyperparameter values to filename if they differ from defaults."""
@@ -372,21 +371,6 @@ def train_single_probe(
             probe.fit(train_acts, y_train)
         logger.log(f"  [DEBUG] Fitted probe normally")
 
-    elif job.architecture_name == "linear":
-        logger.log(f"  [DEBUG] Creating PyTorch linear probe")
-        # PyTorch linear probe
-        probe = get_probe_architecture(
-            "linear",
-            d_model=get_model_d_model(config['model_name']),
-            device=config['device'],
-            config=probe_config_dict
-        )
-        logger.log(f"  [DEBUG] Created PyTorch linear probe")
-
-        logger.log(f"  [DEBUG] Fitting PyTorch linear probe normally...")
-        probe.fit(train_acts, y_train, train_masks)
-        logger.log(f"  [DEBUG] Fitted PyTorch linear probe normally")
-
     elif job.architecture_name == "attention":
         logger.log(f"  [DEBUG] Creating attention probe")
         # Attention probe
@@ -544,13 +528,7 @@ def evaluate_single_probe(
             device=config['device'],
             config=probe_config_dict
         )
-    elif job.architecture_name == "linear":
-        probe = get_probe_architecture(
-            "linear",
-            d_model=get_model_d_model(config['model_name']),
-            device=config['device'],
-            config=probe_config_dict
-        )
+
     elif job.architecture_name == "attention":
         probe = get_probe_architecture(
             "attention",

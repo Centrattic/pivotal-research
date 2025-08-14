@@ -16,8 +16,6 @@ activation_extraction:
 architectures:
   - name: "sklearn_linear"
     config_name: "sklearn_linear_mean"
-    sweep_params:
-      C: [0.01, 0.1, 1.0, 10.0, 100.0]
   - name: "act_sim"
     config_name: "act_sim_mean"
 

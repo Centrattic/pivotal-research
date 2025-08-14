@@ -10,7 +10,7 @@ from typing import List, Dict, Any, Optional, Union
 from joblib import Parallel, delayed
 import sys
 import os
-from configs.probes import PROBE_CONFIGS, SklearnLinearProbeConfig, PytorchLinearProbeConfig, PytorchAttentionProbeConfig, SAEProbeConfig, MassMeanProbeConfig, ActivationSimilarityProbeConfig
+from configs.probes import PROBE_CONFIGS, SklearnLinearProbeConfig, PytorchAttentionProbeConfig, SAEProbeConfig, MassMeanProbeConfig, ActivationSimilarityProbeConfig
 from dataclasses import dataclass
 from typing import List, Optional, Dict, Any
 
@@ -47,7 +47,6 @@ from src.data import get_model_d_model
 from src.model_check.main import run_model_check
 from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 
-
 @dataclass
 class ProbeJob:
     """Represents a single probe training/evaluation job."""
@@ -61,7 +60,7 @@ class ProbeJob:
 
     # Probe configuration
     architecture_name: str  # sklearn_linear, linear, sae, attention, act_sim, mass_mean
-    probe_config: Any  # Union[SklearnLinearProbeConfig, PytorchLinearProbeConfig, PytorchAttentionProbeConfig, SAEProbeConfig, MassMeanProbeConfig, ActivationSimilarityProbeConfig]
+    probe_config: Any  # Union[SklearnLinearProbeConfig, PytorchAttentionProbeConfig, SAEProbeConfig, MassMeanProbeConfig, ActivationSimilarityProbeConfig]
 
     # Data configuration
     rebuild_config: Optional[Dict] = None
@@ -81,11 +80,10 @@ def create_probe_config(
     architecture_name: str,
     config_name: str
 ) -> Union[SklearnLinearProbeConfig,
-           PytorchLinearProbeConfig,
-           PytorchAttentionProbeConfig,
-           SAEProbeConfig,
-           MassMeanProbeConfig,
-           ActivationSimilarityProbeConfig]:
+            PytorchAttentionProbeConfig,
+            SAEProbeConfig,
+            MassMeanProbeConfig,
+            ActivationSimilarityProbeConfig]:
     """Create probe configuration based on architecture and config name."""
     # Use the existing PROBE_CONFIGS dictionary
     if config_name in PROBE_CONFIGS:
@@ -95,9 +93,6 @@ def create_probe_config(
         if architecture_name == "sklearn_linear":
             aggregation = config_name.split("_")[-1] if "_" in config_name else "mean"
             return SklearnLinearProbeConfig(aggregation=aggregation)
-        elif architecture_name == "linear":
-            aggregation = config_name.split("_")[-1] if "_" in config_name else "mean"
-            return PytorchLinearProbeConfig(aggregation=aggregation)
         elif architecture_name == "sae":
             # Handle specific SAE configs
             if "16k_l0_408" in config_name:
@@ -118,7 +113,7 @@ def create_probe_config(
             raise ValueError(f"Unknown architecture: {architecture_name}")
 
 
-def add_hyperparams_to_filename(base_filename: str, probe_config) -> str:
+def add_hyperparams_to_filename(base_filename: str, probe_config,) -> str:
     """Add hyperparameter values to filename if they differ from defaults."""
     hparam_suffix = ""
 
@@ -146,107 +141,36 @@ def add_hyperparams_to_filename(base_filename: str, probe_config) -> str:
         return base_filename
 
 
-def generate_sweep_from_params(
-    architecture_name: str,
-    config_name: str,
-    sweep_params: Dict
-) -> List[Union[SklearnLinearProbeConfig,
-                PytorchLinearProbeConfig,
-                PytorchAttentionProbeConfig,
-                SAEProbeConfig,
-                MassMeanProbeConfig,
-                ActivationSimilarityProbeConfig]]:
-    """Generate hyperparameter sweep configurations from sweep_params in architecture config."""
-    base_config = create_probe_config(architecture_name, config_name)
-    sweep_configs = [base_config]  # Always include the base config
-
-    # Generate configs for each parameter combination
-    for param_name, param_values in sweep_params.items():
-        for param_value in param_values:
-            # Create a copy of the base config with the new parameter value
-            if hasattr(base_config, param_name):
-                sweep_config = copy.deepcopy(base_config)
-                setattr(sweep_config, param_name, param_value)
-                sweep_configs.append(sweep_config)
-            else:
-                print(f"Warning: Parameter {param_name} not found in {architecture_name} config")
-
-    return sweep_configs
 
 
 def generate_hyperparameter_sweep(
     architecture_name: str,
     config_name: str
 ) -> List[Union[SklearnLinearProbeConfig,
-                PytorchLinearProbeConfig,
                 PytorchAttentionProbeConfig,
                 SAEProbeConfig,
                 MassMeanProbeConfig,
                 ActivationSimilarityProbeConfig]]:
     """Generate hyperparameter sweep configurations for a given architecture."""
-    # Extract base config name (without aggregation suffix)
-    base_name = config_name
-    if "_" in config_name:
-        parts = config_name.split("_")
-        if parts[-1] in ["mean", "max", "last", "softmax"]:
-            base_name = "_".join(parts[:-1])
+    # Define sweep arrays at the top for easy editing
+    C_VALUES = [0.01, 0.1, 1.0, 10.0, 100.0]
+    LR_VALUES = [1e-5, 5e-5, 1e-4, 5e-4, 1e-3]
+    WEIGHT_DECAY_VALUES = [0.0, 1e-5, 1e-4, 1e-3]
 
     sweep_configs = []
 
     if architecture_name == "sklearn_linear":
-        # Use predefined sweep configs from PROBE_CONFIGS
-        for C in [0.01, 0.1, 1.0, 10.0, 100.0]:
-            sweep_name = f"{base_name}_sweep_C_{C}"
-            if sweep_name in PROBE_CONFIGS:
-                sweep_configs.append(PROBE_CONFIGS[sweep_name])
-            else:
-                # Fallback: create config manually
-                base_config = create_probe_config(architecture_name, config_name)
-                base_config.C = C
-                sweep_configs.append(base_config)
-    elif architecture_name == "linear":
-        # Learning rate sweep
-        for lr in [1e-5, 5e-5, 1e-4, 5e-4, 1e-3]:
-            sweep_name = f"{base_name}_sweep_lr_{lr}"
-            if sweep_name in PROBE_CONFIGS:
-                sweep_configs.append(PROBE_CONFIGS[sweep_name])
-            else:
-                # Fallback: create config manually
-                base_config = create_probe_config(architecture_name, config_name)
-                base_config.lr = lr
-                sweep_configs.append(base_config)
-        # Weight decay sweep
-        for weight_decay in [0.0, 1e-5, 1e-4, 1e-3]:
-            sweep_name = f"{base_name}_sweep_wd_{weight_decay}"
-            if sweep_name in PROBE_CONFIGS:
-                sweep_configs.append(PROBE_CONFIGS[sweep_name])
-            else:
-                # Fallback: create config manually
-                base_config = create_probe_config(architecture_name, config_name)
-                base_config.weight_decay = weight_decay
-                sweep_configs.append(base_config)
-    elif architecture_name == "sae":
-        # Learning rate sweep
-        for lr in [1e-5, 5e-5, 1e-4, 5e-4, 1e-3]:
-            sweep_name = f"{base_name}_sweep_lr_{lr}"
-            if sweep_name in PROBE_CONFIGS:
-                sweep_configs.append(PROBE_CONFIGS[sweep_name])
-            else:
-                # Fallback: create config manually
-                base_config = create_probe_config(architecture_name, config_name)
-                base_config.lr = lr
-                sweep_configs.append(base_config)
-    elif architecture_name == "attention":
-        # Learning rate sweep
-        for lr in [1e-5, 5e-5, 1e-4, 5e-4, 1e-3]:
-            sweep_name = f"{base_name}_sweep_lr_{lr}"
-            if sweep_name in PROBE_CONFIGS:
-                sweep_configs.append(PROBE_CONFIGS[sweep_name])
-            else:
-                # Fallback: create config manually
-                base_config = create_probe_config(architecture_name, config_name)
-                base_config.lr = lr
-                sweep_configs.append(base_config)
+        # C sweep
+        for C in C_VALUES:
+            base_config = create_probe_config(architecture_name, config_name)
+            base_config.C = C
+            sweep_configs.append(base_config)
+    elif architecture_name in ["sae", "attention"]:
+        # Learning rate sweep for trainable architectures
+        for lr in LR_VALUES:
+            base_config = create_probe_config(architecture_name, config_name)
+            base_config.lr = lr
+            sweep_configs.append(base_config)
     else:
         # Non-trainable probes don't need hyperparameter sweeps
         sweep_configs = [create_probe_config(architecture_name, config_name)]
@@ -436,13 +360,8 @@ def create_probe_jobs(config: Dict, all_seeds: List[int]) -> List[ProbeJob]:
         for arch_config in config.get('architectures', []):
             architecture_name = arch_config['name']
             config_name = arch_config.get('config_name')
-            sweep_params = arch_config.get('sweep_params', {})
-
-            # Generate hyperparameter sweep based on sweep_params or default sweeps
-            if sweep_params:
-                probe_configs = generate_sweep_from_params(architecture_name, config_name, sweep_params)
-            else:
-                probe_configs = generate_hyperparameter_sweep(architecture_name, config_name)
+            # Generate hyperparameter sweep (always use predefined sweeps)
+            probe_configs = generate_hyperparameter_sweep(architecture_name, config_name)
 
             for probe_config in probe_configs:
                 for train_dataset in train_sets:
