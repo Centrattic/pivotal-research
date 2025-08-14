@@ -47,6 +47,7 @@ from src.data import get_model_d_model
 from src.model_check.main import run_model_check
 from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 
+
 @dataclass
 class ProbeJob:
     """Represents a single probe training/evaluation job."""
@@ -77,13 +78,9 @@ class ProbeJob:
 
 
 def create_probe_config(
-    architecture_name: str,
-    config_name: str
-) -> Union[SklearnLinearProbeConfig,
-            PytorchAttentionProbeConfig,
-            SAEProbeConfig,
-            MassMeanProbeConfig,
-            ActivationSimilarityProbeConfig]:
+    architecture_name: str, config_name: str
+) -> Union[SklearnLinearProbeConfig, PytorchAttentionProbeConfig, SAEProbeConfig, MassMeanProbeConfig,
+           ActivationSimilarityProbeConfig]:
     """Create probe configuration based on architecture and config name."""
     # Use the existing PROBE_CONFIGS dictionary
     if config_name in PROBE_CONFIGS:
@@ -113,7 +110,10 @@ def create_probe_config(
             raise ValueError(f"Unknown architecture: {architecture_name}")
 
 
-def add_hyperparams_to_filename(base_filename: str, probe_config,) -> str:
+def add_hyperparams_to_filename(
+    base_filename: str,
+    probe_config,
+) -> str:
     """Add hyperparameter values to filename if they differ from defaults."""
     hparam_suffix = ""
 
@@ -141,15 +141,9 @@ def add_hyperparams_to_filename(base_filename: str, probe_config,) -> str:
         return base_filename
 
 
-
-
 def generate_hyperparameter_sweep(
-    architecture_name: str,
-    config_name: str
-) -> List[Union[SklearnLinearProbeConfig,
-                PytorchAttentionProbeConfig,
-                SAEProbeConfig,
-                MassMeanProbeConfig,
+    architecture_name: str, config_name: str
+) -> List[Union[SklearnLinearProbeConfig, PytorchAttentionProbeConfig, SAEProbeConfig, MassMeanProbeConfig,
                 ActivationSimilarityProbeConfig]]:
     """Generate hyperparameter sweep configurations for a given architecture."""
     # Define sweep arrays at the top for easy editing
@@ -434,12 +428,7 @@ def process_probe_job(
         # Train the probe
         logger.log(f"  🚀 Training probe: {job.architecture_name}")
         train_single_probe(
-            job=job,
-            config=config,
-            results_dir=trained_dir,
-            cache_dir=cache_dir,
-            logger=logger,
-            rerun=rerun
+            job=job, config=config, results_dir=trained_dir, cache_dir=cache_dir, logger=logger, rerun=rerun
         )
 
         # Evaluate on all evaluation datasets
@@ -570,15 +559,11 @@ def main():
                 bnb_4bit_compute_dtype=torch.float16
             )
             model = AutoModelForCausalLM.from_pretrained(
-                config['model_name'],
-                device_map=config['device'],
-                quantization_config=bnb_config
+                config['model_name'], device_map=config['device'], quantization_config=bnb_config
             )
         else:
             model = AutoModelForCausalLM.from_pretrained(
-                config['model_name'],
-                device_map=config['device'],
-                torch_dtype=torch.float16
+                config['model_name'], device_map=config['device'], torch_dtype=torch.float16
             )
 
         tokenizer = AutoTokenizer.from_pretrained(config['model_name'])
@@ -609,13 +594,8 @@ def main():
         logger.log(f"Using {n_jobs} parallel jobs")
 
         results = Parallel(
-            n_jobs=n_jobs,
-            verbose=10
-        )(delayed(process_probe_job)(job,
-                                     config,
-                                     results_dir,
-                                     cache_dir,
-                                     log_file_path) for job in all_probe_jobs)
+            n_jobs=n_jobs, verbose=10
+        )(delayed(process_probe_job)(job, config, results_dir, cache_dir, log_file_path) for job in all_probe_jobs)
 
         # Count successful jobs
         successful_jobs = sum(1 for result in results if result)

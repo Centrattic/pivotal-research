@@ -84,8 +84,6 @@ PROBE_CONFIGS = {
     "high_reg_sklearn_linear": SklearnLinearProbeConfig(C=0.01),
     "no_reg_sklearn_linear": SklearnLinearProbeConfig(C=100.0),
 
-
-
     # Attention probe configs
     "attention": PytorchAttentionProbeConfig(),
 

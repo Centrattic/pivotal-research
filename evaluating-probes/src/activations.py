@@ -555,6 +555,7 @@ class ActivationManager:
             #   - "sae_max" -> "max"
             #   - "act_sim_mean" -> "mean" (not "sim_mean")
             aggregation = activation_type.rsplit("_", 1)[1]
+            _, activations_path = self._paths(layer, component)
             aggregated_path = activations_path.parent / f"{activations_path.stem}_aggregated_{aggregation}.npz"
 
             if not aggregated_path.exists():

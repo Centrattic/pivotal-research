@@ -6,14 +6,11 @@ import torch
 import copy
 import json
 import pandas as pd
-from src.data import Dataset
+from src.data import Dataset, get_model_d_model
 from src.logger import Logger
 from configs.probes import PROBE_CONFIGS
 from src.utils import (
-    extract_aggregation_from_config,
-    get_probe_architecture,
-    get_probe_filename_prefix,
-    rebuild_suffix
+    extract_aggregation_from_config, get_probe_architecture, get_probe_filename_prefix, rebuild_suffix
 )
 from src.probe_configs import ProbeJob, SAEProbeConfig, AttentionProbeConfig, NonTrainableProbeConfig
 
@@ -110,11 +107,7 @@ def extract_activations_for_dataset(
                 dataset_texts = ds.X.tolist()
                 response_texts = ds.response_texts.tolist()
                 newly_added = ds.act_manager.ensure_texts_cached(
-                    dataset_texts,
-                    layer,
-                    component,
-                    response_texts=response_texts,
-                    format_type=format_type
+                    dataset_texts, layer, component, response_texts=response_texts, format_type=format_type
                 )
                 logger.log(f"    - Cached {newly_added} new activations (on-policy format: {format_type})")
             else:
@@ -156,16 +149,13 @@ def extract_activations_for_dataset(
         # Then compute and save all aggregated activations (force if any new added)
         logger.log(f"    - Computing aggregated activations...")
         ds.act_manager.compute_and_save_all_aggregations(
-            layer,
-            component,
-            force_recompute=(newly_added > 0 or llm_samples_added > 0)
+            layer, component, force_recompute=(newly_added > 0 or llm_samples_added > 0)
         )
         logger.log(f"    - Completed aggregations")
 
     except Exception as e:
         logger.log(f"    - 💀 ERROR extracting activations for {dataset_name}: {e}")
         raise
-
 
 def train_single_probe(
     job: ProbeJob,
@@ -181,16 +171,11 @@ def train_single_probe(
 
     # Create config name from architecture and probe config
     config_name = f"{job.architecture_name}_{job.probe_config.aggregation}" if hasattr(
-        job.probe_config,
-        'aggregation'
+        job.probe_config, 'aggregation'
     ) else job.architecture_name
 
     probe_filename_base = get_probe_filename_prefix(
-        job.train_dataset,
-        job.architecture_name,
-        job.layer,
-        job.component,
-        config_name
+        job.train_dataset, job.architecture_name, job.layer, job.component, config_name
     )
     probe_save_dir = results_dir / f"train_{job.train_dataset}"
 
@@ -205,20 +190,13 @@ def train_single_probe(
         probe_filename = f"{probe_filename_with_hparams}_{suffix}_state.npz"
         probe_state_path = probe_save_dir / probe_filename
         probe_json_path = probe_save_dir / f"{probe_filename_with_hparams}_{suffix}_meta.json"
-        # For hyperparameter tuning, use the complete filename base with suffix
-        hyperparam_filename_base = f"{probe_filename_with_hparams}_{suffix}"
     else:
         probe_state_path = probe_save_dir / f"{probe_filename_with_hparams}_state.npz"
         probe_json_path = probe_save_dir / f"{probe_filename_with_hparams}_meta.json"
-        # For hyperparameter tuning, use the base filename
-        hyperparam_filename_base = probe_filename_with_hparams
 
     # EARLY CHECK: If probe already exists and we're not rerunning, skip immediately
     if config.get('cache_activations', True) and probe_state_path.exists() and not rerun:
-        if job.rebuild_config is not None:
-            logger.log(f"  - [SKIP] Probe already trained in dataclass_exps: {probe_state_path.name}")
-        else:
-            logger.log(f"  - [SKIP] Probe already trained: {probe_state_path.name}")
+        logger.log(f"  - [SKIP] Probe already trained: {probe_state_path.name}")
         return
 
     logger.log("  - Training new probe …")
@@ -228,7 +206,6 @@ def train_single_probe(
     if job.rebuild_config is not None:
         logger.log(f"  [DEBUG] Using rebuild_config: {job.rebuild_config}")
         orig_ds = Dataset(job.train_dataset, model_name=config['model_name'], device=config['device'], seed=job.seed)
-        logger.log(f"  [DEBUG] Created original dataset")
 
         # Filter data for off-policy experiments if model_check was run
         if not job.on_policy and 'model_check' in config:
@@ -241,7 +218,6 @@ def train_single_probe(
                     datasets_to_check = [check_on] if check_on else []
 
                 if job.train_dataset in datasets_to_check:
-                    logger.log(f"  [DEBUG] Filtering data for off-policy experiment...")
                     orig_ds.filter_data_by_model_check(run_name, check['name'])
                     break
 
@@ -260,7 +236,6 @@ def train_single_probe(
                     "For LLM upsampling, 'n_real_neg', 'n_real_pos', and 'upsampling_factor' must be specified"
                 )
 
-            logger.log(f"  [DEBUG] Building LLM upsampled dataset...")
             train_ds = Dataset.build_llm_upsampled_dataset(
                 orig_ds,
                 seed=job.seed,
@@ -272,14 +247,12 @@ def train_single_probe(
                 llm_csv_base_path=llm_csv_base_path,
                 only_test=False,
             )
-            logger.log(f"  [DEBUG] Built LLM upsampled dataset")
         else:
             # Original rebuild_config logic
             logger.log(f"  [DEBUG] Using original rebuild_config logic")
             train_class_counts = job.rebuild_config.get('class_counts')
             train_class_percents = job.rebuild_config.get('class_percents')
             train_total_samples = job.rebuild_config.get('total_samples')
-            logger.log(f"  [DEBUG] Building imbalanced train balanced eval dataset...")
             train_ds = Dataset.build_imbalanced_train_balanced_eval(
                 orig_ds,
                 train_class_counts=train_class_counts,
@@ -290,11 +263,9 @@ def train_single_probe(
                 seed=job.seed,  # Use the global seed passed to this function
                 only_test=False,
             )
-            logger.log(f"  [DEBUG] Built imbalanced train balanced eval dataset")
     else:
         logger.log(f"  [DEBUG] Using simple dataset creation")
         train_ds = Dataset(job.train_dataset, model_name=config['model_name'], device=config['device'], seed=job.seed)
-        logger.log(f"  [DEBUG] Created dataset")
 
         # Filter data for off-policy experiments if model_check was run
         if not job.on_policy and 'model_check' in config:
@@ -307,13 +278,10 @@ def train_single_probe(
                     datasets_to_check = [check_on] if check_on else []
 
                 if job.train_dataset in datasets_to_check:
-                    logger.log(f"  [DEBUG] Filtering data for off-policy experiment...")
                     train_ds.filter_data_by_model_check(run_name, check['name'])
                     break
 
-        logger.log(f"  [DEBUG] Now splitting data...")
         train_ds.split_data(train_size=job.train_size, val_size=job.val_size, test_size=job.test_size, seed=job.seed)
-        logger.log(f"  [DEBUG] Split data complete")
 
     # Get activations
     activation_type = get_activation_type_from_config(config_name)
@@ -328,11 +296,7 @@ def train_single_probe(
 
     # Get activations using the unified method
     train_result = train_ds.get_train_set_activations(
-        job.layer,
-        job.component,
-        activation_type=activation_type,
-        on_policy=job.on_policy,
-        format_type=format_type
+        job.layer, job.component, activation_type=activation_type, on_policy=job.on_policy, format_type=format_type
     )
 
     # Handle different return formats (with/without masks)
@@ -341,8 +305,6 @@ def train_single_probe(
     else:
         train_acts, y_train = train_result
         train_masks = None
-
-    logger.log(f"  [DEBUG] Got activations with type: {activation_type}")
 
     print(f"Train activations: {len(train_acts) if isinstance(train_acts, list) else train_acts.shape}")
 
@@ -380,29 +342,19 @@ def train_single_probe(
             device=config['device'],
             config=probe_config_dict
         )
-        logger.log(f"  [DEBUG] Created attention probe")
-
         logger.log(f"  [DEBUG] Fitting attention probe normally...")
         probe.fit(train_acts, y_train)
-        logger.log(f"  [DEBUG] Fitted attention probe normally")
 
     elif job.architecture_name == "sae":
-        logger.log(f"  [DEBUG] Creating SAE probe")
         # SAE probe
         probe = get_probe_architecture(
-            "sae",
-            d_model=get_model_d_model(config['model_name']),
-            device=config['device'],
-            config=probe_config_dict
+            "sae", d_model=get_model_d_model(config['model_name']), device=config['device'], config=probe_config_dict
         )
-        logger.log(f"  [DEBUG] Created SAE probe")
 
         logger.log(f"  [DEBUG] Fitting SAE probe normally...")
         probe.fit(train_acts, y_train, train_masks)
-        logger.log(f"  [DEBUG] Fitted SAE probe normally")
 
     elif job.architecture_name == "mass_mean":
-        logger.log(f"  [DEBUG] Creating mass mean probe")
         # Mass mean probe (non-trainable)
         probe = get_probe_architecture(
             "mass_mean",
@@ -410,13 +362,10 @@ def train_single_probe(
             device=config['device'],
             config=probe_config_dict
         )
-        logger.log(f"  [DEBUG] Created mass mean probe")
         logger.log(f"  [DEBUG] Fitting mass mean probe...")
         probe.fit(train_acts, y_train)
-        logger.log(f"  [DEBUG] Fitted mass mean probe")
 
     elif job.architecture_name == "act_sim":
-        logger.log(f"  [DEBUG] Creating activation similarity probe")
         # Activation similarity probe (non-trainable)
         probe = get_probe_architecture(
             "act_sim",
@@ -424,49 +373,33 @@ def train_single_probe(
             device=config['device'],
             config=probe_config_dict
         )
-        logger.log(f"  [DEBUG] Created activation similarity probe")
         logger.log(f"  [DEBUG] Fitting activation similarity probe...")
         probe.fit(train_acts, y_train)
-        logger.log(f"  [DEBUG] Fitted activation similarity probe")
 
     else:
         raise ValueError(f"Unknown architecture_name: {job.architecture_name}")
 
     # Save probe
-    logger.log(f"  [DEBUG] Saving probe state...")
     probe_save_dir.mkdir(parents=True, exist_ok=True)
     probe.save_state(probe_state_path)
-    logger.log(f"  [DEBUG] Saved probe state")
 
     # Save metadata/config
-    logger.log(f"  [DEBUG] Saving metadata...")
+    # yapf: disable
     meta = {
-        'train_dataset_name':
-        job.train_dataset,
-        'layer':
-        job.layer,
-        'component':
-        job.component,
-        'architecture_name':
-        job.architecture_name,
-        'aggregation':
-        extract_aggregation_from_config(config_name,
-                                        job.architecture_name) if hasattr(probe,
-                                                                          'aggregation') else None,
-        'config_name':
-        config_name,
-        'rebuild_config':
-        copy.deepcopy(job.rebuild_config),
-        'probe_state_path':
-        str(probe_state_path),
-        'on_policy':
-        job.on_policy,
+        'train_dataset_name': job.train_dataset,
+        'layer': job.layer,
+        'component': job.component,
+        'architecture_name': job.architecture_name,
+        'aggregation': extract_aggregation_from_config(config_name, job.architecture_name) if hasattr(probe, 'aggregation') else None,
+        'config_name': config_name,
+        'rebuild_config': copy.deepcopy(job.rebuild_config),
+        'probe_state_path': str(probe_state_path),
+        'on_policy': job.on_policy,
     }
+    # yapf: enable
     with open(probe_json_path, 'w') as f:
         json.dump(meta, f, indent=2)
-    logger.log(f"  [DEBUG] Saved metadata")
     logger.log(f"  - 🔥 Probe state saved to {probe_state_path.name}")
-    logger.log(f"  [DEBUG] train_single_probe function completed successfully")
 
 
 def evaluate_single_probe(
@@ -484,19 +417,14 @@ def evaluate_single_probe(
     """
     # Create config name from architecture and probe config
     config_name = f"{job.architecture_name}_{job.probe_config.aggregation}" if hasattr(
-        job.probe_config,
-        'aggregation'
+        job.probe_config, 'aggregation'
     ) else job.architecture_name
 
     # Extract aggregation from config for results, to be backward compatible
     agg_name = extract_aggregation_from_config(config_name, job.architecture_name)
 
     probe_filename_base = get_probe_filename_prefix(
-        job.train_dataset,
-        job.architecture_name,
-        job.layer,
-        job.component,
-        config_name
+        job.train_dataset, job.architecture_name, job.layer, job.component, config_name
     )
     # Add hyperparameters to filename if they differ from defaults
     probe_filename_with_hparams = add_hyperparams_to_filename(probe_filename_base, job.probe_config)
@@ -538,10 +466,7 @@ def evaluate_single_probe(
         )
     elif job.architecture_name == "sae":
         probe = get_probe_architecture(
-            "sae",
-            d_model=get_model_d_model(config['model_name']),
-            device=config['device'],
-            config=probe_config_dict
+            "sae", d_model=get_model_d_model(config['model_name']), device=config['device'], config=probe_config_dict
         )
     elif job.architecture_name == "mass_mean":
         probe = get_probe_architecture(
@@ -572,11 +497,7 @@ def evaluate_single_probe(
     # Prepare evaluation dataset
     if job.rebuild_config is not None:
         orig_ds = Dataset(
-            eval_dataset,
-            model_name=config['model_name'],
-            device=config['device'],
-            seed=job.seed,
-            only_test=only_test
+            eval_dataset, model_name=config['model_name'], device=config['device'], seed=job.seed, only_test=only_test
         )
 
         # Check if this is LLM upsampling with new method
@@ -621,17 +542,12 @@ def evaluate_single_probe(
             )
     else:
         eval_ds = Dataset(
-            eval_dataset,
-            model_name=config['model_name'],
-            device=config['device'],
-            seed=job.seed,
-            only_test=only_test
+            eval_dataset, model_name=config['model_name'], device=config['device'], seed=job.seed, only_test=only_test
         )
         eval_ds.split_data(train_size=job.train_size, val_size=job.val_size, test_size=job.test_size, seed=job.seed)
 
     # Get activations
     activation_type = get_activation_type_from_config(config_name)
-    logger.log(f"  [DEBUG] Using activation_type: {activation_type}")
 
     # Get activation extraction format from config
     format_type = "r-no-it"
@@ -642,11 +558,7 @@ def evaluate_single_probe(
 
     # Get activations using the unified method
     test_result = eval_ds.get_test_set_activations(
-        job.layer,
-        job.component,
-        activation_type=activation_type,
-        on_policy=job.on_policy,
-        format_type=format_type
+        job.layer, job.component, activation_type=activation_type, on_policy=job.on_policy, format_type=format_type
     )
 
     # Handle different return formats (with/without masks)
