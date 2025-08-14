@@ -16,20 +16,29 @@ from tqdm import tqdm
 import optuna
 from src.logger import Logger
 
+
 class BaseProbe:
     """
     General wrapper for PyTorch-based probes. Handles training, evaluation, and saving/loading.
     """
-    def __init__(self, d_model: int, device: str = "cpu", task_type: str = "classification"):
+
+    def __init__(
+        self,
+        d_model: int,
+        device: str = "cpu",
+        task_type: str = "classification",
+    ):
         self.d_model = d_model
         self.device = device
         self.task_type = task_type  # Keep for future extensibility
         self.model: Optional[nn.Module] = None
         self.loss_history = []
         self._init_model()
-        self.fit_patience=15
+        self.fit_patience = 15
 
-    def _init_model(self):
+    def _init_model(
+        self,
+    ):
         raise NotImplementedError("Subclasses must implement _init_model to set self.model")
 
     def fit(self, X: List[np.ndarray], y: np.ndarray, **kwargs) -> None:
@@ -52,113 +61,10 @@ class BaseProbe:
         """Calculate accuracy score. Must be implemented by subclasses."""
         raise NotImplementedError("Subclasses must implement score method")
 
-    def score_filtered(self, X, y: np.ndarray, masks: np.ndarray = None, 
-                      dataset_name: str = None, results_dir: Path = None, 
-                      seed: int = None, test_size: float = 0.15) -> dict[str, float]:
-        """
-        Calculate metrics only on examples where the model's logit_diff indicates correct prediction.
-        Reads the CSV file from runthrough folder and filters based on logit_diff values.
-        
-        Args:
-            X: Activations array, shape (N, seq_len, d_model)
-            y: Labels, shape (N,)
-            masks: Attention masks, shape (N, seq_len) where True indicates actual tokens
-            dataset_name: Name of the dataset for finding the CSV file
-            results_dir: Results directory to find the runthrough folder
-            seed: Seed for reproducibility
-            test_size: Test size for dataset splitting
-            
-        Returns:
-            Dictionary of metrics on filtered data
-        """
-        if dataset_name is None or results_dir is None:
-            # Fallback to regular scoring if we can't find the CSV
-            return self.score(X, y, masks)
-        
-        # Find the runthrough directory
-        parent_dir = results_dir.parent
-        runthrough_dir = parent_dir / f"runthrough_{dataset_name}"
-        
-        if not runthrough_dir.exists():
-            print(f"[DEBUG] Runthrough directory not found: {runthrough_dir}")
-            return self.score(X, y, masks)
-        
-        # Look for CSV files with logit_diff in the filename
-        csv_files = list(runthrough_dir.glob("*logit_diff*.csv"))
-        if not csv_files:
-            print(f"[DEBUG] No logit_diff CSV files found in: {runthrough_dir}")
-            return self.score(X, y, masks)
-        
-        csv_path = csv_files[0]
-        try:
-            df = pd.read_csv(csv_path)
-            
-            # Check if we have the required columns
-            if 'logit_diff' not in df.columns or 'label' not in df.columns:
-                print(f"[DEBUG] Missing required columns. Available columns: {list(df.columns)}")
-                return self.score(X, y, masks)
-            
-            # Calculate use_in_filtered_scoring based on logit_diff and true label
-            # For class 0 samples: use if logit_diff < 0 (model correctly predicts class 0)
-            # For class 1 samples: use if logit_diff > 0 (model correctly predicts class 1)
-            use_in_filtered = []
-            for _, row in df.iterrows():
-                true_class = row['label']
-                logit_diff = row['logit_diff']
-                
-                if true_class == 0:
-                    # Class 0: use if logit_diff < 0 (model correctly predicts class 0)
-                    use_in_filtered.append(1 if logit_diff < 0 else 0)
-                elif true_class == 1:
-                    # Class 1: use if logit_diff > 0 (model correctly predicts class 1)
-                    use_in_filtered.append(1 if logit_diff > 0 else 0)
-                else:
-                    # Fallback for any other class
-                    use_in_filtered.append(0)
-            
-            # Check if the number of samples matches
-            if len(use_in_filtered) != len(y):
-                print(f"[DEBUG] Sample count mismatch: CSV has {len(use_in_filtered)} samples, but y has {len(y)}")
-                return self.score(X, y, masks)
-            
-            # Filter based on use_in_filtered_scoring
-            filtered_indices = [i for i, use in enumerate(use_in_filtered) if use == 1]
-            
-            if len(filtered_indices) == 0:
-                print(f"[DEBUG] No samples passed the filter criteria")
-                return self.score(X, y, masks)
-            
-            # Apply the filter to X, y, and masks
-            # Handle both numpy arrays and lists of arrays
-            if isinstance(X, np.ndarray):
-                X_filtered = X[filtered_indices]
-            elif isinstance(X, list):
-                X_filtered = [X[i] for i in filtered_indices]
-            else:
-                print(f"[DEBUG] Unexpected X type: {type(X)}")
-                return self.score(X, y, masks)
-                
-            y_filtered = y[filtered_indices]
-            masks_filtered = masks[filtered_indices] if masks is not None else None
-            
-            # Calculate metrics on filtered data
-            result = self.score(X_filtered, y_filtered, masks_filtered)
-            
-            # Add filter info to result
-            result["filtered"] = True
-            result["filter_method"] = "logit_diff_based"
-            result["original_size"] = len(y)
-            result["filtered_size"] = len(filtered_indices)
-            result["removed_count"] = len(y) - len(filtered_indices)
-            
-            return result
-            
-        except Exception as e:
-            # If anything goes wrong, fall back to regular scoring
-            print(f"[DEBUG] Exception in score_filtered: {e}")
-            return self.score(X, y, masks)
-
-    def save_state(self, path: Path):
+    def save_state(
+        self,
+        path: Path,
+    ):
         save_dict = {
             'model_state_dict': self.model.state_dict(),
             'd_model': self.d_model,
@@ -179,7 +85,10 @@ class BaseProbe:
             json.dump(train_info, f, indent=2)
         print(f"Saved training log to {log_path}")
 
-    def load_state(self, path: Path):
+    def load_state(
+        self,
+        path: Path,
+    ):
         checkpoint = torch.load(path, map_location=self.device)
         self.d_model = checkpoint['d_model']
         self.task_type = checkpoint.get('task_type', 'classification')  # Keep for future extensibility
@@ -189,4 +98,3 @@ class BaseProbe:
         self._init_model()
         self.model.load_state_dict(checkpoint['model_state_dict'])
         print(f"Loaded probe from {path}")
-

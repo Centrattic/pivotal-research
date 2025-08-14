@@ -4,7 +4,10 @@ import json
 import ast
 import random
 
-def parse_list(val):
+
+def parse_list(
+    val,
+):
     # Accept list, numpy array, or string representation of list, or nan
     if isinstance(val, (list, np.ndarray)):
         return list(val)
@@ -21,7 +24,10 @@ def parse_list(val):
                 return [x.strip() for x in val.split(',')]
     return []
 
-def is_nonempty_list(val):
+
+def is_nonempty_list(
+    val,
+):
     # True if val is a list/array/Series with at least one non-null entry
     if isinstance(val, (list, np.ndarray, pd.Series)):
         return len(val) > 0
@@ -30,7 +36,11 @@ def is_nonempty_list(val):
     # For all else (shouldn't happen), treat as non-empty if not empty string
     return bool(val)
 
-def process(row, source_file):
+
+def process(
+    row,
+    source_file,
+):
     # Load file
     if source_file.endswith(".parquet"):
         df = pd.read_parquet(source_file)
@@ -38,12 +48,14 @@ def process(row, source_file):
         df = pd.read_json(source_file, lines=True)
     else:
         df = pd.read_csv(source_file)
-    
+
     # Get probe columns
     probe_from = [x.strip() for x in str(row['Probe from']).split(',') if x.strip()]
     probe_to = [x.strip() for x in str(row['Probe to']).split(',') if x.strip()]
     if len(probe_from) < 2 or len(probe_to) < 1:
-        raise ValueError("Probe from must specify question column and at least one distractor column (or a list column); Probe to must specify correct answer column (or list column).")
+        raise ValueError(
+            "Probe from must specify question column and at least one distractor column (or a list column); Probe to must specify correct answer column (or list column)."
+        )
 
     question_col = probe_from[0]
     incorrect_cols = probe_from[1:]
@@ -91,9 +103,5 @@ def process(row, source_file):
             prompts.append(prompt)
             targets.append(label)
 
-    out_df = pd.DataFrame({
-        'prompt': prompts,
-        'prompt_len': [len(x) for x in prompts],
-        'target': targets
-    })
+    out_df = pd.DataFrame({'prompt': prompts, 'prompt_len': [len(x) for x in prompts], 'target': targets})
     return out_df

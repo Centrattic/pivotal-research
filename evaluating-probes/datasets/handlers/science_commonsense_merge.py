@@ -3,7 +3,11 @@ import numpy as np
 import os
 import json
 
-def process(row, source_folder):
+
+def process(
+    row,
+    source_folder,
+):
     # Parse source files
     source_field = row['source']
     if isinstance(source_field, str):
@@ -23,14 +27,8 @@ def process(row, source_folder):
     if save_name.endswith('.csv'):
         save_name = save_name[:-4]
     # Accept both long and short save names
-    mode1 = (
-        'science_true+commonsense_false' in save_name or
-        save_name == 'cs_f_sci_t'
-    )
-    mode2 = (
-        'science_false+commonsense_true' in save_name or
-        save_name == 'sci_f_cs_t'
-    )
+    mode1 = ('science_true+commonsense_false' in save_name or save_name == 'cs_f_sci_t')
+    mode2 = ('science_false+commonsense_true' in save_name or save_name == 'sci_f_cs_t')
     sci_df = pd.read_parquet(sci_path)
     cs_rows = []
     with open(cs_path, 'r') as f:
@@ -82,11 +80,9 @@ def process(row, source_folder):
         prompts = sci_false_prompts + cs_true_prompts
         targets = sci_false_targets + cs_true_targets
     else:
-        raise ValueError("Could not determine mode from save_name or name. Should contain 'science_true+commonsense_false', 'cs_f_sci_t', 'science_false+commonsense_true', or 'sci_f_cs_t'.")
-    out_df = pd.DataFrame({
-        'prompt': prompts,
-        'prompt_len': [len(p) for p in prompts],
-        'target': targets
-    })
+        raise ValueError(
+            "Could not determine mode from save_name or name. Should contain 'science_true+commonsense_false', 'cs_f_sci_t', 'science_false+commonsense_true', or 'sci_f_cs_t'."
+        )
+    out_df = pd.DataFrame({'prompt': prompts, 'prompt_len': [len(p) for p in prompts], 'target': targets})
     out_df = out_df.sample(frac=1, random_state=42).reset_index(drop=True)
-    return out_df 
+    return out_df

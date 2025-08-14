@@ -5,10 +5,12 @@ from dataclasses import dataclass, field
 # Set sklearn to use only 1 thread for CPU-based training
 # os.environ["OMP_NUM_THREADS"] = "1"
 
+
 @dataclass
 class ProbeConfig:
     """Base class for probe configurations."""
     pass
+
 
 @dataclass
 class SklearnLinearProbeConfig(ProbeConfig):
@@ -21,30 +23,33 @@ class SklearnLinearProbeConfig(ProbeConfig):
     random_state: int = 42
     batch_size: int = 1024  # For consistency with other probes
 
+
 @dataclass
 class PytorchLinearProbeConfig(ProbeConfig):
     """Hyperparameters for the PyTorch LinearProbe."""
     aggregation: str = "mean"  # mean, max, last, softmax
     lr: float = 5e-4
     epochs: int = 100
-    batch_size: int = 1024 # H100: 2048, H200: 800, A6000: 32
+    batch_size: int = 1024  # H100: 2048, H200: 800, A6000: 32
     weight_decay: float = 0.0
     verbose: bool = True
     early_stopping: bool = True
     patience: int = 10
     min_delta: float = 1e-4
 
+
 @dataclass
 class PytorchAttentionProbeConfig(ProbeConfig):
     """Hyperparameters for the PyTorch AttentionProbe."""
     lr: float = 5e-4
     epochs: int = 100
-    batch_size: int = 1024 # H100: 2560, H200: 1024, A6000: 32
+    batch_size: int = 1024  # H100: 2560, H200: 1024, A6000: 32
     weight_decay: float = 0.0
     verbose: bool = True
     early_stopping: bool = True
     patience: int = 10
     min_delta: float = 1e-4
+
 
 @dataclass
 class SAEProbeConfig(ProbeConfig):
@@ -57,12 +62,13 @@ class SAEProbeConfig(ProbeConfig):
     lr: float = 5e-4
     epochs: int = 100
     encoding_batch_size: int = 1280  # Batch size for SAE encoding (memory intensive) - H100: 100
-    training_batch_size: int = 2560   # Batch size for probe training - H100: 512
+    training_batch_size: int = 2560  # Batch size for probe training - H100: 512
     weight_decay: float = 0.0
     verbose: bool = True
     early_stopping: bool = True
     patience: int = 10
     min_delta: float = 1e-4
+
 
 @dataclass
 class MassMeanProbeConfig(ProbeConfig):
@@ -71,12 +77,14 @@ class MassMeanProbeConfig(ProbeConfig):
     batch_size: int = 1280  # Batch size for processing - H100: 1024
     # No other parameters needed since mass-mean is computed analytically
 
+
 @dataclass
 class ActivationSimilarityProbeConfig(ProbeConfig):
     """Configuration for the Activation Similarity probe (no training needed)."""
     aggregation: str = "mean"  # mean, max, last, softmax
     batch_size: int = 1280  # Batch size for processing - H100: 1024
     # No other parameters needed since activation similarity is computed analytically
+
 
 # A dictionary to easily access configs by name. Configs are updated by -ht flag (Optuna tuning).
 # The issue is we'd need separate for each dataset
@@ -90,13 +98,13 @@ PROBE_CONFIGS = {
     "default_sklearn_linear": SklearnLinearProbeConfig(),
     "high_reg_sklearn_linear": SklearnLinearProbeConfig(C=0.01),
     "no_reg_sklearn_linear": SklearnLinearProbeConfig(C=100.0),
-    
+
     # Linear probe configs - now with aggregation as a parameter (legacy PyTorch)
     "linear_mean": PytorchLinearProbeConfig(aggregation="mean"),
     "linear_max": PytorchLinearProbeConfig(aggregation="max"),
     "linear_last": PytorchLinearProbeConfig(aggregation="last"),
     "linear_softmax": PytorchLinearProbeConfig(aggregation="softmax"),
-    
+
     # Attention probe configs
     "attention": PytorchAttentionProbeConfig(),
 
@@ -104,10 +112,10 @@ PROBE_CONFIGS = {
     # using gemma-scope-9b-pt-res as done in Kantamneni, not gemma-2-9b-it
     "sae_16k_l0_408_last": SAEProbeConfig(
         aggregation="last", # no matter right now
-        sae_id="layer_20/width_16k/average_l0_408", 
+        sae_id="layer_20/width_16k/average_l0_408",
     ),
     "sae_262k_l0_259_last": SAEProbeConfig(
-        aggregation="last", 
+        aggregation="last",
         sae_id="layer_20/width_262k/average_l0_259",
         # encoding_batch_size=1024,  # H100: 1024
         # training_batch_size=256,   # H100: 256

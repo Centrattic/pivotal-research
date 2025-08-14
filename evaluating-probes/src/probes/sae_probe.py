@@ -15,6 +15,7 @@ from sae_lens import SAE
 from src.probes.base_probe import BaseProbe
 from src.logger import Logger
 
+
 def get_memory_usage():
     """Get current memory usage for debugging."""
     process = psutil.Process()
@@ -29,12 +30,19 @@ def get_memory_usage():
     else:
         return f"RAM: {ram_usage:.2f}GB"
 
+
 class SAEProbeNet(nn.Module):
     """
     Neural network for SAE-based probing.
     Takes SAE-encoded activations and applies a linear classifier.
     """
-    def __init__(self, sae_feature_dim: int, aggregation: str = "mean", device: str = "cpu"):
+
+    def __init__(
+        self,
+        sae_feature_dim: int,
+        aggregation: str = "mean",
+        device: str = "cpu",
+    ):
         super().__init__()
         self.sae_feature_dim = sae_feature_dim
         self.aggregation = aggregation
@@ -64,16 +72,28 @@ class SAEProbeNet(nn.Module):
         logits = self.linear(x).squeeze(-1)
         return logits
 
+
 class SAEProbe(BaseProbe):
     """
     SAE-based probe that loads pre-trained SAEs and trains linear classifiers on their features.
     Supports pooled aggregation across sequence dimensions and feature selection.
     """
-    def __init__(self, d_model: int, device: str = "cpu", task_type: str = "classification", 
-                 aggregation: str = "mean", model_name: str = "gemma-2-9b", layer: int = 20,
-                 sae_id: Optional[str] = None, top_k_features: int = 128, 
-                 sae_cache_dir: Optional[Path] = None, encoding_batch_size: int = 256, 
-                 training_batch_size: int = 64, **kwargs):
+
+    def __init__(
+        self,
+        d_model: int,
+        device: str = "cpu",
+        task_type: str = "classification",
+        aggregation: str = "mean",
+        model_name: str = "gemma-2-9b",
+        layer: int = 20,
+        sae_id: Optional[str] = None,
+        top_k_features: int = 128,
+        sae_cache_dir: Optional[Path] = None,
+        encoding_batch_size: int = 256,
+        training_batch_size: int = 64,
+        **kwargs,
+    ):
         """
         Initialize SAE probe.
         
@@ -91,7 +111,7 @@ class SAEProbe(BaseProbe):
         """
         if sae_id is None:
             raise ValueError("sae_id must be provided. Use specific SAE probe configurations from configs/probes.py")
-        
+
         # Store SAE-specific parameters
         self.model_name = model_name
         self.layer = layer
@@ -102,23 +122,25 @@ class SAEProbe(BaseProbe):
         self.sae_cache_dir.mkdir(exist_ok=True)
         self.encoding_batch_size = encoding_batch_size
         self.training_batch_size = training_batch_size
-        
+
         # Store any additional config parameters
         for key, value in kwargs.items():
             setattr(self, key, value)
-        
+
         # Initialize SAE and feature selection
         self.sae = None
         self.feature_indices = None
         self.sae_feature_dim = None
-        
+
         # Call parent constructor
         super().__init__(d_model, device, task_type)
-        
+
         # Flag to track if preprocessing has been done
         self._preprocessing_done = False
 
-    def _init_model(self):
+    def _init_model(
+        self,
+    ):
         """Initialize the neural network model."""
         # This will be set after SAE is loaded and features are selected
         if self.sae_feature_dim is not None:
@@ -134,9 +156,9 @@ class SAEProbe(BaseProbe):
         """Load the SAE model."""
         if self.sae is not None:
             return self.sae
-        
+
         print(f"Loading SAE: {self.sae_id}")
-        
+
         # Load from sae_lens using the specific SAE ID
         # Note: We don't cache SAE objects because they contain lambda functions that can't be pickled
         self.sae, _, _ = SAE.from_pretrained(
@@ -145,7 +167,7 @@ class SAEProbe(BaseProbe):
             device=self.device,
         )
         print(f"Loaded SAE: {self.sae_id}")
-        
+
         return self.sae
 
     def _get_sae_release(self) -> str:
@@ -160,39 +182,41 @@ class SAEProbe(BaseProbe):
     def _encode_activations(self, activations: np.ndarray) -> np.ndarray:
         """Encode raw activations through the SAE using configurable batch size."""
         print(f"[DEBUG] Input activations shape: {activations.shape}")
-        
+
         # For now, only process the last sequence position to reduce memory usage
         print(f"[INFO] Processing only the last sequence position for now to reduce memory usage")
         activations = activations[:, -1:, :]  # Take only the last position: (batch, 1, d_model)
         print(f"[DEBUG] After taking last position: {activations.shape}")
-        
+
         sae = self._load_sae()
-        
+
         # Get original shape and flatten batch and sequence dimensions
         original_shape = activations.shape
         flattened = activations.reshape(-1, activations.shape[-1])  # (batch*seq, d_model)
         print(f"[DEBUG] Flattened shape: {flattened.shape}")
-        print(f"[DEBUG] This means {original_shape[0]} samples × {original_shape[1]} sequence positions = {flattened.shape[0]} total activations")
-        
+        print(
+            f"[DEBUG] This means {original_shape[0]} samples × {original_shape[1]} sequence positions = {flattened.shape[0]} total activations"
+        )
+
         # Encode in batches using configurable batch size
         encoded_list = []
         total_batches = (len(flattened) + self.encoding_batch_size - 1) // self.encoding_batch_size
         print(f"[DEBUG] Processing {total_batches} batches of size {self.encoding_batch_size}")
-        
+
         for i in tqdm(range(0, len(flattened), self.encoding_batch_size), desc="Encoding activations"):
-            batch = flattened[i:i+self.encoding_batch_size]
+            batch = flattened[i:i + self.encoding_batch_size]
             # Convert batch to tensor and move to device only for this batch
             batch_tensor = torch.tensor(batch, dtype=torch.bfloat16, device=self.device)
             # Convert bfloat16 to float32 only for numpy conversion
             encoded_batch = sae.encode(batch_tensor).float().cpu().detach().numpy()
             encoded_list.append(encoded_batch)
-        
+
         encoded = np.concatenate(encoded_list, axis=0)
-        
+
         # Reshape back to original batch and sequence dimensions
         encoded = encoded.reshape(original_shape[0], original_shape[1], -1)
         print(f"[DEBUG] Final encoded shape: {encoded.shape}")
-        
+
         return encoded
 
     def _select_top_features(self, X_train: np.ndarray, y_train: np.ndarray) -> np.ndarray:
@@ -208,41 +232,51 @@ class SAEProbe(BaseProbe):
         """
         print(f"[DEBUG] Feature selection input shapes: X_train={X_train.shape}, y_train={y_train.shape}")
         print(f"[DEBUG] Memory at start of feature selection: {get_memory_usage()}")
-        
-        X_agg = X_train.mean(axis=1) # agg doesnt matter rn
-        
+
+        X_agg = X_train.mean(axis=1)  # agg doesnt matter rn
+
         print(f"[DEBUG] Aggregated X shape: {X_agg.shape}")
         print(f"[DEBUG] Memory after aggregation: {get_memory_usage()}")
-        
+
         # Calculate difference of means
         pos_mask = y_train == 1
         neg_mask = y_train == 0
-        
+
         if not pos_mask.any() or not neg_mask.any():
             raise ValueError("Need both positive and negative samples for feature selection")
-        
+
         pos_mean = X_agg[pos_mask].mean(axis=0)
         neg_mean = X_agg[neg_mask].mean(axis=0)
         diff = pos_mean - neg_mean
-        
+
         print(f"[DEBUG] Difference vector shape: {diff.shape}")
         print(f"[DEBUG] Memory after difference calculation: {get_memory_usage()}")
-        
+
         # Select top-k features by absolute difference
         sorted_indices = np.argsort(np.abs(diff))[::-1]
         top_k_indices = sorted_indices[:self.top_k_features]
-        
+
         print(f"Selected top {self.top_k_features} features from {len(diff)} total features")
         print(f"[DEBUG] Memory at end of feature selection: {get_memory_usage()}")
-        
+
         return top_k_indices
 
-
-
-    def fit(self, X: np.ndarray, y: np.ndarray, mask: Optional[np.ndarray] = None, 
-            epochs: int = 20, lr: float = 1e-3, batch_size: int = None, weight_decay: float = 0.0, 
-            verbose: bool = True, early_stopping: bool = True, patience: int = 20, min_delta: float = 0.005,
-            use_weighted_sampler: bool = True, **kwargs):
+    def fit(
+        self,
+        X: np.ndarray,
+        y: np.ndarray,
+        mask: Optional[np.ndarray] = None,
+        epochs: int = 20,
+        lr: float = 1e-3,
+        batch_size: int = None,
+        weight_decay: float = 0.0,
+        verbose: bool = True,
+        early_stopping: bool = True,
+        patience: int = 20,
+        min_delta: float = 0.005,
+        use_weighted_sampler: bool = True,
+        **kwargs,
+    ):
         """
         Train the SAE probe.
         
@@ -262,49 +296,61 @@ class SAEProbe(BaseProbe):
         print(f"Training batch size: {batch_size if batch_size is not None else self.training_batch_size}")
         print(f"Input X shape: {X.shape}")
         print(f"Input y shape: {y.shape}")
-        
+
         # Step 1: Encode activations through SAE
         print("Encoding activations through SAE...")
         print(f"[DEBUG] Before encoding. Memory: {get_memory_usage()}")
         X_encoded = self._encode_activations(X)
         print(f"Encoded X shape: {X_encoded.shape}")
         print(f"[DEBUG] After encoding. Memory: {get_memory_usage()}")
-        
+
         # Step 2: Select top features
         print("Selecting top features...")
         print(f"[DEBUG] Before feature selection. Memory: {get_memory_usage()}")
         self.feature_indices = self._select_top_features(X_encoded, y)
         print(f"Selected {len(self.feature_indices)} features")
         print(f"[DEBUG] After feature selection. Memory: {get_memory_usage()}")
-        
+
         # Step 3: Initialize/reinitialize model with correct feature dimension
         actual_feature_dim = self.top_k_features
         if self.sae_feature_dim != actual_feature_dim or self.model is None:
             print(f"Reinitializing SAE model with {actual_feature_dim} actual selected features")
             self.sae_feature_dim = actual_feature_dim
             self._init_model()
-        
+
         # Select features from encoded activations
         X_selected = X_encoded[:, :, self.feature_indices]
         print(f"Selected X shape: {X_selected.shape}")
-        
+
         # Step 4: Call parent fit method with selected features
         # Use provided batch_size or fall back to self.training_batch_size
         training_batch_size = batch_size if batch_size is not None else self.training_batch_size
         print(f"Training batch size: {training_batch_size}")
-        super().fit(X_selected, y, mask, epochs, lr, training_batch_size, weight_decay, 
-                   verbose, early_stopping, patience, min_delta, 
-                   use_weighted_sampler, **kwargs)
+        super().fit(
+            X_selected,
+            y,
+            mask,
+            epochs,
+            lr,
+            training_batch_size,
+            weight_decay,
+            verbose,
+            early_stopping,
+            patience,
+            min_delta,
+            use_weighted_sampler,
+            **kwargs
+        )
 
     def predict(self, X: np.ndarray, mask: Optional[np.ndarray] = None, batch_size: int = None) -> np.ndarray:
         """Predict using the SAE probe."""
         if self.model is None:
             raise ValueError("Model not trained yet. Call fit() first.")
-        
+
         # Encode and select features
         X_encoded = self._encode_activations(X)
         X_selected = X_encoded[:, :, self.feature_indices]
-        
+
         # Use provided batch_size or fall back to self.training_batch_size
         predict_batch_size = batch_size if batch_size is not None else self.training_batch_size
         return super().predict(X_selected, mask, predict_batch_size)
@@ -313,11 +359,11 @@ class SAEProbe(BaseProbe):
         """Predict probabilities using the SAE probe."""
         if self.model is None:
             raise ValueError("Model not trained yet. Call fit() first.")
-        
+
         # Encode and select features
         X_encoded = self._encode_activations(X)
         X_selected = X_encoded[:, :, self.feature_indices]
-        
+
         # Use provided batch_size or fall back to self.training_batch_size
         predict_batch_size = batch_size if batch_size is not None else self.training_batch_size
         return super().predict_proba(X_selected, mask, predict_batch_size)
@@ -326,16 +372,19 @@ class SAEProbe(BaseProbe):
         """Predict logits using the SAE probe."""
         if self.model is None:
             raise ValueError("Model not trained yet. Call fit() first.")
-        
+
         # Encode and select features
         X_encoded = self._encode_activations(X)
         X_selected = X_encoded[:, :, self.feature_indices]
-        
+
         # Use provided batch_size or fall back to self.training_batch_size
         predict_batch_size = batch_size if batch_size is not None else self.training_batch_size
         return super().predict_logits(X_selected, mask, predict_batch_size)
 
-    def save_state(self, path: Path):
+    def save_state(
+        self,
+        path: Path,
+    ):
         """Save the probe state including SAE info and feature indices."""
         state = {
             'model_state': self.model.state_dict() if self.model else None,
@@ -354,7 +403,10 @@ class SAEProbe(BaseProbe):
         # Use weights_only=False to ensure compatibility with numpy arrays and other objects
         torch.save(state, path, _use_new_zipfile_serialization=False)
 
-    def load_state(self, path: Path):
+    def load_state(
+        self,
+        path: Path,
+    ):
         """Load the probe state."""
         try:
             # Try with weights_only=False for backward compatibility with saved states
@@ -363,7 +415,7 @@ class SAEProbe(BaseProbe):
             # If that fails, try with weights_only=True (new PyTorch 2.6+ default)
             print(f"Warning: Failed to load with weights_only=False, trying with weights_only=True: {e}")
             state = torch.load(path, map_location=self.device, weights_only=True)
-        
+
         # Restore attributes
         self.model_name = state['model_name']
         self.layer = state['layer']
@@ -380,38 +432,49 @@ class SAEProbe(BaseProbe):
         self.feature_indices = state['feature_indices']
         self.sae_feature_dim = state['sae_feature_dim']
         self.task_type = state['task_type']
-        
+
         # Initialize model and load state
         self._init_model()
         if self.model and state['model_state']:
             self.model.load_state_dict(state['model_state'])
-        
+
         self.loss_history = state['loss_history']
 
-    def find_best_fit(self, X_train: List[np.ndarray], y_train: np.ndarray, X_val: List[np.ndarray], y_val: np.ndarray,
-                     epochs: int = 100, n_trials: int = 20, direction: str = None, verbose: bool = True,
-                     probe_save_dir: Path = None, probe_filename_base: str = None) -> dict:
+    def find_best_fit(
+        self,
+        X_train: List[np.ndarray],
+        y_train: np.ndarray,
+        X_val: List[np.ndarray],
+        y_val: np.ndarray,
+        epochs: int = 100,
+        n_trials: int = 20,
+        direction: str = None,
+        verbose: bool = True,
+        probe_save_dir: Path = None,
+        probe_filename_base: str = None
+    ) -> dict:
         """
         Find best hyperparameters by sweeping over weight decay and learning rate values.
         Chooses the model with the lowest averaged training loss over the last self.fit_patience epochs.
         """
         import optuna
-        
-        def objective(trial):
+
+        def objective(
+            trial,
+        ):
             # Define hyperparameter search space
             lr = trial.suggest_float('lr', 1e-5, 1e-2, log=True)
             weight_decay = trial.suggest_float('weight_decay', 1e-6, 1e-2, log=True)
-            
-            # Create a copy of the current probe with trial hyperparameters
-            config_params = {k: v for k, v in self.__dict__.items() 
-                           if k not in ['d_model', 'device', 'task_type', 'aggregation', 'model', 'loss_history']}
 
-            trial_probe = SAEProbe(
-                self.d_model, 
-                device=self.device, 
-                **config_params
-            )
-            
+            # Create a copy of the current probe with trial hyperparameters
+            config_params = {
+                k: v
+                for k, v in self.__dict__.items()
+                if k not in ['d_model', 'device', 'task_type', 'aggregation', 'model', 'loss_history']
+            }
+
+            trial_probe = SAEProbe(self.d_model, device=self.device, **config_params)
+
             # Train with trial hyperparameters
             try:
                 trial_probe.fit(
@@ -426,35 +489,35 @@ class SAEProbe(BaseProbe):
                     min_delta=0.005,
                     use_weighted_sampler=True
                 )
-                
+
                 # Get the last self.fit_patience epochs of training loss for stability assessment
                 last_losses = trial_probe.loss_history[-self.fit_patience:]
                 avg_loss = np.mean(last_losses)
-                
+
                 return avg_loss
-                
+
             except Exception as e:
                 if verbose:
                     print(f"Trial failed with lr={lr}, weight_decay={weight_decay}: {e}")
                 return float('inf')
-        
+
         # Create study to minimize the average training loss
         study = optuna.create_study(direction='minimize')
         study.optimize(objective, n_trials=n_trials, show_progress_bar=verbose)
-        
+
         # Get best parameters
         best_params = study.best_params
-        
+
         if verbose:
             print(f"Best hyperparameters found:")
             print(f"  Learning rate: {best_params['lr']:.2e}")
             print(f"  Weight decay: {best_params['weight_decay']:.2e}")
             print(f"  Best average training loss: {study.best_value:.6f}")
-        
+
         # Save best hyperparameters if directory provided
         if probe_save_dir is not None and probe_filename_base is not None:
             best_hparams_path = probe_save_dir / f"{probe_filename_base}_best_hparams.json"
             with open(best_hparams_path, 'w') as f:
                 json.dump(best_params, f, indent=2)
-        
+
         return best_params

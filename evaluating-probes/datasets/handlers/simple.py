@@ -2,7 +2,11 @@ import pandas as pd
 import os
 import ast
 
-def process(row, source_file_or_df):
+
+def process(
+    row,
+    source_file_or_df,
+):
     # Accept either a DataFrame or a file path, DataFrame from other handlers calling it
     if isinstance(source_file_or_df, pd.DataFrame):
         df = source_file_or_df
@@ -13,11 +17,11 @@ def process(row, source_file_or_df):
         if ext == ".csv":
             df = pd.read_csv(source_file_or_df)
         elif ext == ".tsv":
-            df = pd.read_csv(source_file_or_df, sep='\t',header=None)
+            df = pd.read_csv(source_file_or_df, sep='\t', header=None)
         elif ext == ".parquet":
             df = pd.read_parquet(source_file_or_df)
         elif ext == ".json" or ext == '.jsonl':
-            df = pd.read_json(source_file_or_df,lines=True)
+            df = pd.read_json(source_file_or_df, lines=True)
         else:
             raise ValueError(f"Unsupported file extension: {ext}")
 
@@ -36,15 +40,10 @@ def process(row, source_file_or_df):
     for i in probe_to:
         probe_to_extract = probe_to_extract.replace(f"{i}", f"df['{i}'].astype(str)")
 
-
     from_series = eval(probe_from_extract)
     to_series = eval(probe_to_extract)
 
-    out_df = pd.DataFrame({
-        "prompt": from_series, 
-        "prompt_len": from_series.str.len(), 
-        "target": to_series
-    })
+    out_df = pd.DataFrame({"prompt": from_series, "prompt_len": from_series.str.len(), "target": to_series})
 
     # Keep one of the complete duplicates.
     out_df = out_df.drop_duplicates(keep='first').reset_index(drop=True)

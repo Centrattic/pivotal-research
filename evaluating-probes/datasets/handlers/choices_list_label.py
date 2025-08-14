@@ -1,7 +1,11 @@
 import pandas as pd
 import json
 
-def get_nested(row, key):
+
+def get_nested(
+    row,
+    key,
+):
     """Fetch nested fields using dot notation."""
     keys = key.split('.')
     value = row[keys[0]]
@@ -14,7 +18,11 @@ def get_nested(row, key):
         value = value[k]
     return value
 
-def process(row, source_file):
+
+def process(
+    row,
+    source_file,
+):
     # Load the source file
     if source_file.endswith(".parquet"):
         df = pd.read_parquet(source_file)

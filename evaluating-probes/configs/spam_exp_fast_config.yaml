@@ -2,7 +2,6 @@ run_name: "spam_experiment_gemma"
 model_name: "google/gemma-2-9b-it"
 d_model: 3584 # 3584 for gemma-2-9b
 device: "cuda:0" # will use these for extracting activations, but not for sklearn probes
-use_grouped_training: True
 cache_activations: True
 log_file: "logs/spam_experiment_gemma_all_seeds_freja.log"  # Custom log file path
 seeds: [42, 43, 44, 45, 46, 47, 48, 49, 50, 51] 
@@ -15,7 +14,7 @@ components:
 activation_extraction:
   format_type: "qr"  # Options: "qr" (on-policy), "r" (off-policy instruct), "r-no-it" (off-policy non-instruct)
 
-# Evaluation dataset configurations with thresholds for filtered scoring
+# Evaluation dataset configurations
 architectures:
   - name: "sklearn_linear"
     config_name: "sklearn_linear_mean"
@@ -37,23 +36,17 @@ architectures:
 # List of experiments to run
 experiments:
   # - name: 1-spam-pred-auc
-  #   metric: auc
   #   class_names: {0: "Ham", 1: "Spam"}
   #   train_on: 94_better_spam
   #   evaluate_on:
   #     - 94_better_spam
   #     - 87_is_spam
-  #   score:
-  #     - filtered
   # - name: 2-spam-pred-auc-increasing-spam-fixed-total
-  #   metric: auc
   #   class_names: {0: "Ham", 1: "Spam"}
   #   train_on: 94_better_spam
   #   evaluate_on:
   #     - 94_better_spam
   #     - 87_is_spam
-  #   score:
-  #     - filtered
   #   rebuild_config:
   #     increasing_spam_fixed_total:
   #       - {class_counts: {0: 3000, 1: 1}} # we should use all of our examples
@@ -72,14 +65,11 @@ experiments:
   #       - {class_counts: {0: 3000, 1: 500}}
   #       # - {class_counts: {0: 3250, 1: 750}} don't have that many samples
   # - name: 3-spam-pred-auc-llm-upsampling
-  #   metric: auc
   #   class_names: {0: "Ham", 1: "Spam"}
   #   train_on: 94_better_spam
   #   evaluate_on:
   #     - 94_better_spam
   #     - 87_is_spam
-  #   score:
-  #     - filtered
   #   rebuild_config:
   #     llm_upsampling_experiments:
   #       - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 10, upsampling_factor: 10}
@@ -124,14 +114,11 @@ experiments:
   #       - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 5, upsampling_factor: 3}
   #       - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 5, upsampling_factor: 4}
   - name: 4-spam-pred-auc-balanced-class-counts
-    metric: auc
     class_names: {0: "Ham", 1: "Spam"}
     train_on: 94_better_spam
     evaluate_on:
       - 94_better_spam
       - 87_is_spam
-    score:
-      - all
     rebuild_config:
       increasing_spam_fixed_total:
         - {class_counts: {0: 1, 1: 1}} # we should use all of our examples

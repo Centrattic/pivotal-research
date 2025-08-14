@@ -175,7 +175,9 @@ def get_dataset(
     return Dataset(name, model=model, device=device, seed=seed)
 
 
-def get_effective_seeds(config):
+def get_effective_seeds(
+    config,
+):
     """Extract seeds from config, supporting both single seed and multiple seeds.
     Returns a list of seeds for uniform processing.
     """

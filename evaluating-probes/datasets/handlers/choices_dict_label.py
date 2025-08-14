@@ -1,7 +1,11 @@
 import pandas as pd
 import json
 
-def get_nested(row, key):
+
+def get_nested(
+    row,
+    key,
+):
     """
     Fetch nested fields from a row using dot notation only.
     If any field is a stringified JSON, it will be parsed once.
@@ -18,7 +22,11 @@ def get_nested(row, key):
         value = value[k]
     return value
 
-def process(row, source_file):
+
+def process(
+    row,
+    source_file,
+):
     # Load the source file
     if source_file.endswith(".parquet"):
         df = pd.read_parquet(source_file)
@@ -26,7 +34,7 @@ def process(row, source_file):
         df = pd.read_json(source_file, lines=True)
     else:
         df = pd.read_csv(source_file)
-    
+
     df.to_csv("test.csv")
 
     # Parse probe columns
@@ -54,18 +62,12 @@ def process(row, source_file):
         if isinstance(choices_label, str):
             choices_label = [choices_label]
 
-        formatted_choices = " ".join(
-            f"{label}.{text}" for label, text in zip(choices_label, choices_text)
-        )
+        formatted_choices = " ".join(f"{label}.{text}" for label, text in zip(choices_label, choices_text))
         prompt = f"{question} {formatted_choices}"
         target = r[answer_col]
 
         prompts.append(prompt)
         targets.append(target)
 
-    out_df = pd.DataFrame({
-        'prompt': prompts,
-        'prompt_len': [len(x) for x in prompts],
-        'target': targets
-    })
+    out_df = pd.DataFrame({'prompt': prompts, 'prompt_len': [len(x) for x in prompts], 'target': targets})
     return out_df

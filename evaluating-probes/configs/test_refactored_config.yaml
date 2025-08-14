@@ -2,7 +2,6 @@ run_name: "test_refactored"
 model_name: "google/gemma-2-9b-it"
 d_model: 3584
 device: "cuda:0"
-use_grouped_training: True
 cache_activations: True
 seeds: [42]
 
@@ -24,21 +23,38 @@ architectures:
 
 experiments:
   - name: test-experiment
-    metric: acc
     class_names: {0: "Ham", 1: "Spam"}
     train_on: 94_better_spam
     evaluate_on:
       - 94_better_spam
       - 87_is_spam
-    score:
-      - all
     on_policy: false
+
+  - name: test-llm-upsampling
+    class_names: {0: "Ham", 1: "Spam"}
+    train_on: 94_better_spam
+    evaluate_on:
+      - 94_better_spam
+      - 87_is_spam
+    on_policy: false
+    rebuild_config:
+      - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 4, upsampling_factor: 2}
+
+  - name: test-imbalanced
+    class_names: {0: "Ham", 1: "Spam"}
+    train_on: 94_better_spam
+    evaluate_on:
+      - 94_better_spam
+      - 87_is_spam
+    on_policy: false
+    rebuild_config:
+      - {class_counts: {0: 200, 1: 50}}
 
 model_check:
   - name: spam-pred
-    hf_model_name: "google/gemma-2-9b"
+    hf_model_name: "google/gemma-2-9b-it"
     check_on: ["94_better_spam", "87_is_spam"]
-    method: "no-it"  # Options: "it" (uses chat template), "no-it" (uses few-shot prompt)
+    method: "it"  # Options: "it" (uses chat template), "no-it" (uses few-shot prompt)
     check_prompt: "Is this email spam? Answer with either Yes or No. \n {prompt}"
     few_shot_prompt: |
       This email is spam: "Get rich quick! Make money fast with our amazing offer!"

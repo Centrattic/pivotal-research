@@ -3,7 +3,11 @@ import json
 import os
 import random
 
-def process(row, source_folder):
+
+def process(
+    row,
+    source_folder,
+):
     source_files = [f.strip() for f in str(row['source']).split(',')]
     if len(source_files) != 2:
         raise ValueError("Handler requires two source files (data,labels) in 'source' column.")
@@ -20,7 +24,9 @@ def process(row, source_folder):
     with open(labels_path, encoding="utf-8") as f:
         labels = [int(line.strip()) for line in f if line.strip()]
     if len(labels) != len(data_df):
-        raise ValueError(f"Labels ({labels_file}) has {len(labels)} lines but data file ({data_file}) has {len(data_df)} rows.")
+        raise ValueError(
+            f"Labels ({labels_file}) has {len(labels)} lines but data file ({data_file}) has {len(data_df)} rows."
+        )
     data_df = data_df.copy()
     data_df["label"] = labels
 
@@ -49,9 +55,5 @@ def process(row, source_folder):
         prompts.append(formatted_prompt)
         targets.append(label)
 
-    out_df = pd.DataFrame({
-        'prompt': prompts,
-        'prompt_len': [len(x) for x in prompts],
-        'target': targets
-    })
+    out_df = pd.DataFrame({'prompt': prompts, 'prompt_len': [len(x) for x in prompts], 'target': targets})
     return out_df

@@ -3,7 +3,13 @@ import os
 import pandas as pd
 import numpy as np
 
-def robust_csv_reader(filepath, delimiter=',', quotechar='"', encoding='utf-8'):
+
+def robust_csv_reader(
+    filepath,
+    delimiter=',',
+    quotechar='"',
+    encoding='utf-8',
+):
     """
     Generator that yields rows from a possibly broken CSV file.
     Tries to recover from unclosed quotes and embedded newlines.
@@ -38,7 +44,14 @@ def robust_csv_reader(filepath, delimiter=',', quotechar='"', encoding='utf-8'):
         if in_quote:
             print(f"[robust_csv_reader] Skipping incomplete row at EOF: {row[:100]}...")
 
-def process(row, source_file_or_df, max_samples_per_class=4000, min_samples_per_class=4000, sampling_strategy='random'):
+
+def process(
+    row,
+    source_file_or_df,
+    max_samples_per_class=4000,
+    min_samples_per_class=4000,
+    sampling_strategy='random',
+):
     """
     Process the data with configurable sampling per class.
     
@@ -89,26 +102,26 @@ def process(row, source_file_or_df, max_samples_per_class=4000, min_samples_per_
     from_series = eval(probe_from_extract)
     to_series = eval(probe_to_extract)
 
-    out_df = pd.DataFrame({
-        "prompt": from_series,
-        "prompt_len": from_series.str.len(),
-        "target": to_series
-    })
+    out_df = pd.DataFrame({"prompt": from_series, "prompt_len": from_series.str.len(), "target": to_series})
 
     # Keep one of the complete duplicates.
     out_df = out_df.drop_duplicates(keep='first').reset_index(drop=True)
     # Drop both of the opposite duplicates, unclear which is correct.
     out_df = out_df.drop_duplicates(subset=["prompt"], keep=False).reset_index(drop=True)
-    
+
     # Filter out top 20% longest samples for emails before class sampling
     out_df = filter_long_samples(out_df)
-    
+
     # Apply class-based sampling to ensure balanced dataset
     out_df = sample_by_class(out_df, max_samples_per_class, min_samples_per_class, sampling_strategy)
-    
+
     return out_df
 
-def filter_long_samples(df, percentile=80):
+
+def filter_long_samples(
+    df,
+    percentile=80,
+):
     """
     Filter out the top 20% longest samples (keep bottom 80% by default).
     This is particularly useful for email datasets to remove very long emails.
@@ -122,31 +135,41 @@ def filter_long_samples(df, percentile=80):
     """
     if df.empty:
         return df
-    
+
     original_count = len(df)
-    
+
     # Calculate the length threshold at the specified percentile
     length_threshold = df['prompt_len'].quantile(percentile / 100)
-    
+
     # Filter out samples longer than the threshold
     filtered_df = df[df['prompt_len'] <= length_threshold].copy()
-    
+
     filtered_count = len(filtered_df)
     removed_count = original_count - filtered_count
-    
-    print(f"[filter_long_samples] Removed {removed_count} samples ({removed_count/original_count*100:.1f}%) "
-          f"with length > {length_threshold:.0f} characters (top {100-percentile}%)")
+
+    print(
+        f"[filter_long_samples] Removed {removed_count} samples ({removed_count/original_count*100:.1f}%) "
+        f"with length > {length_threshold:.0f} characters (top {100-percentile}%)"
+    )
     print(f"[filter_long_samples] Kept {filtered_count} samples with length <= {length_threshold:.0f} characters")
-    
+
     # Show length statistics
-    print(f"[filter_long_samples] Length stats - Min: {filtered_df['prompt_len'].min():.0f}, "
-          f"Max: {filtered_df['prompt_len'].max():.0f}, "
-          f"Mean: {filtered_df['prompt_len'].mean():.1f}, "
-          f"Median: {filtered_df['prompt_len'].median():.1f}")
-    
+    print(
+        f"[filter_long_samples] Length stats - Min: {filtered_df['prompt_len'].min():.0f}, "
+        f"Max: {filtered_df['prompt_len'].max():.0f}, "
+        f"Mean: {filtered_df['prompt_len'].mean():.1f}, "
+        f"Median: {filtered_df['prompt_len'].median():.1f}"
+    )
+
     return filtered_df.reset_index(drop=True)
 
-def sample_by_class(df, max_samples_per_class=None, min_samples_per_class=None, sampling_strategy='random'):
+
+def sample_by_class(
+    df,
+    max_samples_per_class=None,
+    min_samples_per_class=None,
+    sampling_strategy='random',
+):
     """
     Sample data based on target classes with specified constraints.
     This ensures you get the specified number of samples from EACH class.
@@ -162,34 +185,36 @@ def sample_by_class(df, max_samples_per_class=None, min_samples_per_class=None, 
     """
     if df.empty:
         return df
-    
+
     # Get unique classes and their counts
     class_counts = df['target'].value_counts()
     print(f"[sample_by_class] Original class distribution: {dict(class_counts)}")
-    
+
     sampled_dfs = []
-    
+
     for class_name in class_counts.index:
         class_df = df[df['target'] == class_name].copy()
         class_size = len(class_df)
-        
+
         print(f"[sample_by_class] Processing class '{class_name}' with {class_size} samples")
-        
+
         # Check minimum requirement
         if min_samples_per_class is not None and class_size < min_samples_per_class:
-            print(f"[sample_by_class] Warning: Class '{class_name}' has {class_size} samples, "
-                  f"but minimum required is {min_samples_per_class}")
+            print(
+                f"[sample_by_class] Warning: Class '{class_name}' has {class_size} samples, "
+                f"but minimum required is {min_samples_per_class}"
+            )
             if min_samples_per_class > class_size:
                 print(f"[sample_by_class] Skipping class '{class_name}' - insufficient samples")
                 continue  # Skip this class if we can't meet minimum
-        
+
         # Determine how many samples to take from THIS class
         samples_to_take = class_size
         if max_samples_per_class is not None:
             samples_to_take = min(samples_to_take, max_samples_per_class)
-        
+
         print(f"[sample_by_class] Taking {samples_to_take} samples from class '{class_name}'")
-        
+
         # Apply sampling strategy
         if sampling_strategy == 'random':
             if samples_to_take < class_size:
@@ -205,21 +230,22 @@ def sample_by_class(df, max_samples_per_class=None, min_samples_per_class=None, 
                 class_df = class_df.sample(n=samples_to_take, random_state=42)
         else:
             raise ValueError(f"Unknown sampling strategy: {sampling_strategy}")
-        
+
         sampled_dfs.append(class_df)
-    
+
     if not sampled_dfs:
         print("[sample_by_class] Warning: No classes met the sampling criteria")
         return pd.DataFrame(columns=df.columns)
-    
+
     result_df = pd.concat(sampled_dfs, ignore_index=True)
-    
+
     # Show final distribution
     final_counts = result_df['target'].value_counts()
     print(f"[sample_by_class] Final class distribution: {dict(final_counts)}")
     print(f"[sample_by_class] Total samples: {len(result_df)}")
-    
+
     return result_df
+
 
 # Example usage as a script
 if __name__ == "__main__":
@@ -229,4 +255,4 @@ if __name__ == "__main__":
         sys.exit(1)
     csv_file = sys.argv[1]
     for row in robust_csv_reader(csv_file):
-        print(row) 
+        print(row)

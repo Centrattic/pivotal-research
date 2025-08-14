@@ -15,7 +15,8 @@ import pandas as pd
 import numpy as np
 from tqdm.auto import tqdm
 
-_ASCII_RE = re.compile(r'^[\u0000-\u007F]+$')       # crude EN check
+_ASCII_RE = re.compile(r'^[\u0000-\u007F]+$')  # crude EN check
+
 
 # ---------------------------------------------------------------------
 # helpers
@@ -23,6 +24,7 @@ _ASCII_RE = re.compile(r'^[\u0000-\u007F]+$')       # crude EN check
 def _is_ascii(text: str) -> bool:
     """True if text has only basic ASCII (≈ English for this dataset)."""
     return bool(_ASCII_RE.match(text.strip()))
+
 
 def _load_tsv(path: str | Path) -> pd.DataFrame:
     """
@@ -34,21 +36,23 @@ def _load_tsv(path: str | Path) -> pd.DataFrame:
             if not line.strip():
                 continue
             parts = line.rstrip("\n").split("\t", maxsplit=1)
-            if len(parts) != 2:                 # fallback: try double-space split
+            if len(parts) != 2:  # fallback: try double-space split
                 parts = re.split(r"\s{2,}", line.rstrip("\n"), maxsplit=1)
             if len(parts) == 2:
                 records.append(parts)
             # else: silently skip malformed line
     return pd.DataFrame(records, columns=["col1", "col2"])
 
+
 def _decide_languages(df: pd.DataFrame) -> tuple[str, str]:
     """Return ('english_col', 'french_col') names based on ASCII share."""
     ascii_ratio_col1 = df["col1"].apply(_is_ascii).mean()
     ascii_ratio_col2 = df["col2"].apply(_is_ascii).mean()
     if ascii_ratio_col1 >= ascii_ratio_col2:
-        return "col1", "col2"     # col1 = EN, col2 = FR
+        return "col1", "col2"  # col1 = EN, col2 = FR
     else:
-        return "col2", "col1"     # col2 = EN, col1 = FR
+        return "col2", "col1"  # col2 = EN, col1 = FR
+
 
 def process(row: dict, source_file: str, n_en: int = 10000, n_fr: int = 10000) -> pd.DataFrame:
     """
@@ -97,13 +101,11 @@ def process(row: dict, source_file: str, n_en: int = 10000, n_fr: int = 10000) -
 
     out_df = pd.concat([en_df, fr_df]).reset_index(drop=True)
     out_df = out_df.sample(frac=1, random_state=42).reset_index(drop=True)  # shuffle
-    
+
     # Keep one of the complete duplicates.
     out_df = out_df.drop_duplicates(keep='first').reset_index(drop=True)
 
     # Drop both of the opposite duplicates, unclear which is correct.
     out_df = out_df.drop_duplicates(subset=["prompt"], keep=False).reset_index(drop=True)
 
-
     return out_df
-

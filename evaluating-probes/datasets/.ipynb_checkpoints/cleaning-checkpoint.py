@@ -6,12 +6,17 @@ import importlib
 
 MAIN_CSV = 'main.csv'
 
-def run_extraction(source_folder, target_folder, main_csv=MAIN_CSV):
+
+def run_extraction(
+    source_folder,
+    target_folder,
+    main_csv=MAIN_CSV,
+):
     os.makedirs(target_folder, exist_ok=True)
     index = pd.read_csv(main_csv)
 
     for _, row in tqdm(index.iterrows()):
-        handler_name = row.get('handler', 'simple').strip() # defualt to simple
+        handler_name = row.get('handler', 'simple').strip()  # defualt to simple
 
         try:
             # NEW: Intercept bracket-style meta-handlers
@@ -51,6 +56,7 @@ def run_extraction(source_folder, target_folder, main_csv=MAIN_CSV):
         except Exception as e:
             print(f"Error processing {source_file} with handler '{handler_name}': {e}")
             continue
+
 
 if __name__ == "__main__":
     source_folder = "./original"

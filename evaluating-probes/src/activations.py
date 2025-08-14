@@ -47,7 +47,12 @@ class ActivationManager:
     """
 
     @classmethod
-    def create_readonly(cls, model_name: str, d_model: int, cache_dir: Path):
+    def create_readonly(
+        cls,
+        model_name: str,
+        d_model: int,
+        cache_dir: Path,
+    ):
         """
         Create a read-only ActivationManager that can load existing caches without the full model.
         This is useful for evaluation when activations are already cached.
@@ -59,11 +64,11 @@ class ActivationManager:
         instance.d_model = d_model
         instance.cache_dir = cache_dir
         instance.cache_dir.mkdir(parents=True, exist_ok=True)
-        
+
         # Cache for metadata to avoid reloading
         instance._metadata_cache = {}
         instance._metadata_mtimes = {}
-        
+
         print(f"[INFO] Created read-only ActivationManager for {model_name} (no tokenizer needed)")
         return instance
 
@@ -85,7 +90,7 @@ class ActivationManager:
         self.d_model = d_model
         self.cache_dir = cache_dir
         self.cache_dir.mkdir(parents=True, exist_ok=True)
-        
+
         # Cache for metadata to avoid reloading
         self._metadata_cache = {}
         self._metadata_mtimes = {}
@@ -142,16 +147,19 @@ class ActivationManager:
         if missing_texts:
             print(f"[DEBUG] Extracting activations for {len(missing_texts)} missing texts")
             new_activations = self._extract_activations(
-                missing_texts, layer, component, format_type, 
+                missing_texts,
+                layer,
+                component,
+                format_type,
                 missing_response_texts if response_texts is not None else None
             )
-            
+
             # Save new activations
             all_activations = {**existing}
             for i, text in enumerate(missing_texts):
                 text_hash = self._hash(text)
                 all_activations[text_hash] = new_activations[i]
-            
+
             np.savez(activations_path, **all_activations)
 
         # Load all activations in the order of texts
@@ -172,7 +180,8 @@ class ActivationManager:
         layer: int,
         component: str,
         activation_type: str = "full"
-    ) -> Tuple[np.ndarray, np.ndarray]:
+    ) -> Tuple[np.ndarray,
+               np.ndarray]:
         """
         Return activations for response texts that were computed using ensure_conversation_texts_cached.
         This method ONLY retrieves existing activations - no extraction.
@@ -237,18 +246,21 @@ class ActivationManager:
         # Extract missing activations
         print(f"[DEBUG] Extracting activations for {len(missing_texts)} missing texts")
         new_activations = self._extract_activations(
-            missing_texts, layer, component, format_type, 
+            missing_texts,
+            layer,
+            component,
+            format_type,
             missing_response_texts if response_texts is not None else None
         )
-        
+
         # Save new activations
         all_activations = {**existing}
         for i, text in enumerate(missing_texts):
             text_hash = self._hash(text)
             all_activations[text_hash] = new_activations[i]
-        
+
         np.savez(activations_path, **all_activations)
-        
+
         return len(missing_texts)
 
     def ensure_conversation_texts_cached(
@@ -297,10 +309,10 @@ class ActivationManager:
         self.model.to(self.device)
         with torch.no_grad():
             for i in tqdm(range(0, len(missing_conversations), batch_size)):
-                batch_conversations = missing_conversations[i:i+batch_size]
+                batch_conversations = missing_conversations[i:i + batch_size]
                 full_convs = [conv[0] for conv in batch_conversations]
                 responses = [conv[1] for conv in batch_conversations]
-                
+
                 # Tokenize the full conversations
                 enc_full = self.tokenizer(
                     full_convs,
@@ -325,18 +337,23 @@ class ActivationManager:
                 response_token_counts = [len(ids) for ids in enc_responses["input_ids"]]
 
                 # Run model on full conversations
-                acts_tensor = self._run_and_capture(layer=layer, component=component, input_ids=input_ids_full, attention_mask=attention_mask_full)
+                acts_tensor = self._run_and_capture(
+                    layer=layer,
+                    component=component,
+                    input_ids=input_ids_full,
+                    attention_mask=attention_mask_full
+                )
                 acts_tensor = acts_tensor.detach().to("cpu")  # [B, S, D]
 
                 for j, (full_conv, response_only) in enumerate(batch_conversations):
                     response_hash = self._hash(response_only)
                     if response_hash in existing or response_hash in new_entries:
                         continue
-                    
+
                     # Extract activations for response tokens only
                     full_activation = acts_tensor[j].numpy()  # [S, D]
                     response_token_count = response_token_counts[j]
-                    
+
                     # Get the last response_token_count tokens as the response activations
                     response_activation = full_activation[-response_token_count:]
                     new_entries[response_hash] = response_activation
@@ -374,25 +391,32 @@ class ActivationManager:
 
         hook_name = f"blocks.{layer}.hook_{component}"
         activations_list = []
-        
+
         self.model.eval()
         self.model.to(self.device)
-        
+
         with torch.no_grad():
             for i in tqdm(range(len(texts)), desc=f"Extracting activations for {format_type}"):
                 text = texts[i]
-                
+
                 if format_type == "qr" and response_texts is not None:
                     # On-policy: format as prompt+question using chat template, extract question tokens
                     question = response_texts[i]
                     if hasattr(self.tokenizer, 'apply_chat_template'):
-                        formatted = self.tokenizer.apply_chat_template([
-                            {"role": "user", "content": text},
-                            {"role": "assistant", "content": question}
-                        ], tokenize=False)
+                        formatted = self.tokenizer.apply_chat_template(
+                            [{
+                                "role": "user",
+                                "content": text
+                            },
+                             {
+                                 "role": "assistant",
+                                 "content": question
+                             }],
+                            tokenize=False
+                        )
                     else:
                         formatted = f"{text}\n\n{question}"
-                    
+
                     # Tokenize and get activations
                     enc = self.tokenizer(
                         formatted,
@@ -402,7 +426,7 @@ class ActivationManager:
                         add_special_tokens=True,
                     )
                     input_ids = enc["input_ids"].to(self.device)
-                    
+
                     # Get activations and extract only question tokens
                     question_enc = self.tokenizer(
                         question,
@@ -412,31 +436,35 @@ class ActivationManager:
                         add_special_tokens=True,
                     )
                     question_ids = question_enc["input_ids"][0]
-                    
+
                     # Find question token positions in full sequence
                     full_ids = input_ids[0]
                     question_start = None
                     for j in range(len(full_ids) - len(question_ids) + 1):
-                        if torch.equal(full_ids[j:j+len(question_ids)], question_ids):
+                        if torch.equal(full_ids[j:j + len(question_ids)], question_ids):
                             question_start = j
                             break
-                    
+
                     if question_start is None:
                         # Fallback: use all tokens
                         activations = self._get_activations_for_input_ids(input_ids, hook_name)
                     else:
                         activations = self._get_activations_for_input_ids(input_ids, hook_name)
-                        activations = activations[:, question_start:question_start+len(question_ids), :]
-                
+                        activations = activations[:, question_start:question_start + len(question_ids), :]
+
                 elif format_type == "r":
                     # Off-policy instruct: format prompt as user prompt using chat template, extract prompt tokens
                     if hasattr(self.tokenizer, 'apply_chat_template'):
-                        formatted = self.tokenizer.apply_chat_template([
-                            {"role": "user", "content": text}
-                        ], tokenize=False)
+                        formatted = self.tokenizer.apply_chat_template(
+                            [{
+                                "role": "user",
+                                "content": text
+                            }],
+                            tokenize=False
+                        )
                     else:
                         formatted = text
-                    
+
                     enc = self.tokenizer(
                         formatted,
                         return_tensors="pt",
@@ -446,7 +474,7 @@ class ActivationManager:
                     )
                     input_ids = enc["input_ids"].to(self.device)
                     activations = self._get_activations_for_input_ids(input_ids, hook_name)
-                
+
                 elif format_type == "r-no-it":
                     # Off-policy non-instruct: use prompt text directly without chat template
                     enc = self.tokenizer(
@@ -458,22 +486,26 @@ class ActivationManager:
                     )
                     input_ids = enc["input_ids"].to(self.device)
                     activations = self._get_activations_for_input_ids(input_ids, hook_name)
-                
+
                 else:
                     raise ValueError(f"Invalid format_type: {format_type}")
-                
+
                 activations_list.append(activations.cpu().numpy())
-        
+
         return np.concatenate(activations_list, axis=0)
 
     def _get_activations_for_input_ids(self, input_ids: torch.Tensor, hook_name: str) -> torch.Tensor:
         """Helper to get activations for input_ids with hook."""
         activations = None
-        
-        def hook_fn(module, input, output):
+
+        def hook_fn(
+            module,
+            input,
+            output,
+        ):
             nonlocal activations
             activations = output.detach()
-        
+
         handle = self.model.register_forward_hook(hook_fn)
         try:
             self.model(input_ids)
@@ -505,16 +537,16 @@ class ActivationManager:
             # Pad to max length and stack
             max_len = max(act.shape[1] for act in activations_list)
             padded_activations = []
-            
+
             for act in activations_list:
                 if act.shape[1] < max_len:
                     # Pad with zeros
                     padding = np.zeros((act.shape[0], max_len - act.shape[1], act.shape[2]))
                     act = np.concatenate([act, padding], axis=1)
                 padded_activations.append(act)
-            
+
             return np.concatenate(padded_activations, axis=0)
-        
+
         else:
             # For aggregated types, load from saved aggregation files
             # Extract the aggregation method from the activation_type
@@ -524,13 +556,15 @@ class ActivationManager:
             #   - "act_sim_mean" -> "mean" (not "sim_mean")
             aggregation = activation_type.rsplit("_", 1)[1]
             aggregated_path = activations_path.parent / f"{activations_path.stem}_aggregated_{aggregation}.npz"
-            
+
             if not aggregated_path.exists():
-                raise ValueError(f"Aggregated activations file {aggregated_path} does not exist. Run extract_activations_for_dataset first.")
-            
+                raise ValueError(
+                    f"Aggregated activations file {aggregated_path} does not exist. Run extract_activations_for_dataset first."
+                )
+
             print(f"[DEBUG] Loading {activation_type} aggregated activations from {aggregated_path}")
             aggregated_data = np.load(aggregated_path, mmap_mode='r')
-            
+
             # Load in the order of texts
             aggregated_list = []
             for text in texts:
@@ -538,7 +572,7 @@ class ActivationManager:
                 if text_hash not in aggregated_data:
                     raise ValueError(f"Text not found in aggregated activations: {text[:50]}...")
                 aggregated_list.append(aggregated_data[text_hash])
-            
+
             result = np.stack(aggregated_list)
             print(f"[DEBUG] Loaded {activation_type} aggregated activations: {result.shape}")
             return result
@@ -557,22 +591,27 @@ class ActivationManager:
         else:
             raise ValueError(f"Unknown aggregation method: {method}")
 
-    def compute_and_save_all_aggregations(self, layer: int, component: str, force_recompute: bool = False):
+    def compute_and_save_all_aggregations(
+        self,
+        layer: int,
+        component: str,
+        force_recompute: bool = False,
+    ):
         """Compute and save aggregated activations from the full activations file.
         Incrementally updates existing aggregated files with any newly added texts.
         """
         _, activations_path = self._paths(layer, component)
-        
+
         # If full activations don't exist, we can't compute aggregations
         if not activations_path.exists():
             raise ValueError(f"Full activations file {activations_path} does not exist. Extract activations first.")
-        
+
         # Load all full activations once
         all_activations: Dict[str, np.ndarray] = dict(np.load(activations_path, allow_pickle=True, mmap_mode='r'))
         print(f"[DEBUG] Loaded {len(all_activations)} full activations for aggregation")
-        
+
         from scipy.special import softmax
-        
+
         for aggregation in get_aggregation_methods():
             aggregated_path = activations_path.parent / f"{activations_path.stem}_aggregated_{aggregation}.npz"
             # Load existing aggregated if present
@@ -585,7 +624,7 @@ class ActivationManager:
                     print(f"[DEBUG] Force recompute enabled for {aggregation}; computing from scratch")
                 else:
                     print(f"[DEBUG] No existing {aggregation} aggregated file, computing from scratch")
-            
+
             # Compute for missing hashes only
             missing_keys = [k for k in all_activations.keys() if k not in aggregated_dict]
             if not missing_keys and not force_recompute:
@@ -596,7 +635,7 @@ class ActivationManager:
                 missing_keys = list(all_activations.keys())
             else:
                 print(f"[DEBUG] {aggregation}: computing {len(missing_keys)} missing entries")
-            
+
             for text_hash in missing_keys:
                 activation = all_activations[text_hash]
                 if aggregation == "mean":
@@ -609,25 +648,27 @@ class ActivationManager:
                     weights = softmax(activation, axis=0)
                     aggregated = np.sum(weights * activation, axis=0)
                 aggregated_dict[text_hash] = aggregated
-            
+
             # Save updated aggregated dict
             np.savez_compressed(aggregated_path, **aggregated_dict)
-            print(f"[DEBUG] Saved updated {aggregation} aggregated activations to {aggregated_path} ({len(aggregated_dict)} entries)")
-        
+            print(
+                f"[DEBUG] Saved updated {aggregation} aggregated activations to {aggregated_path} ({len(aggregated_dict)} entries)"
+            )
+
         print(f"[DEBUG] Aggregation update complete")
 
     def get_actual_max_len(self, layer: int, component: str) -> Optional[int]:
         """Get the actual maximum token length from activations if available."""
         metadata_path, activations_path = self._paths(layer, component)
-        
+
         if not activations_path.exists():
             return None
-        
+
         # Load activations and find max length
         all_activations = dict(np.load(activations_path, allow_pickle=True, mmap_mode='r'))
         if not all_activations:
             return None
-        
+
         max_len = max(activation.shape[0] for activation in all_activations.values())
         return max_len
 
@@ -642,13 +683,17 @@ class ActivationManager:
     def _hash(prompt: str) -> str:
         return hashlib.sha1(prompt.encode()).hexdigest()
 
-    def clear_metadata_cache(self):
+    def clear_metadata_cache(
+        self,
+    ):
         """Clear activation cache to free memory."""
         import gc
         gc.collect()
 
     # Backwards-compatible alias used by Dataset
-    def clear_activation_cache(self):
+    def clear_activation_cache(
+        self,
+    ):
         self.clear_metadata_cache()
 
     # HF hooking utilities #
@@ -662,30 +707,47 @@ class ActivationManager:
         return m.model.layers[layer_index]
         raise ValueError(f"Could not locate transformer block module for layer {layer_index}")
 
-    def _run_and_capture(self, layer: int, component: str, input_ids: torch.Tensor, attention_mask: Optional[torch.Tensor]) -> torch.Tensor:
+    def _run_and_capture(
+        self,
+        layer: int,
+        component: str,
+        input_ids: torch.Tensor,
+        attention_mask: Optional[torch.Tensor]
+    ) -> torch.Tensor:
         """
         Run the model and capture per-token activations at the specified layer/component.
         Only 'resid_post' is currently supported and maps to the block output hidden states.
         Returns tensor of shape [B, S, D].
         """
         if component != "resid_post":
-            raise NotImplementedError(f"Component '{component}' is not supported without TransformerLens. Supported: 'resid_post'.")
+            raise NotImplementedError(
+                f"Component '{component}' is not supported without TransformerLens. Supported: 'resid_post'."
+            )
 
         block_module = self._get_block_module(layer)
         captured: Dict[str, torch.Tensor] = {"x": None}
 
-        def hook_fn(module, inputs, output):  # type: ignore[override]
+        def hook_fn(
+            module,
+            inputs,
+            output,
+        ):  # type: ignore[override]
             hidden = output[0] if isinstance(output, (tuple, list)) else output
             captured["x"] = hidden
 
         handle = block_module.register_forward_hook(hook_fn)
         try:
-            _ = self.model(input_ids=input_ids, attention_mask=attention_mask, use_cache=False, output_hidden_states=False)
+            _ = self.model(
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                use_cache=False,
+                output_hidden_states=False
+            )
         finally:
             handle.remove()
 
         if captured["x"] is None:
             raise RuntimeError("Failed to capture activations; hook did not run.")
-        
+
         print(f"[DEBUG] Captured activation shape: {captured['x'].shape}")
         return captured["x"]

@@ -12,7 +12,7 @@ __all__ = [
     'BaseProbe',
     'BaseProbeNonTrainable',
     'LinearProbe',
-    'LinearProbeNet', 
+    'LinearProbeNet',
     'SklearnLinearProbe',
     'AttentionProbe',
     'AttentionProbeNet',
@@ -20,4 +20,4 @@ __all__ = [
     'ActivationSimilarityProbe',
     'SAEProbe',
     'SAEProbeNet'
-] 
+]
