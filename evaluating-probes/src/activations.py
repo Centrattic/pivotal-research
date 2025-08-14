@@ -10,6 +10,7 @@ import torch
 from tqdm import tqdm
 from transformers import PreTrainedModel, PreTrainedTokenizerBase
 
+
 class ActivationManager:
     """Individual activation storage with per-activation lengths.
 
@@ -121,10 +122,7 @@ class ActivationManager:
         if missing_texts:
             print(f"[DEBUG] Extracting activations for {len(missing_texts)} missing texts")
             new_activations = self._extract_activations(
-                missing_texts,
-                layer,
-                component,
-                format_type,
+                missing_texts, layer, component, format_type,
                 missing_question_texts if question_texts is not None else None
             )
 
@@ -195,11 +193,7 @@ class ActivationManager:
         # Extract missing activations
         print(f"[DEBUG] Extracting activations for {len(missing_texts)} missing texts")
         new_activations = self._extract_activations(
-            missing_texts,
-            layer,
-            component,
-            format_type,
-            missing_question_texts if question_texts is not None else None
+            missing_texts, layer, component, format_type, missing_question_texts if question_texts is not None else None
         )
 
         # Save new activations
@@ -211,8 +205,6 @@ class ActivationManager:
         np.savez(activations_path, **all_activations)
 
         return len(missing_texts)
-
-
 
     def _extract_activations(
         self,
@@ -252,14 +244,7 @@ class ActivationManager:
                     # On-policy: format as prompt+question using chat template, extract response tokens
                     question = question_texts[i]
                     formatted = self.tokenizer.apply_chat_template(
-                        [{
-                            "role": "user",
-                            "content": question
-                        },
-                            {
-                            "role": "assistant",
-                            "content": text
-                            }],
+                        [{"role": "user", "content": question}, {"role": "assistant", "content": text}],
                         tokenize=False,
                         add_generation_prompt=False
                     )
@@ -302,12 +287,7 @@ class ActivationManager:
                 elif format_type == "r":
                     # Off-policy instruct: format prompt as user prompt using chat template, extract prompt tokens
                     formatted = self.tokenizer.apply_chat_template(
-                        [{
-                            "role": "user",
-                            "content": text
-                        }],
-                        tokenize=False,
-                        add_generation_prompt=False
+                        [{"role": "user", "content": text}], tokenize=False, add_generation_prompt=False
                     )
 
                     enc = self.tokenizer(
@@ -346,20 +326,15 @@ class ActivationManager:
         parts = hook_name.split(".")
         if len(parts) != 3 or parts[0] != "blocks" or not parts[1].isdigit() or not parts[2].startswith("hook_"):
             raise ValueError(f"Invalid hook_name format: {hook_name}. Expected: blocks.{{layer}}.hook_{{component}}")
-        
+
         layer = int(parts[1])
         component = parts[2].replace("hook_", "")
-        
+
         # Use the existing _run_and_capture method which properly handles hook registration
         return self._run_and_capture(layer, component, input_ids, attention_mask=None)
 
     def _get_activations_for_return(
-        self,
-        activations_list: List[np.ndarray],
-        activation_type: str,
-        layer: int,
-        component: str,
-        texts: List[str]
+        self, activations_list: List[np.ndarray], activation_type: str, layer: int, component: str, texts: List[str]
     ) -> np.ndarray:
         """
         Determine what activations to return based on activation_type.
@@ -537,11 +512,7 @@ class ActivationManager:
         raise ValueError(f"Could not locate transformer block module for layer {layer_index}")
 
     def _run_and_capture(
-        self,
-        layer: int,
-        component: str,
-        input_ids: torch.Tensor,
-        attention_mask: Optional[torch.Tensor]
+        self, layer: int, component: str, input_ids: torch.Tensor, attention_mask: Optional[torch.Tensor]
     ) -> torch.Tensor:
         """
         Run the model and capture per-token activations at the specified layer/component.
@@ -567,10 +538,7 @@ class ActivationManager:
         handle = block_module.register_forward_hook(hook_fn)
         try:
             _ = self.model(
-                input_ids=input_ids,
-                attention_mask=attention_mask,
-                use_cache=False,
-                output_hidden_states=False
+                input_ids=input_ids, attention_mask=attention_mask, use_cache=False, output_hidden_states=False
             )
         finally:
             handle.remove()

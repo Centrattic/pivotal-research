@@ -48,13 +48,7 @@ def get_probe_architecture(
 ):
     """Create probe architecture with filtered config parameters."""
     # Import probes inside function to avoid circular imports
-    from src.probes import (
-        SklearnLinearProbe,
-        AttentionProbe,
-        MassMeanProbe,
-        ActivationSimilarityProbe,
-        SAEProbe
-    )
+    from src.probes import (SklearnLinearProbe, AttentionProbe, MassMeanProbe, ActivationSimilarityProbe, SAEProbe)
 
     if architecture_name == "sklearn_linear":
         return SklearnLinearProbe(

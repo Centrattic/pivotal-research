@@ -327,19 +327,8 @@ class SAEProbe(BaseProbe):
         training_batch_size = batch_size if batch_size is not None else self.training_batch_size
         print(f"Training batch size: {training_batch_size}")
         super().fit(
-            X_selected,
-            y,
-            mask,
-            epochs,
-            lr,
-            training_batch_size,
-            weight_decay,
-            verbose,
-            early_stopping,
-            patience,
-            min_delta,
-            use_weighted_sampler,
-            **kwargs
+            X_selected, y, mask, epochs, lr, training_batch_size, weight_decay, verbose, early_stopping, patience,
+            min_delta, use_weighted_sampler, **kwargs
         )
 
     def predict(self, X: np.ndarray, mask: Optional[np.ndarray] = None, batch_size: int = None) -> np.ndarray:
@@ -478,7 +467,8 @@ class SAEProbe(BaseProbe):
             # Train with trial hyperparameters
             try:
                 trial_probe.fit(
-                    X_train, y_train,
+                    X_train,
+                    y_train,
                     epochs=epochs,  # Use epochs parameter
                     lr=lr,
                     weight_decay=weight_decay,

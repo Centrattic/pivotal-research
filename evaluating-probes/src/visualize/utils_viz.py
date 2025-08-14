@@ -70,8 +70,7 @@ def _get_result_files_for_seeds(
     experiment_folder: str,
     architecture: str,
     dataclass_folder: str = None
-) -> Dict[str,
-          List[str]]:
+) -> Dict[str, List[str]]:
     """Get result files for each seed for a given experiment and architecture."""
     seed_files = {}
 
@@ -100,12 +99,9 @@ def _get_result_files_for_seeds(
     return seed_files
 
 
-def _calculate_metric_with_error_bars(seed_files: Dict[str,
-                                                       List[str]],
+def _calculate_metric_with_error_bars(seed_files: Dict[str, List[str]],
                                       metric_func,
-                                      filtered: bool = True) -> Tuple[List,
-                                                                      List,
-                                                                      List]:
+                                      filtered: bool = True) -> Tuple[List, List, List]:
     """Calculate metric values across seeds and return mean, std, and x_values."""
     # Group files by their class1 count across seeds
     class1_to_files = {}
@@ -153,8 +149,7 @@ def plot_logit_diffs_from_csv(csv_path, class_names, save_path=None, bins=50, x_
     for i, (idx, name) in enumerate(class_names.items()):
         mask = df['label'] == idx
         plt.hist(
-            df.loc[mask,
-                   'logit_diff'],
+            df.loc[mask, 'logit_diff'],
             bins=bins,
             range=x_range,
             alpha=0.7,
@@ -209,11 +204,7 @@ def plot_multi_folder_recall_at_fpr(
         base_results_dir = folder_path.parent.parent.parent  # Go up to results/run_name
 
         seed_files = _get_result_files_for_seeds(
-            base_results_dir,
-            seeds,
-            experiment_folder,
-            architecture,
-            dataclass_folder
+            base_results_dir, seeds, experiment_folder, architecture, dataclass_folder
         )
 
         if not seed_files:
@@ -306,11 +297,7 @@ def plot_multi_folder_auc_vs_n_class1(
         base_results_dir = folder_path.parent.parent.parent  # Go up to results/run_name
 
         seed_files = _get_result_files_for_seeds(
-            base_results_dir,
-            seeds,
-            experiment_folder,
-            architecture,
-            dataclass_folder
+            base_results_dir, seeds, experiment_folder, architecture, dataclass_folder
         )
 
         if not seed_files:
@@ -385,7 +372,9 @@ def plot_all_probe_loss_curves_in_folder(
 
     ncols = min(4, n)
     nrows = math.ceil(n / ncols)
-    fig, axs = plt.subplots(nrows, ncols, figsize=(4*ncols, 2.5*nrows), squeeze=False)  # Smaller figure size for bigger text
+    fig, axs = plt.subplots(
+        nrows, ncols, figsize=(4 * ncols, 2.5 * nrows), squeeze=False
+    )  # Smaller figure size for bigger text
 
     for idx, log_path in enumerate(log_files[:max_probes]):
         row, col = divmod(idx, ncols)
@@ -712,8 +701,7 @@ def plot_experiment_3_per_probe(
 def get_best_probes_by_type(base_results_dir: Path,
                             seeds: List[str],
                             filtered: bool = True,
-                            eval_dataset: str = None) -> Dict[str,
-                                                              str]:
+                            eval_dataset: str = None) -> Dict[str, str]:
     """
     Determine the best performing probe of each type based on median AUC across all class1 counts.
     
@@ -738,15 +726,9 @@ def get_best_probes_by_type(base_results_dir: Path,
 
     # Define probe type patterns
     probe_patterns = {
-        'linear': ['linear_last',
-                   'linear_max',
-                   'linear_mean',
-                   'linear_softmax'],
-        'sae': ['sae_16k_l0_408',
-                'sae_262k_l0_259'],
-        'attention': ['attention_attention'],
-        'act_sim': ['act_sim_max_max',
-                    'act_sim_last_last']
+        'linear': ['linear_last', 'linear_max', 'linear_mean',
+                   'linear_softmax'], 'sae': ['sae_16k_l0_408', 'sae_262k_l0_259'], 'attention':
+        ['attention_attention'], 'act_sim': ['act_sim_max_max', 'act_sim_last_last']
     }
 
     best_probes = {}
@@ -802,8 +784,7 @@ def plot_experiment_2_unified(
     seeds: List[str] = None,
     plot_title: str = None,
     eval_dataset: str = None,
-    probe_labels: Dict[str,
-                       str] = None,
+    probe_labels: Dict[str, str] = None,
 ):
     """
     Unified experiment 2 plotting function that can handle any selection of probes.

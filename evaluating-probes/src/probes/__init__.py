@@ -8,13 +8,6 @@ from src.probes.sae_probe import SAEProbe, SAEProbeNet
 
 # allows you to import all probes from src.probes
 __all__ = [
-    'BaseProbe',
-    'BaseProbeNonTrainable',
-    'SklearnLinearProbe',
-    'AttentionProbe',
-    'AttentionProbeNet',
-    'MassMeanProbe',
-    'ActivationSimilarityProbe',
-    'SAEProbe',
-    'SAEProbeNet'
+    'BaseProbe', 'BaseProbeNonTrainable', 'SklearnLinearProbe', 'AttentionProbe', 'AttentionProbeNet', 'MassMeanProbe',
+    'ActivationSimilarityProbe', 'SAEProbe', 'SAEProbeNet'
 ]

@@ -46,12 +46,7 @@ def extract_imbalanced_csvs(
                     continue
                 # Load original dataset
                 orig_ds = Dataset(
-                    train_on,
-                    model=model,
-                    tokenizer=tokenizer,
-                    model_name=model_name,
-                    device=device,
-                    seed=seed
+                    train_on, model=model, tokenizer=tokenizer, model_name=model_name, device=device, seed=seed
                 )
                 # Build imbalanced split
                 ds = Dataset.rebuild_train_balanced_eval(
@@ -59,8 +54,7 @@ def extract_imbalanced_csvs(
                     train_class_counts=rc.get('class_counts'),
                     train_class_percents=rc.get('class_percents'),
                     train_total_samples=rc.get('total_samples'),
-                    seed=rc.get('seed',
-                                seed)
+                    seed=rc.get('seed', seed)
                 )
                 # Save splits as CSV
                 train_df = ds.df.iloc[ds.train_indices]
@@ -78,10 +72,7 @@ parser = argparse.ArgumentParser(
     description="Extract imbalanced CSVs from config file using rebuild_train_balanced_eval."
 )
 parser.add_argument(
-    "-c",
-    "--config",
-    required=True,
-    help="Config name (e.g. 'politician_exp') or path to config YAML file."
+    "-c", "--config", required=True, help="Config name (e.g. 'politician_exp') or path to config YAML file."
 )
 args = parser.parse_args()
 config_arg = args.config

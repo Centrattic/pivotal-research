@@ -286,25 +286,18 @@ class AttentionProbe(BaseProbe):
             for weight_decay, results in wd_to_results.items():
                 best_idx, best_lr, best_loss = min(results, key=lambda x: x[2])
                 best_per_wd[f"wd_{weight_decay:.2e}"] = {
-                    'best_lr': best_lr,
-                    'best_loss': best_loss,
-                    'all_lrs': {
-                        f"lr_{lr:.2e}": loss
-                        for _, lr, loss in results
-                    }
+                    'best_lr': best_lr, 'best_loss': best_loss, 'all_lrs':
+                    {f"lr_{lr:.2e}": loss
+                     for _, lr, loss in results}
                 }
 
             best_params = {
-                'selected_lr': best_lr,
-                'selected_weight_decay': best_weight_decay,
-                'selected_final_loss': best_loss,
+                'selected_lr': best_lr, 'selected_weight_decay': best_weight_decay, 'selected_final_loss': best_loss,
                 'selection_criteria':
                 'best_loss_among_weight_decay_0.0' if best_weight_decay == 0.0 else 'overall_best',
-                'best_per_weight_decay': best_per_wd,
-                'all_results': {
-                    f"lr_{lr:.2e}_wd_{wd:.2e}": loss
-                    for (lr, wd), loss in zip(hyperparam_combinations, final_losses)
-                }
+                'best_per_weight_decay': best_per_wd, 'all_results':
+                {f"lr_{lr:.2e}_wd_{wd:.2e}": loss
+                 for (lr, wd), loss in zip(hyperparam_combinations, final_losses)}
             }
             with open(best_hparams_path, 'w') as f:
                 json.dump(best_params, f, indent=2)
@@ -356,9 +349,7 @@ class AttentionProbe(BaseProbe):
             class_weights = 1.0 / class_counts
             sample_weights = class_weights[y.astype(int)]
             sampler = torch.utils.data.WeightedRandomSampler(
-                weights=sample_weights,
-                num_samples=len(sample_weights),
-                replacement=True
+                weights=sample_weights, num_samples=len(sample_weights), replacement=True
             )
             dataloader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, sampler=sampler)
         else:

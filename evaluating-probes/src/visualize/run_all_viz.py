@@ -24,9 +24,7 @@ def main():
     parser.set_defaults(filtered=True)
     parser.add_argument('--seeds', nargs='+', default=['42'], help='List of seeds to use (default: 42)')
     parser.add_argument(
-        '--force',
-        action='store_true',
-        help='Overwrite existing visualizations (default: skip if they exist)'
+        '--force', action='store_true', help='Overwrite existing visualizations (default: skip if they exist)'
     )
     args = parser.parse_args()
 
@@ -186,10 +184,7 @@ def main():
 
             # Get the best probes of each type for this evaluation dataset
             best_probes = get_best_probes_by_type(
-                results_dir,
-                args.seeds,
-                filtered=args.filtered,
-                eval_dataset=eval_dataset
+                results_dir, args.seeds, filtered=args.filtered, eval_dataset=eval_dataset
             )
             probe_groups['best_probes'] = list(best_probes.values()) if len(best_probes) >= 4 else None
 

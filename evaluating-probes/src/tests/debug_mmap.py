@@ -23,11 +23,7 @@ def dump_mmap_to_csv(
     item_sz = np.dtype(dtype).itemsize
     total_vals = mmap_path.stat().st_size // item_sz
     flat = np.memmap(
-        mmap_path,
-        dtype=dtype,
-        mode="r",
-        shape=(total_vals,
-               )
+        mmap_path, dtype=dtype, mode="r", shape=(total_vals, )
     )
 
     print(

@@ -81,8 +81,7 @@ class BaseProbeNonTrainable:
         results_dir: Path = None,
         seed: int = None,
         test_size: float = 0.15
-    ) -> dict[str,
-              float]:
+    ) -> dict[str, float]:
         """
         Calculate metrics only on examples where the model's logit_diff indicates correct prediction.
         Reads the CSV file from runthrough folder and filters based on logit_diff values.

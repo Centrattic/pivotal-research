@@ -404,7 +404,12 @@ def process_probe_job(
         # Train the probe
         logger.log(f"  🚀 Training probe: {job.architecture_name}")
         train_single_probe(
-            job=job, config=config, results_dir=trained_dir, cache_dir=cache_dir, logger=logger, rerun=rerun
+            job=job,
+            config=config,
+            results_dir=trained_dir,
+            cache_dir=cache_dir,
+            logger=logger,
+            rerun=rerun,
         )
 
         # Evaluate on all evaluation datasets

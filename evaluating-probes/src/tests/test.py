@@ -11,9 +11,7 @@ MODEL = "gemma-2-9b"
 
 # ---------- load dataset (no activations yet) ----------
 model = AutoModelForCausalLM.from_pretrained(
-    MODEL,
-    device_map="cpu",
-    torch_dtype=torch.float32
+    MODEL, device_map="cpu", torch_dtype=torch.float32
 )  # CPU is fine for counting
 tokenizer = AutoTokenizer.from_pretrained(MODEL)
 ds = Dataset(DATASET, model=model, tokenizer=tokenizer, model_name=MODEL, device="cpu")

@@ -117,19 +117,33 @@ def extract_activations_for_dataset(
                 dataset_texts = ds.X.tolist()
                 question_texts = ds.question_texts.tolist()
                 newly_added = ds.act_manager.ensure_texts_cached(
-                    dataset_texts, layer, component, format_type, question_texts=question_texts,
+                    dataset_texts,
+                    layer,
+                    component,
+                    format_type,
+                    question_texts=question_texts,
                 )
                 logger.log(f"    - Cached {newly_added} new activations (on-policy format: {format_type})")
             else:
                 logger.log(f"    - Warning: No response texts found for on-policy dataset")
                 dataset_texts = ds.X.tolist()
-                newly_added = ds.act_manager.ensure_texts_cached(dataset_texts, layer, component)
+                newly_added = ds.act_manager.ensure_texts_cached(
+                    dataset_texts,
+                    layer,
+                    component,
+                    format_type,
+                )
                 logger.log(f"    - Cached {newly_added} new activations (dataset only)")
         else:
             # For off-policy: extract activations from prompts only
             logger.log(f"    - Off-policy: extracting activations from prompts...")
             dataset_texts = ds.X.tolist()
-            newly_added = ds.act_manager.ensure_texts_cached(dataset_texts, layer, component)
+            newly_added = ds.act_manager.ensure_texts_cached(
+                dataset_texts,
+                layer,
+                component,
+                format_type,
+            )
             logger.log(f"    - Cached {newly_added} new activations (dataset)")
 
         # If including LLM samples, scan results/<run_name>/seed_*/llm_samples/samples_*.csv for prompts and cache them
@@ -151,7 +165,12 @@ def extract_activations_for_dataset(
                             except Exception:
                                 continue
                 if llm_texts:
-                    llm_samples_added = ds.act_manager.ensure_texts_cached(llm_texts, layer, component)
+                    llm_samples_added = ds.act_manager.ensure_texts_cached(
+                        llm_texts,
+                        layer,
+                        component,
+                        format_type,
+                    )
                     logger.log(f"    - Cached {llm_samples_added} new activations (LLM)")
             except Exception as e:
                 logger.log(f"    - ⚠️ LLM sample caching skipped due to error: {e}")
@@ -186,12 +205,19 @@ def train_single_probe(
     ) else job.architecture_name
 
     probe_filename_base = get_probe_filename_prefix(
-        job.train_dataset, job.architecture_name, job.layer, job.component, config_name
+        job.train_dataset,
+        job.architecture_name,
+        job.layer,
+        job.component,
+        config_name,
     )
     probe_save_dir = results_dir / f"train_{job.train_dataset}"
 
     # Add hyperparameters to filename if they differ from defaults
-    probe_filename_with_hparams = add_hyperparams_to_filename(probe_filename_base, job.probe_config)
+    probe_filename_with_hparams = add_hyperparams_to_filename(
+        probe_filename_base,
+        job.probe_config,
+    )
 
     # If rebuilding, save in dataclass_exps_{dataset_name}
     if job.rebuild_config is not None:

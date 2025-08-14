@@ -111,11 +111,13 @@ class LLMUpsamplingStateMachine:
                 prompts.append(current_prompt)
 
             # Create DataFrame with the new prompts
-            df = pd.DataFrame({
-                'prompt': prompts,
-                'target': 1,  # All samples are class 1
-                'prompt_len': [len(prompt) for prompt in prompts]
-            })
+            df = pd.DataFrame(
+                {
+                    'prompt': prompts,
+                    'target': 1,  # All samples are class 1
+                    'prompt_len': [len(prompt) for prompt in prompts]
+                }
+            )
 
             print(f"    Extracted {len(prompts)} new prompts")
             print(f"    Final DataFrame shape: {df.shape}")
@@ -138,13 +140,8 @@ class LLMUpsamplingStateMachine:
             return None
 
     def validate_upsampled_data(
-        self,
-        original_df: pd.DataFrame,
-        upsampled_df: pd.DataFrame,
-        target_samples: int,
-        upsampling_factor: int
-    ) -> Tuple[bool,
-               str]:
+        self, original_df: pd.DataFrame, upsampled_df: pd.DataFrame, target_samples: int, upsampling_factor: int
+    ) -> Tuple[bool, str]:
         """Validate upsampled data meets requirements."""
         if len(upsampled_df) < target_samples:
             return False, f"Not enough samples: got {len(upsampled_df)}, need {target_samples}"
@@ -184,11 +181,8 @@ class LLMUpsamplingStateMachine:
 
         return True, "Validation passed"
 
-    def validate_new_samples(self,
-                             original_df: pd.DataFrame,
-                             new_samples_df: pd.DataFrame,
-                             batch_size: int) -> Tuple[bool,
-                                                       str]:
+    def validate_new_samples(self, original_df: pd.DataFrame, new_samples_df: pd.DataFrame,
+                             batch_size: int) -> Tuple[bool, str]:
         """Validate only the new samples meet requirements."""
 
         # Check that all new samples are class 1 (positive)
@@ -222,10 +216,7 @@ class LLMUpsamplingStateMachine:
         return True, "New samples validation passed"
 
     def generate_batch_upsampling_prompt(
-        self,
-        original_df: pd.DataFrame,
-        batch_size: int,
-        previous_samples: Optional[pd.DataFrame] = None
+        self, original_df: pd.DataFrame, batch_size: int, previous_samples: Optional[pd.DataFrame] = None
     ) -> str:
         """Generate the upsampling prompt for a batch of samples."""
 
@@ -289,14 +280,9 @@ class LLMUpsamplingStateMachine:
                     messages=[
                         {
                             "role":
-                            "system",
-                            "content":
+                            "system", "content":
                             "You are an expert at creating synthetic data for machine learning tasks. Always respond with the exact number of samples requested."
-                        },
-                        {
-                            "role": "user",
-                            "content": prompt
-                        }
+                        }, {"role": "user", "content": prompt}
                     ],
                     temperature=0.7,
                     max_tokens=4000
@@ -433,10 +419,8 @@ def extract_config_parameters(config_path: Path) -> Tuple[List[int], List[int], 
     return seeds, num_real_samples, upsampling_factors, train_on
 
 
-def extract_samples_for_upsampling(config_path: Path,
-                                   num_real_samples: List[int],
-                                   seed: int) -> Dict[int,
-                                                      pd.DataFrame]:
+def extract_samples_for_upsampling(config_path: Path, num_real_samples: List[int],
+                                   seed: int) -> Dict[int, pd.DataFrame]:
     """
     Extract positive samples using the same logic as build_imbalanced_train_balanced_eval.
     
@@ -614,9 +598,7 @@ def run_llm_upsampling(
 
                     # Request batch upsampling
                     new_samples_df = state_machine.request_upsampling_batch(
-                        original_df,
-                        current_batch_size,
-                        current_upsampled_df
+                        original_df, current_batch_size, current_upsampled_df
                     )
 
                     if new_samples_df is None:
@@ -711,10 +693,7 @@ def run_llm_upsampling(
 def main():
     parser = argparse.ArgumentParser(description="Run automatic LLM upsampling using OpenAI API")
     parser.add_argument(
-        "-c",
-        "--config",
-        required=True,
-        help="Config name (e.g. 'spam_exp') or path to config YAML file"
+        "-c", "--config", required=True, help="Config name (e.g. 'spam_exp') or path to config YAML file"
     )
     parser.add_argument("--api-key", required=True, help="OpenAI API key")
 

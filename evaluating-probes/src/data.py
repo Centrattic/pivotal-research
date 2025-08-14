@@ -235,7 +235,11 @@ class Dataset:
         # Now split train/val
         val_relative = val_size / (train_size + val_size)
         tr_idx, va_idx = train_test_split(
-            trval_idx, test_size=val_relative, random_state=seed, stratify=self.y[trval_idx] if self.n_classes else None, shuffle=True
+            trval_idx,
+            test_size=val_relative,
+            random_state=seed,
+            stratify=self.y[trval_idx] if self.n_classes else None,
+            shuffle=True
         )
         self.train_indices = tr_idx
         self.val_indices = va_idx
@@ -328,11 +332,7 @@ class Dataset:
         else:
             # Off-policy: extract activations from prompt texts
             acts = self.act_manager.get_activations_for_texts(
-                self.X_train_text,
-                layer,
-                component,
-                format_type,
-                activation_type
+                self.X_train_text, layer, component, format_type, activation_type
             )
 
         # Validate activations for numerical issues
@@ -371,11 +371,7 @@ class Dataset:
         else:
             # Off-policy: extract activations from prompt texts
             acts = self.act_manager.get_activations_for_texts(
-                self.X_val_text,
-                layer,
-                component,
-                format_type,
-                activation_type
+                self.X_val_text, layer, component, format_type, activation_type
             )
 
         # Validate activations for numerical issues
@@ -554,10 +550,7 @@ class Dataset:
         obj.model = model
         obj.tokenizer = tokenizer
         obj.model_name = model_name or (
-            getattr(model,
-                    'config',
-                    {}).get('name_or_path',
-                            None) if model is not None else None
+            getattr(model, 'config', {}).get('name_or_path', None) if model is not None else None
         )
         obj.device = device
         obj.cache_root = cache_root

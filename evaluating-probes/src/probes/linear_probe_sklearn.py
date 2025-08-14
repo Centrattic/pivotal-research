@@ -188,11 +188,8 @@ class SklearnLinearProbe(BaseProbe):
         fpr = fp / (fp + tn) if (fp + tn) > 0 else 0.0
 
         return {
-            "acc": float(acc),
-            "auc": float(auc),
-            "precision": float(precision),
-            "recall": float(recall),
-            "fpr": float(fpr)
+            "acc": float(acc), "auc": float(auc), "precision": float(precision), "recall": float(recall), "fpr":
+            float(fpr)
         }
 
     def save_state(
