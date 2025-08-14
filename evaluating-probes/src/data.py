@@ -8,6 +8,7 @@ import numpy as np
 import pandas as pd
 from sklearn.model_selection import train_test_split
 from transformers import PreTrainedModel, PreTrainedTokenizerBase, AutoModelForCausalLM, AutoTokenizer
+import copy
 
 from src.logger import Logger
 from src.activations import ActivationManager
@@ -300,9 +301,9 @@ class Dataset:
         self,
         layer: int,
         component: str,
+        format_type: str,
         activation_type: str = "full",
         on_policy: bool = False,
-        format_type: str = "r-no-it",
     ):
         if self.X_train_text is None:
             raise ValueError("Data not split yet. Split data first.")
@@ -320,9 +321,9 @@ class Dataset:
                 self.X_train_text,
                 layer,
                 component,
+                format_type,
                 activation_type,
-                response_texts=question_train_texts,
-                format_type=format_type
+                question_texts=question_train_texts,
             )
         else:
             # Off-policy: extract activations from prompt texts
@@ -330,8 +331,8 @@ class Dataset:
                 self.X_train_text,
                 layer,
                 component,
-                activation_type,
-                format_type=format_type
+                format_type,
+                activation_type
             )
 
         # Validate activations for numerical issues
@@ -343,9 +344,9 @@ class Dataset:
         self,
         layer: int,
         component: str,
+        format_type: str,
         activation_type: str = "full",
         on_policy: bool = False,
-        format_type: str = "r-no-it",
     ):
         if self.X_val_text is None:
             raise ValueError("Data not split yet. Split data first.")
@@ -363,9 +364,9 @@ class Dataset:
                 self.X_val_text,
                 layer,
                 component,
+                format_type,
                 activation_type,
-                response_texts=question_val_texts,
-                format_type=format_type
+                question_texts=question_val_texts,
             )
         else:
             # Off-policy: extract activations from prompt texts
@@ -373,8 +374,8 @@ class Dataset:
                 self.X_val_text,
                 layer,
                 component,
-                activation_type,
-                format_type=format_type
+                format_type,
+                activation_type
             )
 
         # Validate activations for numerical issues
@@ -386,9 +387,9 @@ class Dataset:
         self,
         layer: int,
         component: str,
+        format_type: str,
         activation_type: str = "full",
         on_policy: bool = False,
-        format_type: str = "r-no-it",
     ):
         if self.X_test_text is None:
             raise ValueError("Data not split yet. Split data first.")
@@ -406,9 +407,9 @@ class Dataset:
                 self.X_test_text,
                 layer,
                 component,
+                format_type,
                 activation_type,
-                response_texts=question_test_texts,
-                format_type=format_type
+                question_texts=question_test_texts,
             )
         else:
             # Off-policy: extract activations from prompt texts
@@ -416,8 +417,8 @@ class Dataset:
                 self.X_test_text,
                 layer,
                 component,
+                format_type,
                 activation_type,
-                format_type=format_type
             )
 
         # Validate activations for numerical issues
@@ -664,49 +665,16 @@ class Dataset:
 
         # Build test/val indices (balanced 50/50 from real data only)
         test_indices, val_indices, used_indices = [], [], set()
-        insufficient_samples = False
         for cls in classes:
             cls_indices = np.where(y == cls)[0]
             rng = np.random.RandomState(seed)
             cls_indices_shuffled = cls_indices.copy()
             rng.shuffle(cls_indices_shuffled)
             if len(cls_indices_shuffled) < n_per_class_test + n_per_class_val:
-                if only_test:
-                    print(f"Not enough samples for class {cls} to fill test+val splits. Using all samples as test set.")
-                    insufficient_samples = True
-                    break
-                else:
-                    raise ValueError(f"Not enough samples for class {cls} to fill test+val splits.")
+                raise ValueError(f"Not enough samples for class {cls} to fill test+val splits.")
             test_indices.extend(cls_indices_shuffled[:n_per_class_test])
             val_indices.extend(cls_indices_shuffled[n_per_class_test:n_per_class_test + n_per_class_val])
             used_indices.update(cls_indices_shuffled[:n_per_class_test + n_per_class_val])
-
-        # If only_test is True, use all data as test set
-        if only_test:
-            # Use all samples as test set
-            all_indices = np.arange(n_total)
-            test_df = df.iloc[all_indices]
-
-            # Calculate max_len from all possible data (only from original df since we're not using LLM data)
-            all_lengths = df["prompt_len"].max() if "prompt_len" in df.columns else df["prompt"].str.len().max()
-            max_len = all_lengths
-
-            return Dataset.from_dataframe(
-                test_df,
-                dataset_name=original_dataset.dataset_name,  # Use original dataset name for shared cache
-                model=original_dataset.model,
-                model_name=original_dataset.model_name,
-                device=original_dataset.device,
-                cache_root=original_dataset.cache_root,
-                seed=seed,
-                task_type=original_dataset.task_type,
-                n_classes=original_dataset.n_classes,
-                max_len=max_len,
-                train_indices=None,
-                val_indices=None,
-                test_indices=np.arange(len(test_df)),
-                only_test=only_test,
-            )
 
         # Remove test/val indices from available pool for train
         available_indices = np.array([i for i in range(n_total) if i not in used_indices])
@@ -805,8 +773,7 @@ class Dataset:
     ):
         if only_test:
             return original_dataset
-        import copy
-        import pandas as pd
+
         np.random.seed(seed)
         df = original_dataset.df.copy()
         y = df['target'].to_numpy()
@@ -832,37 +799,10 @@ class Dataset:
             cls_indices_shuffled = cls_indices.copy()
             rng.shuffle(cls_indices_shuffled)
             if len(cls_indices_shuffled) < n_per_class_test + n_per_class_val:
-                if only_test:
-                    print(f"Not enough samples for class {cls} to fill test+val splits. Using all samples as test set.")
-                    insufficient_samples = True
-                    break
-                else:
-                    raise ValueError(f"Not enough samples for class {cls} to fill test+val splits.")
+                raise ValueError(f"Not enough samples for class {cls} to fill test+val splits.")
             test_indices.extend(cls_indices_shuffled[:n_per_class_test])
             val_indices.extend(cls_indices_shuffled[n_per_class_test:n_per_class_test + n_per_class_val])
             used_indices.update(cls_indices_shuffled[:n_per_class_test + n_per_class_val])
-
-        # If only_test is True, use all data as test set
-        if only_test:
-            # Use all samples as test set
-            all_indices = np.arange(n_total)
-            test_df = df.iloc[all_indices]
-
-            return Dataset.from_dataframe(
-                test_df,
-                dataset_name=original_dataset.dataset_name,
-                model=original_dataset.model,
-                model_name=original_dataset.model_name,
-                device=original_dataset.device,
-                cache_root=original_dataset.cache_root,
-                seed=seed,
-                task_type=original_dataset.task_type,
-                n_classes=original_dataset.n_classes,
-                max_len=max_len,
-                train_indices=None,
-                val_indices=None,
-                test_indices=np.arange(len(test_df)),
-            )
 
         # Check if we should create a train set
         create_train = (

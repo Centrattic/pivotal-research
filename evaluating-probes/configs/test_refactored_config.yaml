@@ -51,7 +51,7 @@ experiments:
 model_check:
   - name: spam-pred
     hf_model_name: "google/gemma-2-9b-it"
-    check_on: ["94_better_spam", "87_is_spam"]
+    check_on: ["87_is_spam", "94_better_spam"]
     method: "it"  # Options: "it" (uses chat template), "no-it" (uses few-shot prompt)
     check_prompt: "Is this email spam? Answer with either Yes or No. \n {prompt}"
     few_shot_prompt: |

@@ -10,9 +10,16 @@ from typing import List, Dict, Any, Optional, Union
 from joblib import Parallel, delayed
 import sys
 import os
-from configs.probes import PROBE_CONFIGS, SklearnLinearProbeConfig, PytorchAttentionProbeConfig, SAEProbeConfig, MassMeanProbeConfig, ActivationSimilarityProbeConfig
+from configs.probes import (
+    PROBE_CONFIGS,
+    ProbeJob,
+    SklearnLinearProbeConfig,
+    PytorchAttentionProbeConfig,
+    SAEProbeConfig,
+    MassMeanProbeConfig,
+    ActivationSimilarityProbeConfig,
+)
 from dataclasses import dataclass
-from typing import List, Optional, Dict, Any
 
 # Set CUDA device BEFORE importing transformer_lens
 parser = argparse.ArgumentParser()
@@ -42,39 +49,9 @@ except Exception as e:
 from src.data import Dataset, get_available_datasets, get_model_d_model
 from src.utils_training import train_single_probe, evaluate_single_probe, extract_activations_for_dataset
 from src.logger import Logger
-from src.utils import resample_params_to_str, get_effective_seeds, generate_llm_upsampling_configs
-from src.data import get_model_d_model
+from src.utils import resample_params_to_str
 from src.model_check.main import run_model_check
 from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
-
-
-@dataclass
-class ProbeJob:
-    """Represents a single probe training/evaluation job."""
-    # Basic identifiers
-    experiment_name: str
-    train_dataset: str
-    eval_datasets: List[str]
-    layer: int
-    component: str
-    seed: int
-
-    # Probe configuration
-    architecture_name: str  # sklearn_linear, linear, sae, attention, act_sim, mass_mean
-    probe_config: Any  # Union[SklearnLinearProbeConfig, PytorchAttentionProbeConfig, SAEProbeConfig, MassMeanProbeConfig, ActivationSimilarityProbeConfig]
-
-    # Data configuration
-    rebuild_config: Optional[Dict] = None
-    on_policy: bool = False  # Whether this is an on-policy probe
-
-    # Training configuration
-    train_size: float = 0.85
-    val_size: float = 0.0
-    test_size: float = 0.15
-
-    # Configuration for activation extraction and model check
-    format_type: str = "r-no-it"  # Activation extraction format
-    config: Optional[Dict] = None  # Full config for access to activation_extraction settings
 
 
 def create_probe_config(
@@ -277,6 +254,7 @@ def extract_all_activations(
     model,
     tokenizer,
     logger: Logger,
+    all_seeds: List[int],
 ):
     """Extract activations for all datasets, layers, and components."""
     logger.log("\n" + "=" * 25 + " ACTIVATION EXTRACTION PHASE " + "=" * 25)
@@ -385,8 +363,6 @@ def create_probe_jobs(config: Dict, all_seeds: List[int]) -> List[ProbeJob]:
                                         probe_config=probe_config,
                                         rebuild_config=rebuild_params,
                                         on_policy=on_policy,
-                                        format_type=format_type,
-                                        config=config
                                     )
                                     all_jobs.append(job)
 
@@ -441,7 +417,7 @@ def process_probe_job(
                 # First evaluate on validation set
                 logger.log(f"    Evaluating on {eval_dataset} validation set")
                 try:
-                    metrics = evaluate_single_probe(
+                    evaluate_single_probe(
                         job=job,
                         eval_dataset=eval_dataset,
                         config=config,
@@ -449,7 +425,7 @@ def process_probe_job(
                         cache_dir=cache_dir,
                         logger=logger,
                         only_test=False,  # Use validation set
-                        rerun=rerun
+                        rerun=rerun,
                     )
                     logger.log(f"    ✅ Validation evaluation complete for {eval_dataset}")
                 except Exception as e:
@@ -467,7 +443,7 @@ def process_probe_job(
             logger.log(f"    Evaluating on {eval_dataset} (only_test={only_test})")
 
             try:
-                metrics = evaluate_single_probe(
+                evaluate_single_probe(
                     job=job,
                     eval_dataset=eval_dataset,
                     config=config,
@@ -475,7 +451,7 @@ def process_probe_job(
                     cache_dir=cache_dir,
                     logger=logger,
                     only_test=only_test,
-                    rerun=rerun
+                    rerun=rerun,
                 )
 
                 logger.log(f"    ✅ Evaluation complete for {eval_dataset}")
@@ -556,20 +532,30 @@ def main():
                 load_in_4bit=True,
                 bnb_4bit_quant_type="nf4",
                 bnb_4bit_use_double_quant=True,
-                bnb_4bit_compute_dtype=torch.float16
+                bnb_4bit_compute_dtype=torch.float16,
             )
             model = AutoModelForCausalLM.from_pretrained(
-                config['model_name'], device_map=config['device'], quantization_config=bnb_config
+                config['model_name'],
+                device_map=config['device'],
+                quantization_config=bnb_config,
             )
         else:
             model = AutoModelForCausalLM.from_pretrained(
-                config['model_name'], device_map=config['device'], torch_dtype=torch.float16
+                config['model_name'],
+                device_map=config['device'],
+                torch_dtype=torch.float16,
             )
 
         tokenizer = AutoTokenizer.from_pretrained(config['model_name'])
 
         # Step 4: Ensures activations are extracted
-        extract_all_activations(config, model, tokenizer, logger)
+        extract_all_activations(
+            config,
+            model,
+            tokenizer,
+            logger,
+            all_seeds,
+        )
 
         # Unload model after activation extraction to free GPU memory
         logger.log("\n" + "=" * 25 + " MODEL UNLOADING PHASE " + "=" * 25)

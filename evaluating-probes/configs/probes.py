@@ -1,10 +1,34 @@
 # configs/probes.py
 import os
 from dataclasses import dataclass, field
+from typing import Any, Dict, List, Optional
 
 # Set sklearn to use only 1 thread for CPU-based training
 # os.environ["OMP_NUM_THREADS"] = "1"
 
+@dataclass
+class ProbeJob:
+    """Represents a single probe training/evaluation job."""
+    # Basic identifiers
+    experiment_name: str
+    train_dataset: str
+    eval_datasets: List[str]
+    layer: int
+    component: str
+    seed: int
+
+    # Probe configuration
+    architecture_name: str  # sklearn_linear, linear, sae, attention, act_sim, mass_mean
+    probe_config: Any  # Union[SklearnLinearProbeConfig, PytorchAttentionProbeConfig, SAEProbeConfig, MassMeanProbeConfig, ActivationSimilarityProbeConfig]
+
+    # Data configuration
+    on_policy: bool  # Whether this is an on-policy probe - must be specified
+    rebuild_config: Optional[Dict] = None
+
+    # Training configuration
+    train_size: float = 0.85
+    val_size: float = 0.0
+    test_size: float = 0.15
 
 @dataclass
 class ProbeConfig:

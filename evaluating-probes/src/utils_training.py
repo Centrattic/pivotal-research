@@ -10,9 +10,19 @@ from src.data import Dataset, get_model_d_model
 from src.logger import Logger
 from configs.probes import PROBE_CONFIGS
 from src.utils import (
-    extract_aggregation_from_config, get_probe_architecture, get_probe_filename_prefix, rebuild_suffix
+    extract_aggregation_from_config,
+    get_probe_architecture,
+    get_probe_filename_prefix,
+    rebuild_suffix,
 )
-from src.probe_configs import ProbeJob, SAEProbeConfig, AttentionProbeConfig, NonTrainableProbeConfig
+from configs.probes import (
+    ProbeJob,
+    SAEProbeConfig,
+    PytorchAttentionProbeConfig,
+    MassMeanProbeConfig,
+    ActivationSimilarityProbeConfig,
+)
+
 
 def add_hyperparams_to_filename(base_filename: str, probe_config) -> str:
     """Add hyperparameter values to filename if they differ from defaults."""
@@ -103,11 +113,11 @@ def extract_activations_for_dataset(
         if on_policy:
             # For on-policy: extract activations using the specified format
             logger.log(f"    - On-policy: extracting activations using format '{format_type}'...")
-            if hasattr(ds, 'response_texts') and ds.response_texts is not None:
+            if hasattr(ds, 'question_texts') and ds.question_texts is not None:
                 dataset_texts = ds.X.tolist()
-                response_texts = ds.response_texts.tolist()
+                question_texts = ds.question_texts.tolist()
                 newly_added = ds.act_manager.ensure_texts_cached(
-                    dataset_texts, layer, component, response_texts=response_texts, format_type=format_type
+                    dataset_texts, layer, component, format_type, question_texts=question_texts,
                 )
                 logger.log(f"    - Cached {newly_added} new activations (on-policy format: {format_type})")
             else:
@@ -156,6 +166,7 @@ def extract_activations_for_dataset(
     except Exception as e:
         logger.log(f"    - 💀 ERROR extracting activations for {dataset_name}: {e}")
         raise
+
 
 def train_single_probe(
     job: ProbeJob,
@@ -288,15 +299,15 @@ def train_single_probe(
     logger.log(f"  [DEBUG] Using activation_type: {activation_type}")
 
     # Get activation extraction format from config
-    format_type = "r-no-it"
-    if hasattr(job, 'format_type'):
-        format_type = job.format_type
-    elif hasattr(job, 'config') and 'activation_extraction' in job.config:
-        format_type = job.config['activation_extraction'].get('format_type', 'r-no-it')
+    format_type = config['activation_extraction']['format_type']
 
     # Get activations using the unified method
     train_result = train_ds.get_train_set_activations(
-        job.layer, job.component, activation_type=activation_type, on_policy=job.on_policy, format_type=format_type
+        job.layer,
+        job.component,
+        format_type,
+        activation_type=activation_type,
+        on_policy=job.on_policy,
     )
 
     # Handle different return formats (with/without masks)
@@ -411,7 +422,7 @@ def evaluate_single_probe(
     logger: Logger,
     only_test: bool,
     rerun: bool,
-):
+) -> None:
     """
     Evaluate a single probe on a given dataset.
     """
@@ -421,13 +432,23 @@ def evaluate_single_probe(
     ) else job.architecture_name
 
     # Extract aggregation from config for results, to be backward compatible
-    agg_name = extract_aggregation_from_config(config_name, job.architecture_name)
+    agg_name = extract_aggregation_from_config(
+        config_name,
+        job.architecture_name,
+    )
 
     probe_filename_base = get_probe_filename_prefix(
-        job.train_dataset, job.architecture_name, job.layer, job.component, config_name
+        job.train_dataset,
+        job.architecture_name,
+        job.layer,
+        job.component,
+        config_name,
     )
     # Add hyperparameters to filename if they differ from defaults
-    probe_filename_with_hparams = add_hyperparams_to_filename(probe_filename_base, job.probe_config)
+    probe_filename_with_hparams = add_hyperparams_to_filename(
+        probe_filename_base,
+        job.probe_config,
+    )
 
     # The results_dir is already the specific evaluation directory (val_eval, test_eval, or gen_eval)
     # We need to look for probe files in the trained directory
@@ -466,7 +487,10 @@ def evaluate_single_probe(
         )
     elif job.architecture_name == "sae":
         probe = get_probe_architecture(
-            "sae", d_model=get_model_d_model(config['model_name']), device=config['device'], config=probe_config_dict
+            "sae",
+            d_model=get_model_d_model(config['model_name']),
+            device=config['device'],
+            config=probe_config_dict,
         )
     elif job.architecture_name == "mass_mean":
         probe = get_probe_architecture(
@@ -490,7 +514,10 @@ def evaluate_single_probe(
     # Get batch_size from probe config for evaluation
     # For SAE probes, use training_batch_size; for others, use batch_size
     if job.architecture_name == "sae":
-        batch_size = probe_config_dict.get('training_batch_size', probe_config_dict.get('batch_size', 200))
+        batch_size = probe_config_dict.get(
+            'training_batch_size',
+            probe_config_dict.get('batch_size', 200),
+        )
     else:
         batch_size = probe_config_dict.get('batch_size', 200)
 
@@ -542,23 +569,32 @@ def evaluate_single_probe(
             )
     else:
         eval_ds = Dataset(
-            eval_dataset, model_name=config['model_name'], device=config['device'], seed=job.seed, only_test=only_test
+            eval_dataset,
+            model_name=config['model_name'],
+            device=config['device'],
+            seed=job.seed,
+            only_test=only_test,
         )
-        eval_ds.split_data(train_size=job.train_size, val_size=job.val_size, test_size=job.test_size, seed=job.seed)
+        eval_ds.split_data(
+            train_size=job.train_size,
+            val_size=job.val_size,
+            test_size=job.test_size,
+            seed=job.seed,
+        )
 
     # Get activations
     activation_type = get_activation_type_from_config(config_name)
 
     # Get activation extraction format from config
-    format_type = "r-no-it"
-    if hasattr(job, 'format_type'):
-        format_type = job.format_type
-    elif hasattr(job, 'config') and 'activation_extraction' in job.config:
-        format_type = job.config['activation_extraction'].get('format_type', 'r-no-it')
+    format_type = config['activation_extraction']['format_type']
 
     # Get activations using the unified method
     test_result = eval_ds.get_test_set_activations(
-        job.layer, job.component, activation_type=activation_type, on_policy=job.on_policy, format_type=format_type
+        job.layer,
+        job.component,
+        format_type,
+        activation_type=activation_type,
+        on_policy=job.on_policy,
     )
 
     # Handle different return formats (with/without masks)
@@ -604,5 +640,3 @@ def evaluate_single_probe(
 
     # Log the results
     logger.log(f"  - ❤️‍🔥 Success! Metrics: {metrics}")
-
-    return metrics

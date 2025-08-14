@@ -29,7 +29,10 @@ def load_hf_model_and_tokenizer(
     model_name,
 ):
     tokenizer = AutoTokenizer.from_pretrained(model_name)
-    model = AutoModelForCausalLM.from_pretrained(model_name)
+    model = AutoModelForCausalLM.from_pretrained(
+        model_name,
+        torch_dtype=torch.bfloat16,
+    )
     model.eval()
     if torch.cuda.is_available():
         model = model.cuda()
@@ -66,27 +69,35 @@ def run_single_model_check(
     method = check.get('method')
     run_name = config.get("run_name")
     device = config.get("device")
-    batch_size = check.get('batch_size', 8)  # Default batch size
     seed = config.get("seed")  # Use the same seed as the main run
-    num_tokens_to_generate = check.get('num_tokens_to_generate', 2)  # Default to 5 tokens
+    num_tokens_to_generate = check.get('num_tokens_to_generate', 1)
 
     # Use the full dataset (not just test set) to ensure consistency across seeds
     # We'll align by prompts later during filtering
-    ds = Dataset(ds_name, model=model, device=device, seed=seed)
+    ds = Dataset(
+        ds_name,
+        model=model,
+        device=device,
+        seed=seed,
+    )
     X_full, y_full = ds.X, ds.y  # Get the full dataset
 
     # Add debugging information
-    # print(f"Dataset total size: {len(ds.df)}")
-    # print(f"Test set size: {len(X_test)}")
-    # print(f"Test set shape: {y_test.shape if hasattr(y_test, 'shape') else 'no shape'}")
-    # print(f"Test set type: {type(y_test)}")
+    print(f"Dataset total size from df: {len(ds.df)}")
+    print(f"X_full size: {len(X_full)}")
+    print(f"y_full size: {len(y_full)}")
+    print(f"Test set size: {len(ds.X_test_text) if ds.X_test_text is not None else 'Not split yet'}")
+    print(f"Train set size: {len(ds.X_train_text) if ds.X_train_text is not None else 'Not split yet'}")
 
     # Validate that we have the expected dataset size and class distribution
     if len(X_full) == 0:
         raise ValueError("Dataset is empty! This indicates an issue with the data loading.")
 
-    unique_labels, counts = np.unique(y_full, return_counts=True)
-    # print(f"Full dataset class distribution: {dict(zip(unique_labels, counts))}")
+    unique_labels, counts = np.unique(
+        y_full,
+        return_counts=True,
+    )
+    print(f"Full dataset class distribution: {dict(zip(unique_labels, counts,))}")
 
     # Get class names from config
     class_names = check.get('class_names')
@@ -95,7 +106,6 @@ def run_single_model_check(
 
     # Extract class token IDs - support both single strings and arrays of strings
     class_token_ids = {}
-    class_name_mapping = {}  # Keep track of which name was chosen for each class
 
     for idx, name_or_names in class_names.items():
         idx = int(idx)
@@ -112,8 +122,14 @@ def run_single_model_check(
         token_ids_for_class = []
         for name in name_list:
             try:
-                token_id = tokenizer.encode(f"{name}", add_special_tokens=False)[0]
-                token_ids_for_class.append((token_id, name))
+                token_id = tokenizer.encode(
+                    f"{name}",
+                    add_special_tokens=False,
+                )[0]
+                token_ids_for_class.append((
+                    token_id,
+                    name,
+                ))
             except IndexError:
                 print(f"Warning: Could not encode '{name}' for class {idx}")
                 continue
@@ -146,213 +162,320 @@ def run_single_model_check(
         else:
             raise ValueError(f"Unknown model check method: {method}. Must be 'it' or 'no-it'")
 
-    print(f"Running model over all {len(messages_list)} prompts...")
-    print(f"Looking at log probabilities across the next {num_tokens_to_generate} tokens for each class...")
-
     # Save CSV path - include dataset name in filename for easy matching
     plot_dir = Path(f"results/{run_name}/runthrough_{ds_name}")
     csv_path = plot_dir / f"logit_diff_{check['name']}_{ds_name}_model_check.csv"
 
     csv_rows = []
+    # Process messages in batches for efficiency
+    processed_count = 0
+    error_count = 0
+    batch_size = check.get(
+        'batch_size',
+        8,
+    )  # Default batch size for processing
 
-    # Process each message using apply_chat_template and extract logits
-    for i, messages in tqdm(enumerate(messages_list)):
-        # print(f"Processing prompt {i+1}/{len(messages_list)}")
+    print(f"Running model over all {len(messages_list)} prompts...")
+    print(f"Looking at log probabilities across the next {num_tokens_to_generate} tokens for each class...")
+    print(f"Dataset size: {len(X_full)} examples")
+    print(f"Class distribution: {dict(zip(unique_labels, counts))}")
+    print(f"Processing in batches of size: {batch_size}")
+
+    # Initialize logit_values outside the loop to avoid UnboundLocalError
+    logit_values = {}
+
+    # First, tokenize all prompts to get their lengths for proper batching
+    print("Pre-tokenizing all prompts to determine batch padding...")
+    all_tokenized = []
+    for messages in tqdm(messages_list, desc="Pre-tokenizing prompts"):
         if method == "it":
             # Use chat template method
             try:
-                input_ids = tokenizer.apply_chat_template(
+                tokenized = tokenizer.apply_chat_template(
                     messages,
                     return_tensors="pt",
                     return_dict=True,
-                    add_generation_prompt=True
+                    add_generation_prompt=True,
                 )
-                # print(f"Tokenized prompt after chat template (full): {tokenizer.decode(input_ids['input_ids'][0])}")
             except ValueError as e:
                 if "chat_template" in str(e):
                     # Fallback to direct tokenization
                     formatted_prompt = messages[0]["content"]
-                    input_ids = tokenizer(formatted_prompt, return_tensors="pt")
-                    # print(f"Tokenized prompt directly (full): {tokenizer.decode(input_ids['input_ids'][0])}")
+                    tokenized = tokenizer(formatted_prompt, return_tensors="pt")
                 else:
                     raise e
         elif method == "no-it":
             # Use few-shot method (no chat template)
             formatted_prompt = messages  # messages is already the raw text
-            input_ids = tokenizer(formatted_prompt, return_tensors="pt")
-            # print(f"Tokenized few-shot prompt (full): {tokenizer.decode(input_ids['input_ids'][0])}")
+            tokenized = tokenizer(formatted_prompt, return_tensors="pt")
         else:
             raise ValueError(f"Unknown model check method: {method}")
 
-        if torch.cuda.is_available():
-            input_ids = {k: v.cuda() for k, v in input_ids.items()}
+        all_tokenized.append(tokenized)
 
-        # Generate next tokens to look at their log probabilities
-        generated_logits = []
+    # Process in batches
+    for batch_start in tqdm(
+            range(0, len(messages_list), batch_size), desc=f"Processing {ds_name} examples in batches", unit="batch",
+            bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}] ({percentage:3.0f}%)'):
+        batch_end = min(batch_start + batch_size, len(messages_list))
+        batch_messages = messages_list[batch_start:batch_end]
+        batch_tokenized = all_tokenized[batch_start:batch_end]
 
-        with torch.no_grad():
-            # Get initial logits
-            outputs = model(**input_ids)
-            logits = outputs.logits  # (1, seq, vocab)
-            generated_logits.append(logits[0, -1])  # Last token logits
+        try:
+            # Get the maximum sequence length in this batch
+            max_seq_len = max(tokenized['input_ids'].size(1) for tokenized in batch_tokenized)
 
-            # Generate next tokens one by one (optimized)
-            current_input_ids = input_ids['input_ids'].clone()
-            attention_mask = input_ids.get('attention_mask', None)
+            # Pad all examples in the batch to the same length
+            batch_input_ids = []
+            batch_attention_masks = []
 
-            for _ in range(num_tokens_to_generate - 1):
-                # Get logits for the next token
-                outputs = model(input_ids=current_input_ids)
-                next_token_logits = outputs.logits[0, -1]  # (vocab_size,)
-                generated_logits.append(next_token_logits)
+            for tokenized in batch_tokenized:
+                seq_len = tokenized['input_ids'].size(1)
+                padding_len = max_seq_len - seq_len
 
-                # Sample the next token (greedy decoding)
-                next_token = torch.argmax(next_token_logits, dim=-1, keepdim=True)
-                # Ensure next_token has the same number of dimensions as current_input_ids
-                if current_input_ids.dim() == 2 and next_token.dim() == 1:
-                    next_token = next_token.unsqueeze(0)  # Add batch dimension
-                current_input_ids = torch.cat([current_input_ids, next_token], dim=-1)
+                if padding_len > 0:
+                    # Pad input_ids
+                    padded_input_ids = torch.cat(
+                        [
+                            tokenized['input_ids'],
+                            torch.full(
+                                (1, padding_len),
+                                tokenizer.pad_token_id,
+                                dtype=tokenized['input_ids'].dtype,
+                            ),
+                        ],
+                        dim=1,
+                    )
 
-        # Stack all logits: (num_tokens, vocab_size)
-        all_logits = torch.stack(generated_logits)
+                    # Pad attention mask
+                    if 'attention_mask' in tokenized:
+                        padded_attention_mask = torch.cat(
+                            [
+                                tokenized['attention_mask'],
+                                torch.zeros(
+                                    (1, padding_len),
+                                    dtype=tokenized['attention_mask'].dtype,
+                                )
+                            ],
+                            dim=1,
+                        )
+                    else:
+                        padded_attention_mask = torch.cat(
+                            [
+                                torch.ones((1, seq_len), dtype=torch.long),
+                                torch.zeros(
+                                    (1, padding_len),
+                                    dtype=torch.long,
+                                ),
+                            ],
+                            dim=1,
+                        )
+                else:
+                    padded_input_ids = tokenized['input_ids']
+                    padded_attention_mask = tokenized.get(
+                        'attention_mask',
+                        torch.ones(
+                            (1, seq_len),
+                            dtype=torch.long,
+                        ),
+                    )
 
-        # Print the 5 initial generated tokens
-        generated_tokens = []
-        for pos in range(min(5, num_tokens_to_generate)):
-            if pos < len(generated_logits):
-                next_token = torch.argmax(generated_logits[pos], dim=-1)
-                token_text = tokenizer.decode([next_token])
-                generated_tokens.append(token_text)
-        # print(f"First 5 generated tokens: {generated_tokens}")
+                batch_input_ids.append(padded_input_ids)
+                batch_attention_masks.append(padded_attention_mask)
 
-        # Compute log probabilities for all positions
-        all_log_probs = torch.log_softmax(all_logits, dim=-1)  # (num_tokens, vocab_size)
+            # Stack the batch
+            batch_input_dict = {
+                'input_ids': torch.cat(batch_input_ids, dim=0),
+                'attention_mask': torch.cat(
+                    batch_attention_masks,
+                    dim=0,
+                ),
+            }
 
-        # Extract logits and log probabilities for each class, choosing the best token from each class array
-        # across all positions
-        logit_values = {}
-        log_prob_values = {}
-        chosen_tokens = {}  # Keep track of which token was chosen for each class
-        chosen_positions = {}  # Keep track of which position had the best log prob
+            if torch.cuda.is_available():
+                batch_input_dict = {k: v.cuda() for k, v in batch_input_dict.items()}
 
-        for idx, token_ids_list in class_token_ids.items():
-            best_log_prob = float('-inf')
-            best_token_id = None
-            best_token_name = None
-            best_logit = None
-            best_position = None
+            # Process the entire batch through the model
+            batch_logits_list = []
 
-            # Find the token with highest log probability for this class across all positions
-            for token_id, name in token_ids_list:
-                # Check log probability at each position
-                for pos in range(num_tokens_to_generate):
-                    log_prob_val = all_log_probs[pos, token_id].item()
-                    if log_prob_val > best_log_prob:
-                        best_log_prob = log_prob_val
-                        best_token_id = token_id
-                        best_token_name = name
-                        best_logit = all_logits[pos, token_id].item()
-                        best_position = pos
+            with torch.no_grad():
+                # Get initial logits for the entire batch
+                outputs = model(**batch_input_dict)
+                batch_logits = outputs.logits  # (batch_size, seq, vocab)
 
-            logit_values[idx] = best_logit
-            log_prob_values[idx] = best_log_prob
-            chosen_tokens[idx] = best_token_name
-            chosen_positions[idx] = best_position
+                # Store initial logits for each example
+                for i in range(batch_logits.size(0)):
+                    batch_logits_list.append([batch_logits[i, -1]])  # Last token logits for each example
 
-        # Debug: Print top 5 tokens in the logit distribution (for the first position)
-        values, indices = torch.topk(all_logits[0], 5)
-        # print(f"\n=== Prompt {i+1}/{len(messages_list)} ===")
-        # print(f"Prompt: {X_full[i][:100]}...")
-        # print(f"True label: {y_full[i]}")
+                # Generate next tokens for the entire batch
+                current_input_ids = batch_input_dict['input_ids'].clone()
+                current_attention_mask = batch_input_dict['attention_mask'].clone()
 
-        # print(f"\nTop 5 tokens for position 0:")
-        for j, (value, index) in enumerate(zip(values.tolist(), indices.tolist())):
-            token = tokenizer.decode([index])
-            log_prob = all_log_probs[0, index].item()
-            print(f"  {j+1}. Token '{token}' (ID: {index}): logit={value:.3f}, log_prob={log_prob:.3f}")
+                for _ in range(num_tokens_to_generate - 1):
+                    # Get logits for the next token for entire batch
+                    outputs = model(
+                        input_ids=current_input_ids,
+                        attention_mask=current_attention_mask,
+                    )
 
-        # Show the class token logits specifically
-        # print(f"\nClass token analysis (best across all {num_tokens_to_generate} positions):")
-        for idx in class_token_ids.keys():
-            logit_val = logit_values[idx]
-            log_prob_val = log_prob_values[idx]
-            chosen_name = chosen_tokens[idx]
-            chosen_pos = chosen_positions[idx]
-            # print(f"  Class {idx} (chose '{chosen_name}' at position {chosen_pos}): logit={logit_val:.3f}, log_prob={log_prob_val:.3f}")
+                    next_token_logits = outputs.logits[:, -1]  # (batch_size, vocab_size)
 
-        # Show logit difference for binary classification
-        if len(logit_values) == 2:
-            logit_diff = logit_values[0] - logit_values[1]
-            print(f"  Logit difference (Class 0 - Class 1): {logit_diff:.3f}")
-            predicted_class = 0 if logit_diff > 0 else 1
-            correct = predicted_class == y_full[i]
-            # print(f"  Predicted: Class {predicted_class}, Correct: {correct}")
+                    # Store logits for each example
+                    for i in range(next_token_logits.size(0)):
+                        batch_logits_list[i].append(next_token_logits[i])
 
-        # print("-" * 80)
+                    # Sample next tokens (greedy decoding) for entire batch
+                    next_tokens = torch.argmax(
+                        next_token_logits,
+                        dim=-1,
+                        keepdim=True,
+                    )
+                    current_input_ids = torch.cat(
+                        [current_input_ids, next_tokens],
+                        dim=-1,
+                    )
 
-        # Create CSV row
-        row = {"prompt": X_full[i], "label": y_full[i]}
+                    # Update attention mask
+                    new_attention = torch.ones(
+                        current_input_ids.size(0),
+                        1,
+                        device=current_input_ids.device,
+                    )
+                    current_attention_mask = torch.cat(
+                        [current_attention_mask, new_attention],
+                        dim=-1,
+                    )
 
-        # Add logits
-        for idx, val in logit_values.items():
-            chosen_name = chosen_tokens[idx]
-            row[f"logit_{chosen_name}"] = val
+            # Process each example's results
+            for i, (messages, example_logits) in enumerate(zip(batch_messages, batch_logits_list)):
+                global_idx = batch_start + i
 
-        # Add log probabilities
-        for idx, val in log_prob_values.items():
-            chosen_name = chosen_tokens[idx]
-            row[f"logprob_{chosen_name}"] = val
+                # Stack all logits for this example: (num_tokens, vocab_size)
+                all_logits = torch.stack(example_logits)
 
-        # Add positions where best log probs were found
-        for idx, pos in chosen_positions.items():
-            chosen_name = chosen_tokens[idx]
-            row[f"position_{chosen_name}"] = pos
+                # Compute log probabilities for all positions
+                all_log_probs = torch.log_softmax(all_logits, dim=-1)  # (num_tokens, vocab_size)
 
-        # Add logit difference (assuming binary classification with classes 0 and 1)
-        if len(logit_values) == 2:
-            logit_diff = logit_values[0] - logit_values[1]
-            row["logit_diff"] = logit_diff
+                # Extract logits and log probabilities for each class
+                logit_values = {}
+                log_prob_values = {}
+                chosen_tokens = {}
+                chosen_positions = {}
 
-            # Add new column for filtered scoring
-            # For class 0 samples: don't use if logit_diff >= 0, use otherwise
-            # For class 1 samples: don't use if logit_diff <= 0, use otherwise
-            true_class = y_full[i]
-            if true_class == 0:
-                # Class 0: use if logit_diff < 0 (model correctly predicts class 0)
-                use_in_filtered = 1 if logit_diff < 0 else 0
-            elif true_class == 1:
-                # Class 1: use if logit_diff > 0 (model correctly predicts class 1)
-                use_in_filtered = 1 if logit_diff > 0 else 0
-            else:
-                # Fallback for any other class
-                use_in_filtered = 0
+                for idx, token_ids_list in class_token_ids.items():
+                    best_log_prob = float('-inf')
+                    best_token_id = None
+                    best_token_name = None
+                    best_logit = None
+                    best_position = None
 
-            row["use_in_filtered_scoring"] = use_in_filtered
+                    # Find the token with highest log probability for this class across all positions
+                    for token_id, name in token_ids_list:
+                        # Check log probability at each position
+                        for pos in range(num_tokens_to_generate):
+                            log_prob_val = all_log_probs[pos, token_id].item()
+                            if log_prob_val > best_log_prob:
+                                best_log_prob = log_prob_val
+                                best_token_id = token_id
+                                best_token_name = name
+                                best_logit = all_logits[pos, token_id].item()
+                                best_position = pos
 
-        csv_rows.append(row)
+                    logit_values[idx] = best_logit
+                    log_prob_values[idx] = best_log_prob
+                    chosen_tokens[idx] = best_token_name
+                    chosen_positions[idx] = best_position
+
+                # Create CSV row
+                row = {"prompt": X_full[global_idx], "label": y_full[global_idx]}
+
+                # Add logits
+                for idx, val in logit_values.items():
+                    chosen_name = chosen_tokens[idx]
+                    row[f"logit_{chosen_name}"] = val
+
+                # Add log probabilities
+                for idx, val in log_prob_values.items():
+                    chosen_name = chosen_tokens[idx]
+                    row[f"logprob_{chosen_name}"] = val
+
+                # Add positions where best log probs were found
+                for idx, pos in chosen_positions.items():
+                    chosen_name = chosen_tokens[idx]
+                    row[f"position_{chosen_name}"] = pos
+
+                # Add logit difference (assuming binary classification with classes 0 and 1)
+                if len(logit_values) == 2:
+                    logit_diff = logit_values[0] - logit_values[1]
+                    row["logit_diff"] = logit_diff
+
+                    # Add new column for filtered scoring
+                    true_class = y_full[global_idx]
+                    if true_class == 0:
+                        use_in_filtered = 1 if logit_diff < 0 else 0
+                    elif true_class == 1:
+                        use_in_filtered = 1 if logit_diff > 0 else 0
+                    else:
+                        use_in_filtered = 0
+
+                    row["use_in_filtered_scoring"] = use_in_filtered
+
+                csv_rows.append(row)
+                processed_count += 1
+
+        except Exception as e:
+            error_count += len(batch_messages)
+            print(f"⚠️  Error processing batch starting at {batch_start}: {str(e)}")
+            continue
 
     # Save to CSV
     plot_dir.mkdir(parents=True, exist_ok=True)
     df = pd.DataFrame(csv_rows)
     df.to_csv(csv_path, index=False)
     print(f"Saved CSV of logit diffs to: {csv_path}")
+    print(
+        f"Processed {processed_count} examples successfully, {error_count} errors out of {len(X_full)} total examples"
+    )
+
+    # Verify we processed all examples
+    if processed_count != len(X_full):
+        print(
+            f"⚠️  WARNING: Only processed {processed_count} examples successfully but dataset has {len(X_full)} examples!"
+        )
+        if error_count > 0:
+            print(f"   {error_count} examples failed due to errors")
+    else:
+        print(f"✅ Successfully processed all {processed_count} examples from the dataset")
 
     # Print summary statistics
-    if len(logit_values) == 2:  # Binary classification
-        correct_predictions = 0
+    if processed_count > 0 and len(logit_values) == 2 and len(df) > 0:  # Binary classification
         total_predictions = len(df)
 
-        for _, row in df.iterrows():
-            logit_diff = row["logit_diff"]
-            predicted_class = 0 if logit_diff > 0 else 1
-            if predicted_class == row["label"]:
-                correct_predictions += 1
+        # New correctness criterion:
+        # - Class 0 is correct if logit_diff < 0
+        # - Class 1 is correct if logit_diff > 0
+        class0_mask = df["label"] == 0
+        class1_mask = df["label"] == 1
+        class0_total = int(class0_mask.sum())
+        class1_total = int(class1_mask.sum())
 
-        accuracy = correct_predictions / total_predictions
+        class0_correct = int((class0_mask & (df["logit_diff"] < 0)).sum())
+        class1_correct = int((class1_mask & (df["logit_diff"] > 0)).sum())
+
+        overall_correct = class0_correct + class1_correct
+        overall_accuracy = overall_correct / total_predictions if total_predictions > 0 else 0.0
+
         print(f"\n=== SUMMARY STATISTICS ===")
         print(f"Total predictions: {total_predictions}")
-        print(f"Correct predictions: {correct_predictions}")
-        print(f"Accuracy: {accuracy:.3f} ({accuracy*100:.1f}%)")
+        print(f"Correct predictions (new criterion): {overall_correct}")
+        print(f"Accuracy: {overall_accuracy:.3f} ({overall_accuracy*100:.1f}%)")
+
+        # Per-class accuracy
+        class0_accuracy = (class0_correct / class0_total) if class0_total > 0 else 0.0
+        class1_accuracy = (class1_correct / class1_total) if class1_total > 0 else 0.0
+        print(f"\nPer-class accuracy:")
+        print(f"  Class 0: {class0_correct}/{class0_total} ({class0_accuracy*100:.1f}%) [criterion: logit_diff < 0]")
+        print(f"  Class 1: {class1_correct}/{class1_total} ({class1_accuracy*100:.1f}%) [criterion: logit_diff > 0]")
 
         # Show average logit differences by class
         print(f"\nAverage logit differences by true class:")
@@ -361,6 +484,8 @@ def run_single_model_check(
             if len(class_data) > 0:
                 avg_logit_diff = class_data["logit_diff"].mean()
                 print(f"  Class {class_idx}: {avg_logit_diff:.3f}")
+    elif processed_count == 0:
+        print(f"\n⚠️  No examples were processed successfully. Cannot compute summary statistics.")
 
 
 def run_model_check(
@@ -376,13 +501,7 @@ def run_model_check(
         else:
             datasets_to_check = [check_on] if check_on else []
 
-        prompt_template = check['check_prompt']
         model_name = check['hf_model_name']
-        run_name = config.get("run_name", "run")
-        device = config.get("device")
-        batch_size = check.get('batch_size', 2)  # Default batch size
-        seed = config.get("seed")  # Use the same seed as the main run
-        num_tokens_to_generate = check.get('num_tokens_to_generate', 1)  # Default to 5 tokens
         print(f"Loading HuggingFace model:", model_name)
         model, tokenizer = load_hf_model_and_tokenizer(model_name)
 
