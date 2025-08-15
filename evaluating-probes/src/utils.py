@@ -29,10 +29,21 @@ def extract_aggregation_from_config(
     architecture_name: str,
 ) -> str:
     """Extract aggregation from config for backward compatibility."""
-    config = PROBE_CONFIGS[config_name]
-    if hasattr(config, 'aggregation'):
+    # Prefer explicit aggregation from known configs
+    config = PROBE_CONFIGS.get(config_name)
+    if config is not None and hasattr(config, 'aggregation'):
         return config.aggregation
-    elif architecture_name == "attention":
+
+    # Fallback: infer aggregation from name suffix when config key isn't in PROBE_CONFIGS
+    # Works for names like 'sae_mean', 'sklearn_linear_last', 'sae_qwen3_8b_softmax', etc.
+    try:
+        suffix = config_name.rsplit("_", 1)[-1]
+        if suffix in {"mean", "max", "last", "softmax"}:
+            return suffix
+    except Exception:
+        pass
+
+    if architecture_name == "attention":
         return "attention"
     elif architecture_name.startswith("mass_mean"):
         return "mass_mean"

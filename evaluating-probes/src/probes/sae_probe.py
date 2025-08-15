@@ -271,15 +271,16 @@ class SAEProbe(BaseProbe):
             return "goodfire-hf"
         # Qwen 3 family (transcoders via sae_lens releases)
         elif self.model_name == "Qwen/Qwen3-0.6B":
-            return "mwhanna-qwen3-0.6b-transcoders-lowl0"
+            # Use HF repo ids directly so sae_lens can fetch if local release registry lacks these entries
+            return "mwhanna/qwen3-0.6b-transcoders-lowl0"
         elif self.model_name == "Qwen/Qwen3-1.7B":
-            return "mwhanna-qwen3-1.7b-transcoders-lowl0"
+            return "mwhanna/qwen3-1.7b-transcoders-lowl0"
         elif self.model_name == "Qwen/Qwen3-4B":
-            return "mwhanna-qwen3-4b-transcoders"
+            return "mwhanna/qwen3-4b-transcoders"
         elif self.model_name == "Qwen/Qwen3-8B":
-            return "mwhanna-qwen3-8b-transcoders"
+            return "mwhanna/qwen3-8b-transcoders"
         elif self.model_name == "Qwen/Qwen3-14B":
-            return "mwhanna-qwen3-14b-transcoders"
+            return "mwhanna/qwen3-14b-transcoders"
         else:
             raise ValueError(f"Unknown model name: {self.model_name}")
 

@@ -10,15 +10,15 @@ cd "$(dirname "$0")/.."  # move to repo root (pivotal-research/evaluating-probes
 
 CONFIGS=(
   "qwen_0.6b_cpu"
-  "qwen_0.6b_gpu"
+  # "qwen_0.6b_gpu"
   "qwen_1.7b_cpu"
-  "qwen_1.7b_gpu"
+  # "qwen_1.7b_gpu"
   "qwen_4b_cpu"
-  "qwen_4b_gpu"
+  # "qwen_4b_gpu"
   "qwen_8b_cpu"
-  "qwen_8b_gpu"
+  # "qwen_8b_gpu"
   "qwen_14b_cpu"
-  "qwen_14b_gpu"
+  # "qwen_14b_gpu"
 )
 
 for cfg in "${CONFIGS[@]}"; do

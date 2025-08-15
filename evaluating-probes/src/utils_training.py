@@ -269,7 +269,12 @@ def train_single_probe(
         train_ds = dataset
     elif job.rebuild_config is not None:
         logger.log(f"  [DEBUG] Using rebuild_config: {job.rebuild_config}")
-        orig_ds = Dataset(job.train_dataset, model_name=config['model_name'], device=config['device'], seed=job.seed,)
+        orig_ds = Dataset(
+            job.train_dataset,
+            model_name=config['model_name'],
+            device=config['device'],
+            seed=job.seed,
+        )
 
         # Filter data for off-policy experiments if model_check was run
         if not job.on_policy and 'model_check' in config:

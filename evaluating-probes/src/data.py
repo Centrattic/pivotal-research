@@ -699,6 +699,13 @@ class Dataset:
         obj.train_indices = None
         obj.val_indices = None
         obj.test_indices = None
+        # Initialize activation caches and exposed attributes
+        obj._acts_cache_train = {}
+        obj._acts_cache_val = {}
+        obj._acts_cache_test = {}
+        obj.X_train_acts = None
+        obj.X_val_acts = None
+        obj.X_test_acts = None
         if train_indices is not None and val_indices is not None and test_indices is not None:
             obj.train_indices = np.array(train_indices)
             obj.val_indices = np.array(val_indices)

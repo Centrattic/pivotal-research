@@ -548,7 +548,7 @@ def run_batched_jobs(
     total_groups = len(groups)
     print(f"Running {sum(len(v) for v in groups.values())} jobs in {total_groups} groups (batched)")
 
-    for group_index, (key, jobs) in enumerate(groups.items(), start=1):
+    def _process_group(group_index: int, key: Tuple, jobs: List[ProbeJob]) -> bool:
         print(f"\n=== Group {group_index}/{total_groups} — {key} ===")
         # Build shared training dataset
         shared_train_ds = _build_group_dataset(jobs[0], config)
@@ -699,6 +699,21 @@ def run_batched_jobs(
                             logger.log(f"    💀💀💀 ERROR evaluating on '{eval_dataset}': {e}")
             finally:
                 logger.close()
+
+        return True
+
+    # Execute groups in parallel using threads (CPU parallelism)
+    group_items = list(groups.items())
+    n_jobs = min(40, len(group_items)) if group_items else 0
+    if n_jobs > 0:
+        results = Parallel(
+            n_jobs=n_jobs, backend='threading', verbose=10
+        )(delayed(_process_group)(i + 1, key, jobs) for i, (key, jobs) in enumerate(group_items))
+        done = sum(1 for r in results if r)
+        print(f"Completed {done}/{len(group_items)} groups successfully")
+    else:
+        print("No groups to process")
+
 
 def process_probe_job(
     job: ProbeJob,
@@ -912,13 +927,19 @@ def main():
         logger.log("\n" + "=" * 25 + " PROBE PROCESSING PHASE " + "=" * 25)
         logger.log(f"Processing {len(all_probe_jobs)} probe jobs...")
 
-        # Use all available cores for maximum parallelization
-        n_jobs = min(40, len(all_probe_jobs))  # Conservative for memory
+        # Use all available cores for maximum parallelization (conservative cap)
+        n_jobs = min(40, len(all_probe_jobs))
         logger.log(f"Using {n_jobs} parallel jobs")
+
+        # Make results_dir available to helpers that expect it in config
+        config['results_dir'] = str(results_dir)
 
         results = Parallel(
             n_jobs=n_jobs, verbose=10
-        )(delayed(process_probe_job)(job, config, results_dir, cache_dir, log_file_path) for job in all_probe_jobs)
+        )(
+            delayed(process_probe_job)(job, config, results_dir, cache_dir, log_file_path,)
+            for job in all_probe_jobs
+        )
 
         # Count successful jobs
         successful_jobs = sum(1 for result in results if result)
@@ -931,7 +952,6 @@ def main():
             for idx in failed_indices:
                 job = all_probe_jobs[idx]
                 rebuild_str = resample_params_to_str(job.rebuild_config) if job.rebuild_config else "default"
-                # Compact JSON-like line for greppability
                 summary = {
                     "experiment": job.experiment_name,
                     "seed": job.seed,
