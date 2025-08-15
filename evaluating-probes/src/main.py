@@ -511,7 +511,7 @@ def process_probe_job(
                     )
                     logger.log(f"    ✅ Validation evaluation complete for {eval_dataset}")
                 except Exception as e:
-                    logger.log(f"    💀 ERROR evaluating validation on '{eval_dataset}': {e}")
+                    logger.log(f"    💀💀💀 ERROR evaluating validation on '{eval_dataset}': {e}")
 
                 # Then evaluate on test set
                 logger.log(f"    Evaluating on {eval_dataset} test set")
@@ -539,14 +539,14 @@ def process_probe_job(
                 logger.log(f"    ✅ Evaluation complete for {eval_dataset}")
 
             except Exception as e:
-                logger.log(f"    💀 ERROR evaluating on '{eval_dataset}': {e}")
+                logger.log(f"    💀💀💀 ERROR evaluating on '{eval_dataset}': {e}")
                 continue
 
         logger.log(f"  😜 Completed probe job")
         return True
 
     except Exception as e:
-        logger.log(f"  💀 ERROR in probe job: {e}")
+        logger.log(f"  💀💀💀 ERROR in probe job: {e}")
         return False
     finally:
         # Clean up model to free GPU memory

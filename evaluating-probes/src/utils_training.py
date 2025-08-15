@@ -205,7 +205,7 @@ def extract_activations_for_dataset(
         logger.log(f"    - Aggregated activations are up-to-date")
 
     except Exception as e:
-        logger.log(f"    - 💀 ERROR extracting activations for {dataset_name}: {e}")
+        logger.log(f"    - 💀💀💀 ERROR extracting activations for {dataset_name}: {e}")
         raise
 
 

@@ -2,7 +2,9 @@
 set -euo pipefail
 
 # Runs all Qwen configs sequentially
-# Usage: bash scripts/run_qwen_configs.sh
+# Usage:
+# chmod +x pivotal-research/evaluating-probes/scripts/run_qwen_configs.sh
+# bash pivotal-research/evaluating-probes/scripts/run_qwen_configs.sh
 
 cd "$(dirname "$0")/.."  # move to repo root (pivotal-research/evaluating-probes)
 

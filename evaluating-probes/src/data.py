@@ -7,7 +7,7 @@ from typing import Dict, List, Optional, Tuple
 import numpy as np
 import pandas as pd
 from sklearn.model_selection import train_test_split
-from transformers import PreTrainedModel, PreTrainedTokenizerBase, AutoModelForCausalLM, AutoTokenizer
+from transformers import PreTrainedModel, PreTrainedTokenizerBase, AutoModelForCausalLM, AutoTokenizer, AutoConfig
 import copy
 
 from src.logger import Logger
@@ -38,10 +38,30 @@ def get_model_d_model(model_name: str) -> int:
         'google/gemma-2-9b': 3584,
         'google/gemma-2-9b-it': 3584,  # Handle the -it suffix
         'meta-llama/Llama-3.3-70B-Instruct': 8192,
+        # Qwen3 family (fallback to AutoConfig if not present)
+        'Qwen/Qwen3-0.6B': 1024,
+        'Qwen/Qwen3-1.7B': 2048,
+        'Qwen/Qwen3-4B': 2560,
+        'Qwen/Qwen3-8B': 4096,
+        'Qwen/Qwen3-14B': 5120,
     }
-    if model_name not in model_dims:
-        raise ValueError(f"Unknown model name: {model_name}. Available models: {list(model_dims.keys())}")
-    return model_dims[model_name]
+    if model_name in model_dims and model_dims[model_name] is not None:
+        return model_dims[model_name]  # known static mapping
+
+    # Attempt to resolve unknown or placeholder mappings via HF AutoConfig (lightweight, no weights)
+    try:
+        print(f"Getting d_model for {model_name} using AutoConfig")
+        cfg = AutoConfig.from_pretrained(model_name)
+        d_model = getattr(cfg, 'hidden_size', None) or getattr(cfg, 'n_embd', None)
+        if d_model is None:
+            raise ValueError(f"Could not determine d_model from config for {model_name}")
+        return int(d_model)
+    except Exception as e:
+        available = [k for k, v in model_dims.items() if v is not None]
+        raise ValueError(
+            f"Unknown model name: {model_name}. Available models: {available}. "
+            f"Additionally failed to load AutoConfig to infer d_model: {e}"
+        )
 
 
 class Dataset:

@@ -1,6 +1,5 @@
 run_name: "test_refactored_no_it"
 model_name: "google/gemma-2-9b"
-d_model: 3584
 device: "cuda:0"
 cache_activations: True
 seeds: [42, 43]
