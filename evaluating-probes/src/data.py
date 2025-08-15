@@ -130,7 +130,7 @@ class Dataset:
         self.val_indices = None
         self.test_indices = None
 
-        # If only_test is True, override splits
+        # If only_test is True, override splits: build a balanced 50/50 test set
         if only_test:
             # Find all indices for each class
             classes, counts = np.unique(self.y, return_counts=True)
@@ -229,6 +229,18 @@ class Dataset:
         Default: 75% train, 10% val, 15% test.
         """
         if self.only_test:
+            # Non-balanced: assign entire dataset to test set for downstream usage and return
+            indices_all = np.arange(len(self.X))
+            self.test_indices = indices_all
+            self.X_test_text = self.X.tolist()
+            self.y_test = self.y
+            self.train_indices = np.array([], dtype=int)
+            self.val_indices = np.array([], dtype=int)
+            self.X_train_text = None
+            self.y_train = None
+            self.X_val_text = None
+            self.y_val = None
+            print(f"Split data (only_test): {0} train, {0} val, {len(self.X_test_text)} test (non-balanced)")
             return
 
         if seed is None:
@@ -236,19 +248,46 @@ class Dataset:
         assert abs(train_size + val_size + test_size - 1.0) < 1e-6, "Splits must sum to 1.0"
         n = len(self.df)
         indices = np.arange(n)
-        # First split off test
-        trval_idx, te_idx = train_test_split(
-            indices, test_size=test_size, random_state=seed, stratify=self.y if self.n_classes else None, shuffle=True
-        )
-        # Now split train/val
-        val_relative = val_size / (train_size + val_size)
-        tr_idx, va_idx = train_test_split(
-            trval_idx,
-            test_size=val_relative,
-            random_state=seed,
-            stratify=self.y[trval_idx] if self.n_classes else None,
-            shuffle=True
-        )
+
+        # First split off test if needed
+        if test_size and test_size > 0.0:
+            trval_idx, te_idx = train_test_split(
+                indices,
+                test_size=test_size,
+                random_state=seed,
+                stratify=self.y if self.n_classes else None,
+                shuffle=True,
+            )
+        else:
+            trval_idx = indices
+            te_idx = np.array([], dtype=int)
+
+        # Now split train/val depending on val_size
+        if val_size and val_size > 0.0:
+            # If train_size is zero, assign everything to val
+            if train_size == 0.0:
+                tr_idx = np.array([], dtype=int)
+                va_idx = trval_idx
+            else:
+                val_relative = val_size / (train_size + val_size)
+                # Guard against edge cases where val_relative becomes 0 or 1
+                if val_relative <= 0.0:
+                    tr_idx = trval_idx
+                    va_idx = np.array([], dtype=int)
+                elif val_relative >= 1.0:
+                    tr_idx = np.array([], dtype=int)
+                    va_idx = trval_idx
+                else:
+                    tr_idx, va_idx = train_test_split(
+                        trval_idx,
+                        test_size=val_relative,
+                        random_state=seed,
+                        stratify=self.y[trval_idx] if self.n_classes else None,
+                        shuffle=True,
+                    )
+        else:
+            tr_idx = trval_idx
+            va_idx = np.array([], dtype=int)
         self.train_indices = tr_idx
         self.val_indices = va_idx
         self.test_indices = te_idx
@@ -803,7 +842,7 @@ class Dataset:
         # The LLM samples are saved in seed-specific folders
         llm_csv_path = Path(
             llm_csv_base_path
-        ) / f"seed_{seed}" / f"llm_samples_{original_dataset.name}" / f"samples_{n_real_pos}.csv"
+        ) / f"seed_{seed}" / f"llm_samples_{original_dataset.dataset_name}" / f"samples_{n_real_pos}.csv"
         if not llm_csv_path.exists():
             raise FileNotFoundError(f"LLM samples file not found: {llm_csv_path}")
 

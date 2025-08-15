@@ -9,7 +9,9 @@ from pathlib import Path
 from typing import List, Dict, Any, Optional, Union
 from joblib import Parallel, delayed
 import sys
+import subprocess
 import os
+from dotenv import load_dotenv, find_dotenv
 from configs.probes import (
     PROBE_CONFIGS,
     ProbeJob,
@@ -20,6 +22,39 @@ from configs.probes import (
     ActivationSimilarityProbeConfig,
 )
 from dataclasses import dataclass
+
+# Load environment variables from a .env file if present (prefer repo root)
+repo_root = Path(__file__).resolve().parents[1]
+env_path = repo_root / ".env"
+if env_path.exists():
+    load_dotenv(env_path)
+    print(f"Loaded environment variables from {env_path}")
+else:
+    raise FileNotFoundError(f"No .env file found in {repo_root}")
+
+
+# Debug helper to print selected environment variables (masking secrets)
+def _mask_secret(value: Optional[str], keep_last: int = 4) -> str:
+    if not value:
+        return "None"
+    if len(value) <= keep_last:
+        return "*" * len(value)
+    return f"{value[:2]}{'*' * max(0, len(value) - (2 + keep_last))}{value[-keep_last:]}"
+
+
+def _print_env_vars():
+    keys = ["OPENAI_API_KEY", "OMP_NUM_THREADS", "CUDA_VISIBLE_DEVICES"]
+    print("\n=== DEBUG: Environment Variables ===")
+    for key in keys:
+        value = os.environ.get(key)
+        if key == "OPENAI_API_KEY":
+            print(f"{key}={_mask_secret(value)}")
+        else:
+            print(f"{key}={value}")
+    print("====================================\n")
+
+
+_print_env_vars()
 
 # Set CUDA device BEFORE importing transformer_lens
 parser = argparse.ArgumentParser()
@@ -45,6 +80,9 @@ try:
 except Exception as e:
     print(f"Warning: Could not set CUDA device early: {e}")
 
+# Print debug env after potential CUDA changes
+_print_env_vars()
+
 # Now import after setting CUDA device
 from src.data import Dataset, get_available_datasets, get_model_d_model
 from src.utils_training import train_single_probe, evaluate_single_probe, extract_activations_for_dataset
@@ -61,7 +99,8 @@ def create_probe_config(
     """Create probe configuration based on architecture and config name."""
     # Use the existing PROBE_CONFIGS dictionary
     if config_name in PROBE_CONFIGS:
-        return PROBE_CONFIGS[config_name]
+        # Return a deepcopy so callers can safely mutate fields (e.g., C in sweeps)
+        return copy.deepcopy(PROBE_CONFIGS[config_name])
     else:
         # Fallback to creating configs based on architecture and config name
         if architecture_name == "sklearn_linear":
@@ -205,48 +244,49 @@ def run_llm_upsampling(
     logger: Logger,
 ):
     """Run LLM upsampling if specified in config."""
-    # Check if any experiments have LLM upsampling
-    has_llm_upsampling = False
-    for experiment in config['experiments']:
-        if 'rebuild_config' in experiment:
-            rc = experiment['rebuild_config']
-            if isinstance(rc, dict):
-                for group in rc.values():
-                    if isinstance(group, list):
-                        for item in group:
-                            if isinstance(item, dict) and item.get('llm_upsampling', False):
-                                has_llm_upsampling = True
-                                break
-                    elif isinstance(group, dict) and group.get('llm_upsampling', False):
-                        has_llm_upsampling = True
-                        break
-            elif isinstance(rc, list):
-                for item in rc:
-                    if isinstance(item, dict) and item.get('llm_upsampling', False):
-                        has_llm_upsampling = True
-                        break
+    # Check for llm_upsampling_experiments block in any experiment
+    has_llm_upsampling = any(
+        isinstance(experiment.get('rebuild_config'), dict)
+        and bool(experiment['rebuild_config'].get('llm_upsampling_experiments'))
+        for experiment in config.get('experiments', [])
+    )
 
     if not has_llm_upsampling:
-        logger.log("No LLM upsampling experiments found, skipping LLM upsampling")
+        logger.log("No llm_upsampling_experiments found, skipping LLM upsampling")
         return
 
-    logger.log("\n=== Running LLM upsampling ===")
+    logger.log("\n=== Running LLM upsampling (external script) ===")
 
-    # Import and run the LLM upsampling script
+    # Call the external upsampling script via subprocess to keep behavior identical
     try:
-        from src.llm_upsampling.llm_upsampling_script import run_llm_upsampling as run_llm_script
+        # Determine config argument expected by the script (-c takes base name or path)
+        config_arg = config_yaml[:-12] if config_yaml.endswith("_config.yaml") else config_yaml
 
         # Get API key from environment or config
         api_key = config.get('openai_api_key') or os.environ.get('OPENAI_API_KEY')
         if not api_key:
-            logger.log("Warning: No OpenAI API key found. LLM upsampling will be skipped.")
+            logger.log("Warning: No OPENAI_API_KEY found in env or config; skipping LLM upsampling.")
             return
 
-        # Run LLM upsampling
-        config_path = Path(f"configs/{config_yaml}")
-        run_llm_script(config_path, api_key)
+        # Build command
+        cmd = [
+            sys.executable,
+            "-m",
+            "src.llm_upsampling.llm_upsampling_script",
+            "-c",
+            str(config_arg),
+            "--api-key",
+            str(api_key),
+        ]
+
+        logger.log(f"Invoking: {' '.join(cmd)}")
+        # Ensure we execute from repo root (evaluating-probes)
+        subprocess.run(cmd, cwd=str(repo_root), check=True)
         logger.log("=== LLM upsampling complete ===")
 
+    except subprocess.CalledProcessError as e:
+        logger.log(f"Error during LLM upsampling (subprocess failed with code {e.returncode}).")
+        logger.log("Continuing without LLM upsampling...")
     except Exception as e:
         logger.log(f"Error during LLM upsampling: {e}")
         logger.log("Continuing without LLM upsampling...")
@@ -605,6 +645,27 @@ def main():
         # Count successful jobs
         successful_jobs = sum(1 for result in results if result)
         logger.log(f"Completed {successful_jobs}/{len(all_probe_jobs)} probe jobs successfully")
+
+        # Summarize failed jobs with details
+        failed_indices = [i for i, r in enumerate(results) if not r]
+        if failed_indices:
+            logger.log("\n=== FAILED JOBS SUMMARY ===")
+            for idx in failed_indices:
+                job = all_probe_jobs[idx]
+                rebuild_str = resample_params_to_str(job.rebuild_config) if job.rebuild_config else "default"
+                # Compact JSON-like line for greppability
+                summary = {
+                    "experiment": job.experiment_name,
+                    "seed": job.seed,
+                    "train_dataset": job.train_dataset,
+                    "eval_datasets": job.eval_datasets,
+                    "layer": job.layer,
+                    "component": job.component,
+                    "architecture": job.architecture_name,
+                    "rebuild": rebuild_str,
+                    "on_policy": job.on_policy,
+                }
+                logger.log(json.dumps(summary))
 
     finally:
         if 'model' in locals():

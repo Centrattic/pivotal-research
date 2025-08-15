@@ -3,7 +3,7 @@ model_name: "google/gemma-2-9b"
 d_model: 3584
 device: "cuda:0"
 cache_activations: True
-seeds: [42]
+seeds: [42, 43]
 
 layers: [20]
 components:
@@ -11,7 +11,7 @@ components:
 
 # Activation extraction configuration
 activation_extraction:
-  format_type: "r"  # Options: "qr" (on-policy), "r" (off-policy instruct), "r-no-it" (off-policy non-instruct)
+  format_type: "r-no-it"  # Options: "qr" (on-policy), "r" (off-policy instruct), "r-no-it" (off-policy non-instruct)
 
 architectures:
   - name: "sklearn_linear"
@@ -36,7 +36,9 @@ experiments:
       - 87_is_spam
     on_policy: false
     rebuild_config:
-      - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 4, upsampling_factor: 2}
+      llm_upsampling_experiments:
+        - {llm_upsampling: True, n_real_neg: 1000, n_real_pos: 4, upsampling_factor: 2}
+        - {llm_upsampling: True, n_real_neg: 1000, n_real_pos: 4, upsampling_factor: 3}
 
   - name: test-imbalanced
     class_names: {0: "Ham", 1: "Spam"}
@@ -47,6 +49,7 @@ experiments:
     on_policy: false
     rebuild_config:
       - {class_counts: {0: 200, 1: 50}}
+      - {class_counts: {0: 1000, 1: 1}}
 
 model_check:
   - name: spam-pred

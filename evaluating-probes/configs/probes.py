@@ -26,8 +26,8 @@ class ProbeJob:
     rebuild_config: Optional[Dict] = None
 
     # Training configuration
-    train_size: float = 0.85
-    val_size: float = 0.0
+    train_size: float = 0.75
+    val_size: float = 0.10
     test_size: float = 0.15
 
 @dataclass
@@ -44,8 +44,6 @@ class SklearnLinearProbeConfig(ProbeConfig):
     C: float = 1.0  # Inverse of regularization strength
     max_iter: int = 1000
     class_weight: str = "balanced"  # balanced, None
-    random_state: int = 42
-    batch_size: int = 1024  # For consistency with other probes
 
 @dataclass
 class PytorchAttentionProbeConfig(ProbeConfig):

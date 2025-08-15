@@ -536,6 +536,7 @@ def run_llm_upsampling(
 
             # Load existing data if available
             existing_df = None
+            skip_generation = False
             if output_path.exists():
                 print(f"📁 Loading existing samples file: {output_path}")
                 existing_df = pd.read_csv(output_path)
@@ -564,6 +565,7 @@ def run_llm_upsampling(
             else:
                 print(f"🆕 No existing samples file found, starting from scratch")
                 current_upsampling_factor = 0
+                skip_generation = False
 
             original_df = extracted_samples[n_real_samples]
 
@@ -634,7 +636,9 @@ def run_llm_upsampling(
                 # We're skipping generation, so use the existing dataset
                 print(f"📁 Using existing dataset for activation extraction")
                 final_df = current_upsampled_df.copy()
-                all_generated_samples = {max(upsampling_factors): final_df}
+                # Compute actually achieved factor based on current dataset size
+                achieved_factor = max(1, len(final_df) // max(1, n_real_samples))
+                all_generated_samples = {achieved_factor: final_df}
                 print(f"   Debug: final_df has {len(final_df)} samples, original_df has {len(original_df)} samples")
                 print(f"   Debug: LLM samples (after original) should be {len(final_df) - len(original_df)}")
 

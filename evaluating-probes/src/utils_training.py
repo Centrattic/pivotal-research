@@ -222,7 +222,8 @@ def train_single_probe(
         job.component,
         config_name,
     )
-    probe_save_dir = results_dir / f"train_{job.train_dataset}"
+    # Save all probes directly under the trained/ directory
+    probe_save_dir = results_dir
 
     # Add hyperparameters to filename if they differ from defaults
     probe_filename_with_hparams = add_hyperparams_to_filename(
@@ -232,8 +233,6 @@ def train_single_probe(
 
     # If rebuilding, save in dataclass_exps_{dataset_name}
     if job.rebuild_config is not None:
-        probe_save_dir = results_dir / f"dataclass_exps_{job.train_dataset}"
-        probe_save_dir.mkdir(parents=True, exist_ok=True)
         suffix = rebuild_suffix(job.rebuild_config)
         probe_filename = f"{probe_filename_with_hparams}_{suffix}_state.npz"
         probe_state_path = probe_save_dir / probe_filename
@@ -276,7 +275,10 @@ def train_single_probe(
             n_real_pos = job.rebuild_config.get('n_real_pos')
             upsampling_factor = job.rebuild_config.get('upsampling_factor')
 
-            run_name = str(results_dir).split('/')[-3]
+            # Determine run_name robustly from results dir: results/<run_name>/seed_<seed>/<experiment>/trained
+            results_path = Path(results_dir)
+            # parents[2] -> <run_name>
+            run_name = results_path.parents[2].name if len(results_path.parents) >= 3 else str(results_path)
             llm_csv_base_path = job.rebuild_config.get('llm_csv_base_path', f'results/{run_name}')
 
             if n_real_neg is None or n_real_pos is None or upsampling_factor is None:
@@ -507,14 +509,18 @@ def evaluate_single_probe(
     )
 
     # The results_dir is already the specific evaluation directory (val_eval, test_eval, or gen_eval)
-    # We need to look for probe files in the trained directory
-    trained_dir = results_dir.parent / "trained"
+    # Probes are saved directly under the trained directory (no subfolders)
+    # results/.../seed_<seed>/<experiment>/trained/
+    experiment_dir = results_dir.parent  # e.g., .../seed_42/<experiment>
+    trained_dir = experiment_dir / "trained"
 
     if job.rebuild_config is not None:
         suffix = rebuild_suffix(job.rebuild_config)
+        # Rebuild states are saved directly under trained/
         probe_state_path = trained_dir / f"{probe_filename_with_hparams}_{suffix}_state.npz"
         eval_results_path = results_dir / f"eval_on_{eval_dataset}__{probe_filename_with_hparams}_{suffix}_seed{job.seed}_{agg_name}_results.json"
     else:
+        # Normal training states are saved directly under trained/
         probe_state_path = trained_dir / f"{probe_filename_with_hparams}_state.npz"
         eval_results_path = results_dir / f"eval_on_{eval_dataset}__{probe_filename_with_hparams}_seed{job.seed}_{agg_name}_results.json"
 
@@ -589,7 +595,9 @@ def evaluate_single_probe(
             n_real_pos = job.rebuild_config.get('n_real_pos')
             upsampling_factor = job.rebuild_config.get('upsampling_factor')
 
-            run_name = str(results_dir).split('/')[-3]
+            # Determine run_name robustly from results dir: results/<run_name>/seed_<seed>/<experiment>/trained
+            results_path = Path(results_dir)
+            run_name = results_path.parents[2].name if len(results_path.parents) >= 3 else str(results_path)
             llm_csv_base_path = job.rebuild_config.get('llm_csv_base_path', f'results/{run_name}')
 
             if n_real_neg is None or n_real_pos is None or upsampling_factor is None:

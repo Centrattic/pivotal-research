@@ -1,0 +1,13 @@
+[tool.yapf]
+based_on_style = "pep8"
+column_limit = 120
+
+# ---- keep function params vertical (with trailing comma) ----
+split_before_first_argument = true
+split_before_closing_bracket = true
+split_arguments_when_comma_terminated = true
+
+# ---- keep dict entries compact ----
+each_dict_entry_on_separate_line = false
+split_all_comma_separated_values = false
+dedent_closing_brackets = true

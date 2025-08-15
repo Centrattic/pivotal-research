@@ -373,7 +373,11 @@ class ActivationManager:
                 text_hash = self._hash(text)
                 if text_hash not in existing:
                     raise ValueError(f"Text not found in full activations: {text[:50]}...")
-                activations_list.append(existing[text_hash])
+                arr = existing[text_hash]
+                # Unsqueeze 2D arrays (S, D) to (1, S, D)
+                if len(arr.shape) == 2:
+                    arr = arr[None, ...]
+                activations_list.append(arr)
 
             # Estimate memory requirement before processing
             total_elements = sum(act.size for act in activations_list)
@@ -381,10 +385,7 @@ class ActivationManager:
             print(f"[DEBUG] Processing {len(activations_list)} full activations")
             print(f"[DEBUG] Estimated memory requirement: {estimated_memory_gb:.2f} GB")
 
-            print(
-                f"[WARNING] Large memory requirement ({estimated_memory_gb:.2f} GB). Consider using aggregated activations instead."
-            )
-            print(f"[WARNING] Available aggregated types: linear_mean, linear_max, linear_last, linear_softmax")
+            print(f"[WARNING] Large memory requirement ({estimated_memory_gb:.2f} GB).")
 
             # Pad to max length and stack - optimized for memory usage
             max_len = max(act.shape[1] for act in activations_list)
@@ -392,6 +393,7 @@ class ActivationManager:
 
             # Pre-allocate the final array to avoid multiple copies
             total_batch_size = sum(act.shape[0] for act in activations_list)
+            print(f"[DEBUG] Shape of first activation: {activations_list[0].shape}")
             final_shape = (total_batch_size, max_len, activations_list[0].shape[2])
             print(f"[DEBUG] Final array shape: {final_shape}")
 
