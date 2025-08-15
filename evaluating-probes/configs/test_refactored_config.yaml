@@ -18,6 +18,8 @@ architectures:
     config_name: "sklearn_linear_mean"
   - name: "act_sim"
     config_name: "act_sim_mean"
+  - name: "sae_16k_l0_408_last"
+    config_name: "sae_16k_l0_408_last"
 
 experiments:
   - name: test-experiment
@@ -39,6 +41,7 @@ experiments:
       llm_upsampling_experiments:
         - {llm_upsampling: True, n_real_neg: 1000, n_real_pos: 4, upsampling_factor: 2}
         - {llm_upsampling: True, n_real_neg: 1000, n_real_pos: 4, upsampling_factor: 3}
+        - {llm_upsampling: True, n_real_neg: 1000, n_real_pos: 4, upsampling_factor: 4}
 
   - name: test-imbalanced
     class_names: {0: "Ham", 1: "Spam"}

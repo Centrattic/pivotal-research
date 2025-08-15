@@ -585,7 +585,7 @@ def run_llm_upsampling(
             print(f"Maximum target samples needed: {max_target_samples}")
 
             # Generate samples in batches of 3 until we reach the maximum target
-            batch_size = 3
+            batch_size = 5
             all_new_samples = []
 
             if not skip_generation:

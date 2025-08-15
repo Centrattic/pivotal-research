@@ -39,7 +39,7 @@ class ProbeConfig:
 @dataclass
 class SklearnLinearProbeConfig(ProbeConfig):
     """Hyperparameters for the sklearn LinearProbe."""
-    aggregation: str = "mean"  # mean, max, last, softmax
+    aggregation: str = None  # mean, max, last, softmax
     solver: str = "liblinear"  # liblinear, lbfgs, newton-cg, sag, saga
     C: float = 1.0  # Inverse of regularization strength
     max_iter: int = 1000
@@ -61,11 +61,11 @@ class PytorchAttentionProbeConfig(ProbeConfig):
 @dataclass
 class SAEProbeConfig(ProbeConfig):
     """Hyperparameters for the SAE Probe."""
-    aggregation: str = "mean"  # mean, max, last, softmax
-    model_name: str = "gemma-2-9b"
+    aggregation: str = None  # mean, max, last, softmax
+    model_name: str = None,
     layer: int = 20
     sae_id: str = None  # Specific SAE ID to use
-    top_k_features: int = 128
+    top_k_features: int = 3584 # set to same as residual stream!
     lr: float = 5e-4
     epochs: int = 100
     encoding_batch_size: int = 1280  # Batch size for SAE encoding (memory intensive) - H100: 100
@@ -112,14 +112,164 @@ PROBE_CONFIGS = {
     # SAE probe configs - specific SAE IDs with different batch sizes
     # using gemma-scope-9b-pt-res as done in Kantamneni, not gemma-2-9b-it
     "sae_16k_l0_408_last": SAEProbeConfig(
-        aggregation="last", # no matter right now
+        aggregation="last",
+        model_name="google/gemma-2-9b",
         sae_id="layer_20/width_16k/average_l0_408",
     ),
+    "sae_16k_l0_408_mean": SAEProbeConfig(
+        aggregation="mean",
+        model_name="google/gemma-2-9b",
+        sae_id="layer_20/width_16k/average_l0_408",
+    ),
+    "sae_16k_l0_408_max": SAEProbeConfig(
+        aggregation="max",
+        model_name="google/gemma-2-9b",
+        sae_id="layer_20/width_16k/average_l0_408",
+    ),
+    "sae_16k_l0_408_softmax": SAEProbeConfig(
+        aggregation="softmax",
+        model_name="google/gemma-2-9b",
+        sae_id="layer_20/width_16k/average_l0_408",
+    ),
+
     "sae_262k_l0_259_last": SAEProbeConfig(
         aggregation="last",
+        model_name="google/gemma-2-9b",
         sae_id="layer_20/width_262k/average_l0_259",
-        # encoding_batch_size=1024,  # H100: 1024
-        # training_batch_size=256,   # H100: 256
+    ),
+    "sae_262k_l0_259_mean": SAEProbeConfig(
+        aggregation="mean",
+        model_name="google/gemma-2-9b",
+        sae_id="layer_20/width_262k/average_l0_259",
+    ),
+    "sae_262k_l0_259_max": SAEProbeConfig(
+        aggregation="max",
+        model_name="google/gemma-2-9b",
+        sae_id="layer_20/width_262k/average_l0_259",
+    ),
+    "sae_262k_l0_259_softmax": SAEProbeConfig(
+        aggregation="softmax",
+        model_name="google/gemma-2-9b",
+        sae_id="layer_20/width_262k/average_l0_259",
+    ),
+
+    "sae_llama33b_mean": SAEProbeConfig(
+        aggregation="mean",
+        model_name="meta-llama/Llama-3.3-70B-Instruct",
+        top_k_features=128,
+        encoding_batch_size=1280,
+        training_batch_size=2560,
+    ),
+    
+    # Qwen3 family (SAE Lens transcoders)
+    # Qwen3 0.6B (layer_15)
+    "sae_qwen3_0.6b_last": SAEProbeConfig(
+        aggregation="last",
+        model_name="Qwen/Qwen3-0.6B",
+        sae_id="layer_15",
+    ),
+    "sae_qwen3_0.6b_mean": SAEProbeConfig(
+        aggregation="mean",
+        model_name="Qwen/Qwen3-0.6B",
+        sae_id="layer_15",
+    ),
+    "sae_qwen3_0.6b_max": SAEProbeConfig(
+        aggregation="max",
+        model_name="Qwen/Qwen3-0.6B",
+        sae_id="layer_15",
+    ),
+    "sae_qwen3_0.6b_softmax": SAEProbeConfig(
+        aggregation="softmax",
+        model_name="Qwen/Qwen3-0.6B",
+        sae_id="layer_15",
+    ),
+
+    # Qwen3 1.7B (layer_15)
+    "sae_qwen3_1.7b_last": SAEProbeConfig(
+        aggregation="last",
+        model_name="Qwen/Qwen3-1.7B",
+        sae_id="layer_15",
+    ),
+    "sae_qwen3_1.7b_mean": SAEProbeConfig(
+        aggregation="mean",
+        model_name="Qwen/Qwen3-1.7B",
+        sae_id="layer_15",
+    ),
+    "sae_qwen3_1.7b_max": SAEProbeConfig(
+        aggregation="max",
+        model_name="Qwen/Qwen3-1.7B",
+        sae_id="layer_15",
+    ),
+    "sae_qwen3_1.7b_softmax": SAEProbeConfig(
+        aggregation="softmax",
+        model_name="Qwen/Qwen3-1.7B",
+        sae_id="layer_15",
+    ),
+
+    # Qwen3 4B (layer_18)
+    "sae_qwen3_4b_last": SAEProbeConfig(
+        aggregation="last",
+        model_name="Qwen/Qwen3-4B",
+        sae_id="layer_18",
+    ),
+    "sae_qwen3_4b_mean": SAEProbeConfig(
+        aggregation="mean",
+        model_name="Qwen/Qwen3-4B",
+        sae_id="layer_18",
+    ),
+    "sae_qwen3_4b_max": SAEProbeConfig(
+        aggregation="max",
+        model_name="Qwen/Qwen3-4B",
+        sae_id="layer_18",
+    ),
+    "sae_qwen3_4b_softmax": SAEProbeConfig(
+        aggregation="softmax",
+        model_name="Qwen/Qwen3-4B",
+        sae_id="layer_18",
+    ),
+
+    # Qwen3 8B (layer_18)
+    "sae_qwen3_8b_last": SAEProbeConfig(
+        aggregation="last",
+        model_name="Qwen/Qwen3-8B",
+        sae_id="layer_18",
+    ),
+    "sae_qwen3_8b_mean": SAEProbeConfig(
+        aggregation="mean",
+        model_name="Qwen/Qwen3-8B",
+        sae_id="layer_18",
+    ),
+    "sae_qwen3_8b_max": SAEProbeConfig(
+        aggregation="max",
+        model_name="Qwen/Qwen3-8B",
+        sae_id="layer_18",
+    ),
+    "sae_qwen3_8b_softmax": SAEProbeConfig(
+        aggregation="softmax",
+        model_name="Qwen/Qwen3-8B",
+        sae_id="layer_18",
+    ),
+
+    # Qwen3 14B (layer_24)
+    "sae_qwen3_14b_last": SAEProbeConfig(
+        aggregation="last",
+        model_name="Qwen/Qwen3-14B",
+        sae_id="layer_24",
+    ),
+    "sae_qwen3_14b_mean": SAEProbeConfig(
+        aggregation="mean",
+        model_name="Qwen/Qwen3-14B",
+        sae_id="layer_24",
+    ),
+    "sae_qwen3_14b_max": SAEProbeConfig(
+        aggregation="max",
+        model_name="Qwen/Qwen3-14B",
+        sae_id="layer_24",
+    ),
+    "sae_qwen3_14b_softmax": SAEProbeConfig(
+        aggregation="softmax",
+        model_name="Qwen/Qwen3-14B",
+        sae_id="layer_24",
     ),
     # Mass-mean probe configs (IID functionality disabled due to numerical instability)
     "mass_mean": MassMeanProbeConfig(use_iid=False),

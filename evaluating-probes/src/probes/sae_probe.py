@@ -5,15 +5,18 @@ import numpy as np
 from pathlib import Path
 from typing import Optional, Dict, List, Tuple, Any
 import json
-import warnings
 from tqdm import tqdm
-import optuna
 import psutil
-import gc
+
+from sklearn.linear_model import LogisticRegression
+from sklearn.preprocessing import StandardScaler
+from sklearn.metrics import accuracy_score, roc_auc_score, precision_score, recall_score, confusion_matrix
 
 from sae_lens import SAE
+from huggingface_hub import snapshot_download
+from safetensors.torch import load_file as safetensors_load_file
+
 from src.probes.base_probe import BaseProbe
-from src.logger import Logger
 
 
 def get_memory_usage():
@@ -92,6 +95,12 @@ class SAEProbe(BaseProbe):
         sae_cache_dir: Optional[Path] = None,
         encoding_batch_size: int = 256,
         training_batch_size: int = 64,
+        # sklearn hyperparams
+        solver: str = "liblinear",
+        C: float = 1.0,
+        max_iter: int = 1500,
+        class_weight: str = "balanced",
+        random_state: int = 42,
         **kwargs,
     ):
         """
@@ -109,7 +118,8 @@ class SAEProbe(BaseProbe):
             sae_cache_dir: Directory to cache SAE models
             batch_size: Batch size for SAE encoding and probe training
         """
-        if sae_id is None:
+        # For llama 3.3 70B Goodfire we do not require sae_id since the repo is fixed
+        if sae_id is None and model_name not in ["meta-llama/Llama-3.3-70B-Instruct"]:
             raise ValueError("sae_id must be provided. Use specific SAE probe configurations from configs/probes.py")
 
         # Store SAE-specific parameters
@@ -123,6 +133,22 @@ class SAEProbe(BaseProbe):
         self.encoding_batch_size = encoding_batch_size
         self.training_batch_size = training_batch_size
 
+        # sklearn components
+        self.solver = solver
+        self.C = C
+        self.max_iter = max_iter
+        self.class_weight = class_weight
+        self.random_state = random_state
+        self.sklearn_model = LogisticRegression(
+            solver=self.solver,
+            C=self.C,
+            max_iter=self.max_iter,
+            class_weight=self.class_weight,
+            random_state=self.random_state,
+            n_jobs=1,
+        )
+        self.scaler = StandardScaler()
+
         # Store any additional config parameters
         for key, value in kwargs.items():
             setattr(self, key, value)
@@ -131,6 +157,11 @@ class SAEProbe(BaseProbe):
         self.sae = None
         self.feature_indices = None
         self.sae_feature_dim = None
+
+        # Goodfire HF SAE repo (used when model_name is llama 3.3 70B)
+        self.hf_sae_repo: Optional[str] = "Goodfire/Llama-3.3-70B-Instruct-SAE-l50" if (
+            self.model_name == "meta-llama/Llama-3.3-70B-Instruct"
+        ) else None
 
         # Call parent constructor
         super().__init__(d_model, device, task_type)
@@ -142,32 +173,90 @@ class SAEProbe(BaseProbe):
         self,
     ):
         """Initialize the neural network model."""
-        # This will be set after SAE is loaded and features are selected
-        if self.sae_feature_dim is not None:
-            self.model = SAEProbeNet(self.sae_feature_dim, aggregation=self.aggregation, device=self.device)
-        else:
-            # For GroupedProbe compatibility, create a temporary model with top_k_features
-            # This will be replaced in fit() method with the actual selected features
-            print(f"Creating temporary SAE model with {self.top_k_features} features for GroupedProbe compatibility")
-            self.sae_feature_dim = self.top_k_features
-            self.model = SAEProbeNet(self.sae_feature_dim, aggregation=self.aggregation, device=self.device)
+        # Create a tiny dummy module for BaseProbe compatibility; sklearn is used for training
+        in_features = max(1, self.top_k_features)
+        self.model = nn.Linear(in_features, 1)
 
-    def _load_sae(self) -> SAE:
-        """Load the SAE model."""
+    def _load_sae(self):
+        """Load the SAE model (sae_lens for Gemma; Goodfire HF for Llama-3.3-70B)."""
         if self.sae is not None:
             return self.sae
 
-        print(f"Loading SAE: {self.sae_id}")
+        if self.model_name == "meta-llama/Llama-3.3-70B-Instruct":
+            # Load Goodfire SAE from Hugging Face
+            if self.hf_sae_repo is None:
+                raise ValueError("HF SAE repo is not set for Llama-3.3-70B.")
+            local_dir = self.sae_cache_dir / "goodfire_llama33b_l50"
+            local_dir.mkdir(parents=True, exist_ok=True)
+            print(f"Loading Goodfire SAE from HF repo: {self.hf_sae_repo}")
+            repo_path = snapshot_download(
+                repo_id=self.hf_sae_repo, local_dir=str(local_dir), local_dir_use_symlinks=False
+            )
 
-        # Load from sae_lens using the specific SAE ID
-        # Note: We don't cache SAE objects because they contain lambda functions that can't be pickled
+            # Find a safetensors file
+            repo_path = Path(repo_path)
+            candidates = list(repo_path.glob("*.safetensors"))
+            if not candidates:
+                # fallback to common filename inside subfolders
+                candidates = list(repo_path.rglob("*.safetensors"))
+            if not candidates:
+                raise FileNotFoundError(f"No .safetensors file found in {repo_path}")
+
+            weights = safetensors_load_file(str(candidates[0]))
+
+            # Heuristically determine encoder weight/bias as the 2D tensor with shape (F, D)
+            # where D == d_model, and the largest F is selected
+            enc_weight_key = None
+            enc_weight = None
+            for k, v in weights.items():
+                if v.dim() == 2 and v.shape[1] == self.d_model:
+                    if enc_weight is None or v.shape[0] > enc_weight.shape[0]:
+                        enc_weight = v
+                        enc_weight_key = k
+            if enc_weight is None:
+                # try transposed case (D, F)
+                for k, v in weights.items():
+                    if v.dim() == 2 and v.shape[0] == self.d_model:
+                        if enc_weight is None or v.shape[1] > enc_weight.shape[1]:
+                            enc_weight = v.T
+                            enc_weight_key = k + ".T"
+            if enc_weight is None:
+                raise ValueError("Could not locate encoder weight of shape (features, d_model) in Goodfire SAE")
+
+            # Find bias
+            bias = None
+            for k, v in weights.items():
+                if v.dim() == 1 and v.shape[0] == enc_weight.shape[0]:
+                    bias = v
+                    break
+            if bias is None:
+                bias = torch.zeros(enc_weight.shape[0])
+
+            class _SimpleHFSAE:
+
+                def __init__(self, W: torch.Tensor, b: torch.Tensor, device: str):
+                    self.W = W.to(device)
+                    self.b = b.to(device)
+                    self.device = device
+
+                def encode(self, x: torch.Tensor) -> torch.Tensor:
+                    # x: (N, D)
+                    return F.relu(torch.addmm(self.b, x, self.W.t()))
+
+            self.sae = _SimpleHFSAE(enc_weight, bias, self.device)
+            print(
+                f"Loaded Goodfire SAE ({enc_weight.shape[0]} features, d_model={self.d_model}) from {candidates[0].name}"
+            )
+            return self.sae
+        else:
+            # Use sae_lens for other supported models
+            print(f"Loading SAE via sae_lens: {self.sae_id}")
         self.sae, _, _ = SAE.from_pretrained(
             release=self._get_sae_release(),
             sae_id=self.sae_id,
             device=self.device,
         )
         print(f"Loaded SAE: {self.sae_id}")
-
         return self.sae
 
     def _get_sae_release(self) -> str:
@@ -177,53 +266,56 @@ class SAEProbe(BaseProbe):
             return "gemma-scope-9b-pt-res"
         elif self.model_name == "google/gemma-2-9b-it":
             return "gemma-scope-9b-it-res-canonical"
-
-        # this should never be used
-        elif self.model_name == "meta-llama/Llama-3.3-70B-Instruct":  # use this SAE https://huggingface.co/Goodfire/Llama-3.3-70B-Instruct-SAE-l50 soon swithc
-            raise ValueError("Llama-3.3-70B-Instruct is not supported for SAE probe")
-            return "llama_scope_lxr_32x"
+        elif self.model_name == "meta-llama/Llama-3.3-70B-Instruct":
+            # Using Goodfire HF path instead of sae_lens; this value is unused
+            return "goodfire-hf"
+        # Qwen 3 family (transcoders via sae_lens releases)
+        elif self.model_name == "Qwen/Qwen3-0.6B":
+            return "mwhanna-qwen3-0.6b-transcoders-lowl0"
+        elif self.model_name == "Qwen/Qwen3-1.7B":
+            return "mwhanna-qwen3-1.7b-transcoders-lowl0"
+        elif self.model_name == "Qwen/Qwen3-4B":
+            return "mwhanna-qwen3-4b-transcoders"
+        elif self.model_name == "Qwen/Qwen3-8B":
+            return "mwhanna-qwen3-8b-transcoders"
+        elif self.model_name == "Qwen/Qwen3-14B":
+            return "mwhanna-qwen3-14b-transcoders"
         else:
             raise ValueError(f"Unknown model name: {self.model_name}")
 
     def _encode_activations(self, activations: np.ndarray) -> np.ndarray:
-        """Encode raw activations through the SAE using configurable batch size."""
+        """Encode aggregated activations (N, 1, D) through the SAE using configurable batch size."""
         print(f"[DEBUG] Input activations shape: {activations.shape}")
 
-        # For now, only process the last sequence position to reduce memory usage
-        print(f"[INFO] Processing only the last sequence position for now to reduce memory usage")
-        activations = activations[:, -1:, :]  # Take only the last position: (batch, 1, d_model)
-        print(f"[DEBUG] After taking last position: {activations.shape}")
+        # Accept (N, 1, D) from ActivationManager aggregated outputs, or (N, D) if caller pre-squeezed
+        if activations.ndim == 3:
+            if activations.shape[1] == 1:
+                activations = activations[:, 0, :]  # (N, D)
+        elif activations.ndim == 2:
+            # Already (N, D)
+            pass
+        else:
+            raise ValueError(f"Expected activations with 2 or 3 dims; got {activations.shape}")
+        print(f"[DEBUG] Using pre-aggregated inputs: {activations.shape}")
 
         sae = self._load_sae()
 
-        # Get original shape and flatten batch and sequence dimensions
-        original_shape = activations.shape
-        flattened = activations.reshape(-1, activations.shape[-1])  # (batch*seq, d_model)
-        print(f"[DEBUG] Flattened shape: {flattened.shape}")
-        print(
-            f"[DEBUG] This means {original_shape[0]} samples × {original_shape[1]} sequence positions = {flattened.shape[0]} total activations"
-        )
-
         # Encode in batches using configurable batch size
+        N = activations.shape[0]
         encoded_list = []
-        total_batches = (len(flattened) + self.encoding_batch_size - 1) // self.encoding_batch_size
+        total_batches = (N + self.encoding_batch_size - 1) // self.encoding_batch_size
         print(f"[DEBUG] Processing {total_batches} batches of size {self.encoding_batch_size}")
 
-        for i in tqdm(range(0, len(flattened), self.encoding_batch_size), desc="Encoding activations"):
-            batch = flattened[i:i + self.encoding_batch_size]
-            # Convert batch to tensor and move to device only for this batch
+        for start in tqdm(range(0, N, self.encoding_batch_size), desc="Encoding activations"):
+            end = min(start + self.encoding_batch_size, N)
+            batch = activations[start:end]
             batch_tensor = torch.tensor(batch, dtype=torch.bfloat16, device=self.device)
-            # Convert bfloat16 to float32 only for numpy conversion
-            encoded_batch = sae.encode(batch_tensor).float().cpu().detach().numpy()
+            encoded_batch = sae.encode(batch_tensor).float().cpu().detach().numpy()  # (B, F)
             encoded_list.append(encoded_batch)
 
         encoded = np.concatenate(encoded_list, axis=0)
-
-        # Reshape back to original batch and sequence dimensions
-        encoded = encoded.reshape(original_shape[0], original_shape[1], -1)
         print(f"[DEBUG] Final encoded shape: {encoded.shape}")
-
-        return encoded
+        return encoded  # (N, F)
 
     def _select_top_features(self, X_train: np.ndarray, y_train: np.ndarray) -> np.ndarray:
         """
@@ -239,10 +331,10 @@ class SAEProbe(BaseProbe):
         print(f"[DEBUG] Feature selection input shapes: X_train={X_train.shape}, y_train={y_train.shape}")
         print(f"[DEBUG] Memory at start of feature selection: {get_memory_usage()}")
 
-        X_agg = X_train.mean(axis=1)  # agg doesnt matter rn
-
-        print(f"[DEBUG] Aggregated X shape: {X_agg.shape}")
-        print(f"[DEBUG] Memory after aggregation: {get_memory_usage()}")
+        # X_train is already SAE-encoded aggregated features (N, F)
+        X_agg = X_train
+        print(f"[DEBUG] Feature matrix for selection shape: {X_agg.shape}")
+        print(f"[DEBUG] Memory after feature matrix build: {get_memory_usage()}")
 
         # Calculate difference of means
         pos_mask = y_train == 1
@@ -271,249 +363,180 @@ class SAEProbe(BaseProbe):
         self,
         X: np.ndarray,
         y: np.ndarray,
-        mask: Optional[np.ndarray] = None,
-        epochs: int = 20,
-        lr: float = 1e-3,
-        batch_size: int = None,
-        weight_decay: float = 0.0,
-        verbose: bool = True,
-        early_stopping: bool = True,
-        patience: int = 20,
-        min_delta: float = 0.005,
-        use_weighted_sampler: bool = True,
+        masks: Optional[np.ndarray] = None,
         **kwargs,
-    ):
-        """
-        Train the SAE probe.
+    ) -> "SAEProbe":
+        """Train the SAE probe using sklearn on SAE-encoded aggregated activations.
         
         Args:
-            X: Raw model activations, shape (N, seq, d_model)
+            X: Aggregated activations, shape (N, 1, d_model)
             y: Labels, shape (N,)
-            mask: Optional mask, shape (N, seq)
-            batch_size: Override the default batch size for training (uses self.batch_size if None)
-            **kwargs: Additional arguments passed to parent fit method
+            masks: Ignored (kept for compatibility)
         """
-        print(f"\n=== SAE PROBE TRAINING START ===")
+        print(f"\n=== SAE PROBE TRAINING START (sklearn) ===")
         print(f"Model: {self.model_name}, Layer: {self.layer}")
-        print(f"SAE ID: {self.sae_id}")
+        print(f"SAE source: {'Goodfire HF' if self.model_name=='meta-llama/Llama-3.3-70B-Instruct' else 'sae_lens'}")
         print(f"Aggregation: {self.aggregation}")
         print(f"Top-k features: {self.top_k_features}")
         print(f"SAE encoding batch size: {self.encoding_batch_size}")
-        print(f"Training batch size: {batch_size if batch_size is not None else self.training_batch_size}")
         print(f"Input X shape: {X.shape}")
         print(f"Input y shape: {y.shape}")
 
-        # Step 1: Encode activations through SAE
+        # Step 1: SAE-encode aggregated activations -> (N, F)
         print("Encoding activations through SAE...")
         print(f"[DEBUG] Before encoding. Memory: {get_memory_usage()}")
         X_encoded = self._encode_activations(X)
-        print(f"Encoded X shape: {X_encoded.shape}")
+        print(f"Encoded feature matrix shape: {X_encoded.shape}")
         print(f"[DEBUG] After encoding. Memory: {get_memory_usage()}")
 
-        # Step 2: Select top features
+        # Step 2: Feature selection (top-k by difference of means)
         print("Selecting top features...")
-        print(f"[DEBUG] Before feature selection. Memory: {get_memory_usage()}")
         self.feature_indices = self._select_top_features(X_encoded, y)
         print(f"Selected {len(self.feature_indices)} features")
-        print(f"[DEBUG] After feature selection. Memory: {get_memory_usage()}")
 
-        # Step 3: Initialize/reinitialize model with correct feature dimension
-        actual_feature_dim = self.top_k_features
-        if self.sae_feature_dim != actual_feature_dim or self.model is None:
-            print(f"Reinitializing SAE model with {actual_feature_dim} actual selected features")
-            self.sae_feature_dim = actual_feature_dim
-            self._init_model()
+        # Step 3: Select and scale features
+        X_selected = X_encoded[:, self.feature_indices]
+        X_scaled = self.scaler.fit_transform(X_selected)
+        print(f"[DEBUG] X_selected shape: {X_selected.shape}")
 
-        # Select features from encoded activations
-        X_selected = X_encoded[:, :, self.feature_indices]
-        print(f"Selected X shape: {X_selected.shape}")
+        # Step 4: Train sklearn logistic regression
+        self.sklearn_model.fit(X_scaled, y)
+        return self
 
-        # Step 4: Call parent fit method with selected features
-        # Use provided batch_size or fall back to self.training_batch_size
-        training_batch_size = batch_size if batch_size is not None else self.training_batch_size
-        print(f"Training batch size: {training_batch_size}")
-        super().fit(
-            X_selected, y, mask, epochs, lr, training_batch_size, weight_decay, verbose, early_stopping, patience,
-            min_delta, use_weighted_sampler, **kwargs
-        )
-
-    def predict(self, X: np.ndarray, mask: Optional[np.ndarray] = None, batch_size: int = None) -> np.ndarray:
+    def predict(self, X: np.ndarray, masks: Optional[np.ndarray] = None, batch_size: int = None) -> np.ndarray:
         """Predict using the SAE probe."""
-        if self.model is None:
+        if self.feature_indices is None:
             raise ValueError("Model not trained yet. Call fit() first.")
 
-        # Encode and select features
-        X_encoded = self._encode_activations(X)
-        X_selected = X_encoded[:, :, self.feature_indices]
+        X_encoded = self._encode_activations(X)  # (N, F)
+        X_selected = X_encoded[:, self.feature_indices]
+        X_scaled = self.scaler.transform(X_selected)
+        return self.sklearn_model.predict(X_scaled)
 
-        # Use provided batch_size or fall back to self.training_batch_size
-        predict_batch_size = batch_size if batch_size is not None else self.training_batch_size
-        return super().predict(X_selected, mask, predict_batch_size)
-
-    def predict_proba(self, X: np.ndarray, mask: Optional[np.ndarray] = None, batch_size: int = None) -> np.ndarray:
+    def predict_proba(self, X: np.ndarray, masks: Optional[np.ndarray] = None, batch_size: int = None) -> np.ndarray:
         """Predict probabilities using the SAE probe."""
-        if self.model is None:
+        if self.feature_indices is None:
             raise ValueError("Model not trained yet. Call fit() first.")
 
-        # Encode and select features
         X_encoded = self._encode_activations(X)
-        X_selected = X_encoded[:, :, self.feature_indices]
+        X_selected = X_encoded[:, self.feature_indices]
+        X_scaled = self.scaler.transform(X_selected)
+        probas = self.sklearn_model.predict_proba(X_scaled)
+        return probas[:, 1]
 
-        # Use provided batch_size or fall back to self.training_batch_size
-        predict_batch_size = batch_size if batch_size is not None else self.training_batch_size
-        return super().predict_proba(X_selected, mask, predict_batch_size)
-
-    def predict_logits(self, X: np.ndarray, mask: Optional[np.ndarray] = None, batch_size: int = None) -> np.ndarray:
+    def predict_logits(self, X: np.ndarray, masks: Optional[np.ndarray] = None, batch_size: int = None) -> np.ndarray:
         """Predict logits using the SAE probe."""
-        if self.model is None:
+        if self.feature_indices is None:
             raise ValueError("Model not trained yet. Call fit() first.")
 
-        # Encode and select features
         X_encoded = self._encode_activations(X)
-        X_selected = X_encoded[:, :, self.feature_indices]
+        X_selected = X_encoded[:, self.feature_indices]
+        X_scaled = self.scaler.transform(X_selected)
+        return self.sklearn_model.decision_function(X_scaled)
 
-        # Use provided batch_size or fall back to self.training_batch_size
-        predict_batch_size = batch_size if batch_size is not None else self.training_batch_size
-        return super().predict_logits(X_selected, mask, predict_batch_size)
+    def score(self, X: np.ndarray, y: np.ndarray, masks: Optional[np.ndarray] = None) -> Dict[str, float]:
+        """Calculate performance metrics for aggregated inputs."""
+        preds = self.predict(X, masks)
+        y_prob = self.predict_proba(X, masks)
+        auc = roc_auc_score(y, y_prob) if len(np.unique(y)) > 1 else 0.5
+        acc = accuracy_score(y, preds)
+        precision = precision_score(y, preds, zero_division=0)
+        recall = recall_score(y, preds, zero_division=0)
+        tn, fp, fn, tp = confusion_matrix(y, preds).ravel()
+        fpr = fp / (fp + tn) if (fp + tn) > 0 else 0.0
+        return {
+            "acc": float(acc), "auc": float(auc), "precision": float(precision), "recall": float(recall), "fpr":
+            float(fpr)
+        }
 
     def save_state(
         self,
         path: Path,
     ):
         """Save the probe state including SAE info and feature indices."""
-        state = {
-            'model_state': self.model.state_dict() if self.model else None,
-            'loss_history': self.loss_history,
-            'model_name': self.model_name,
-            'layer': self.layer,
-            'sae_id': self.sae_id,
-            'top_k_features': self.top_k_features,
-            'aggregation': self.aggregation,
-            'encoding_batch_size': self.encoding_batch_size,
-            'training_batch_size': self.training_batch_size,
-            'feature_indices': self.feature_indices,
-            'sae_feature_dim': self.sae_feature_dim,
-            'task_type': self.task_type,
-        }
-        # Use weights_only=False to ensure compatibility with numpy arrays and other objects
-        torch.save(state, path, _use_new_zipfile_serialization=False)
+        # Save sklearn probe state in .npz format, along with SAE metadata
+        if self.feature_indices is None:
+            raise ValueError("No feature indices to save; train the probe first.")
+
+        coef = getattr(self.sklearn_model, "coef_", None)
+        intercept = getattr(self.sklearn_model, "intercept_", None)
+        if coef is None or intercept is None:
+            raise ValueError("Sklearn model is not fitted; cannot save state.")
+
+        np.savez_compressed(
+            path,
+            # sklearn model
+            coef=coef,
+            intercept=intercept,
+            # scaler
+            scaler_mean=self.scaler.mean_,
+            scaler_scale=self.scaler.scale_,
+            scaler_var=self.scaler.var_,
+            # sae/probe metadata
+            d_model=self.d_model,
+            task_type=self.task_type,
+            aggregation=self.aggregation,
+            model_name=self.model_name,
+            layer=self.layer,
+            sae_id=self.sae_id if self.sae_id is not None else "",
+            hf_sae_repo=self.hf_sae_repo if self.hf_sae_repo is not None else "",
+            top_k_features=self.top_k_features,
+            feature_indices=np.asarray(self.feature_indices, dtype=np.int64),
+            encoding_batch_size=self.encoding_batch_size,
+            training_batch_size=self.training_batch_size,
+            solver=self.solver,
+            C=self.C,
+            max_iter=self.max_iter,
+            class_weight=self.class_weight,
+            random_state=self.random_state,
+        )
 
     def load_state(
         self,
         path: Path,
     ):
         """Load the probe state."""
-        try:
-            # Try with weights_only=False for backward compatibility with saved states
-            state = torch.load(path, map_location=self.device, weights_only=False)
-        except Exception as e:
-            # If that fails, try with weights_only=True (new PyTorch 2.6+ default)
-            print(f"Warning: Failed to load with weights_only=False, trying with weights_only=True: {e}")
-            state = torch.load(path, map_location=self.device, weights_only=True)
+        state = np.load(path, allow_pickle=True)
 
-        # Restore attributes
-        self.model_name = state['model_name']
-        self.layer = state['layer']
-        self.sae_id = state['sae_id']
-        self.top_k_features = state['top_k_features']
-        self.aggregation = state['aggregation']
-        # Handle backward compatibility for old batch_size parameter
-        if 'batch_size' in state:
-            self.encoding_batch_size = state['batch_size']
-            self.training_batch_size = state['batch_size']
-        else:
-            self.encoding_batch_size = state.get('encoding_batch_size', 256)
-            self.training_batch_size = state.get('training_batch_size', 64)
-        self.feature_indices = state['feature_indices']
-        self.sae_feature_dim = state['sae_feature_dim']
-        self.task_type = state['task_type']
+        # Restore metadata
+        self.d_model = int(state['d_model'])
+        self.task_type = str(state['task_type'])
+        self.aggregation = str(state['aggregation'])
+        self.model_name = str(state['model_name'])
+        self.layer = int(state['layer'])
+        self.sae_id = str(state['sae_id']) if 'sae_id' in state and state['sae_id'].item() != "" else None
+        self.hf_sae_repo = str(state['hf_sae_repo']
+                               ) if 'hf_sae_repo' in state and state['hf_sae_repo'].item() != "" else self.hf_sae_repo
+        self.top_k_features = int(state['top_k_features'])
+        self.feature_indices = state['feature_indices'].astype(np.int64)
+        self.encoding_batch_size = int(state.get('encoding_batch_size', self.encoding_batch_size))
+        self.training_batch_size = int(state.get('training_batch_size', self.training_batch_size))
 
-        # Initialize model and load state
+        # Restore sklearn components
+        self.solver = str(state.get('solver', self.solver))
+        self.C = float(state.get('C', self.C))
+        self.max_iter = int(state.get('max_iter', self.max_iter))
+        self.class_weight = str(state.get('class_weight', self.class_weight))
+        self.random_state = int(state.get('random_state', self.random_state))
+
+        # Recreate sklearn model with hyperparams
+        self.sklearn_model = LogisticRegression(
+            solver=self.solver,
+            C=self.C,
+            max_iter=self.max_iter,
+            class_weight=self.class_weight,
+            random_state=self.random_state,
+            n_jobs=1,
+        )
+        self.sklearn_model.coef_ = state['coef']
+        self.sklearn_model.intercept_ = state['intercept']
+        self.sklearn_model.classes_ = np.array([0, 1])
+
+        # Restore scaler
+        self.scaler = StandardScaler()
+        self.scaler.mean_ = state['scaler_mean']
+        self.scaler.scale_ = state['scaler_scale']
+        self.scaler.var_ = state['scaler_var']
+
+        # Recreate dummy torch model for BaseProbe compatibility
         self._init_model()
-        if self.model and state['model_state']:
-            self.model.load_state_dict(state['model_state'])
-
-        self.loss_history = state['loss_history']
-
-    def find_best_fit(
-        self,
-        X_train: List[np.ndarray],
-        y_train: np.ndarray,
-        X_val: List[np.ndarray],
-        y_val: np.ndarray,
-        epochs: int = 100,
-        n_trials: int = 20,
-        direction: str = None,
-        verbose: bool = True,
-        probe_save_dir: Path = None,
-        probe_filename_base: str = None
-    ) -> dict:
-        """
-        Find best hyperparameters by sweeping over weight decay and learning rate values.
-        Chooses the model with the lowest averaged training loss over the last self.fit_patience epochs.
-        """
-        import optuna
-
-        def objective(
-            trial,
-        ):
-            # Define hyperparameter search space
-            lr = trial.suggest_float('lr', 1e-5, 1e-2, log=True)
-            weight_decay = trial.suggest_float('weight_decay', 1e-6, 1e-2, log=True)
-
-            # Create a copy of the current probe with trial hyperparameters
-            config_params = {
-                k: v
-                for k, v in self.__dict__.items()
-                if k not in ['d_model', 'device', 'task_type', 'aggregation', 'model', 'loss_history']
-            }
-
-            trial_probe = SAEProbe(self.d_model, device=self.device, **config_params)
-
-            # Train with trial hyperparameters
-            try:
-                trial_probe.fit(
-                    X_train,
-                    y_train,
-                    epochs=epochs,  # Use epochs parameter
-                    lr=lr,
-                    weight_decay=weight_decay,
-                    batch_size=1024,  # Fixed batch size
-                    verbose=False,  # Reduce output during hyperparameter search
-                    early_stopping=True,
-                    patience=10,
-                    min_delta=0.005,
-                    use_weighted_sampler=True
-                )
-
-                # Get the last self.fit_patience epochs of training loss for stability assessment
-                last_losses = trial_probe.loss_history[-self.fit_patience:]
-                avg_loss = np.mean(last_losses)
-
-                return avg_loss
-
-            except Exception as e:
-                if verbose:
-                    print(f"Trial failed with lr={lr}, weight_decay={weight_decay}: {e}")
-                return float('inf')
-
-        # Create study to minimize the average training loss
-        study = optuna.create_study(direction='minimize')
-        study.optimize(objective, n_trials=n_trials, show_progress_bar=verbose)
-
-        # Get best parameters
-        best_params = study.best_params
-
-        if verbose:
-            print(f"Best hyperparameters found:")
-            print(f"  Learning rate: {best_params['lr']:.2e}")
-            print(f"  Weight decay: {best_params['weight_decay']:.2e}")
-            print(f"  Best average training loss: {study.best_value:.6f}")
-
-        # Save best hyperparameters if directory provided
-        if probe_save_dir is not None and probe_filename_base is not None:
-            best_hparams_path = probe_save_dir / f"{probe_filename_base}_best_hparams.json"
-            with open(best_hparams_path, 'w') as f:
-                json.dump(best_params, f, indent=2)
-
-        return best_params

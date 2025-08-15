@@ -14,12 +14,12 @@ from transformers import PreTrainedModel, PreTrainedTokenizerBase
 class ActivationManager:
     """Individual activation storage with per-activation lengths.
 
-    For each (layer, component) we store:
-    1. **`<hook>.json`** - Metadata file with hash-to-index mapping and individual lengths
-    2. **`<hook>.npz`** - Compressed numpy file storing individual activations with their actual lengths
+	For each (layer, component) we store:
+	1. **`<hook>.json`** - Metadata file with hash-to-index mapping and individual lengths
+	2. **`<hook>.npz`** - Compressed numpy file storing individual activations with their actual lengths
 
-    This approach eliminates padding and allows each activation to be stored at its natural size.
-    """
+	This approach eliminates padding and allows each activation to be stored at its natural size.
+	"""
 
     @classmethod
     def create_readonly(
@@ -29,9 +29,9 @@ class ActivationManager:
         cache_dir: Path,
     ):
         """
-        Create a read-only ActivationManager that can load existing caches without the full model.
-        This is useful for evaluation when activations are already cached.
-        """
+		Create a read-only ActivationManager that can load existing caches without the full model.
+		This is useful for evaluation when activations are already cached.
+		"""
         instance = cls.__new__(cls)
         instance.model = None  # No model needed for reading
         instance.tokenizer = None  # No tokenizer needed for reading
@@ -72,10 +72,6 @@ class ActivationManager:
             exist_ok=True,
         )
 
-        # Cache for metadata to avoid reloading
-        self._metadata_cache = {}
-        self._metadata_mtimes = {}
-
     # public entrypoint #
     # We dont want to extract activations on the fly, since its extremely slow for our probes.
     def get_activations_for_texts(
@@ -89,50 +85,47 @@ class ActivationManager:
         return_newly_added_count: bool = False,
     ) -> Union[np.ndarray, Tuple[np.ndarray, int]]:
         """
-        Get activations for texts, with caching and aggregation support.
-        
-        Args:
-            texts: Input texts (prompts)
-            layer: Layer number
-            component: Component name (e.g., 'resid_post')
-            activation_type: Type of activation to return:
-                - "full": Full activations (padded to max length)
-                - "linear_mean", "linear_max", "linear_last": Linear aggregations
-                - "sae_mean", "sae_max", "sae_last": SAE aggregations
-                - "act_sim_mean", "act_sim_max", "act_sim_last", "act_sim_softmax": Activation similarity aggregations
-            question_texts: Optional list of question texts (for on-policy experiments)
-            format_type: Format for activation extraction:
-                - "qr": On-policy - format as prompt+question using chat template, extract question tokens
-                - "r": Off-policy instruct - format prompt as user prompt using chat template, extract prompt tokens
-                - "r-no-it": Off-policy non-instruct - use prompt text directly without chat template
-            return_newly_added_count: If True, also return the number of newly computed activations
-        
-        Returns:
-            Activations array (no masks returned), or tuple of (activations, newly_added_count) if return_newly_added_count=True
-        """
+		Get activations for texts, with caching and aggregation support.
+		
+		Args:
+			texts: Input texts (prompts)
+			layer: Layer number
+			component: Component name (e.g., 'resid_post')
+			activation_type: Type of activation to return:
+				- "full": Full activations (padded to max length)
+				- "linear_mean", "linear_max", "linear_last": Linear aggregations
+				- "sae_mean", "sae_max", "sae_last": SAE aggregations
+				- "act_sim_mean", "act_sim_max", "act_sim_last", "act_sim_softmax": Activation similarity aggregations
+			question_texts: Optional list of question texts (for on-policy experiments)
+			format_type: Format for activation extraction:
+				- "qr": On-policy - format as prompt+question using chat template, extract question tokens
+				- "r": Off-policy instruct - format prompt as user prompt using chat template, extract prompt tokens
+				- "r-no-it": Off-policy non-instruct - use prompt text directly without chat template
+			return_newly_added_count: If True, also return the number of newly computed activations
+		
+		Returns:
+			Activations array (no masks returned), or tuple of (activations, newly_added_count) if return_newly_added_count=True
+		"""
         texts = list(texts)
         metadata_path, activations_path = self._paths(layer, component)
 
-        # Check which texts need extraction
-        existing: Dict[str, np.ndarray] = {}
-        if activations_path.exists():
-            existing = dict(
-                np.load(
-                    activations_path,
-                    allow_pickle=True,
-                ),
-            )
+        # Check which texts need extraction using lightweight metadata (avoid loading arrays)
+        existing_keys = set()
+        metadata = self._load_metadata(layer, component)
+        if metadata is not None and isinstance(metadata, dict) and "hash_to_idx" in metadata:
+            existing_keys = set(metadata["hash_to_idx"].keys())
 
         missing_texts: List[str] = []
         missing_question_texts: List[str] = []
         for i, text in enumerate(texts):
             text_hash = self._hash(text)
-            if text_hash not in existing:
+            if text_hash not in existing_keys:
                 missing_texts.append(text)
                 if question_texts is not None:
                     missing_question_texts.append(question_texts[i])
 
         newly_added_count = len(missing_texts)
+        print(f"[DEBUG] Newly added count: {newly_added_count}")
 
         # Extract missing activations
         if missing_texts:
@@ -149,11 +142,21 @@ class ActivationManager:
                 print(f"[DEBUG] Memory after extraction: {torch.cuda.memory_allocated() / 1024**3:.2f} GB")
                 print(f"[DEBUG] Extracted {len(new_activations)} new activations")
 
-                # Save new activations
+                # Save new activations (load existing arrays only now)
                 print(f"[DEBUG] Saving full activations...")
-                all_activations = {**existing, **new_activations}
+                existing_arrays: Dict[str, np.ndarray] = {}
+                if activations_path.exists():
+                    existing_arrays = dict(
+                        np.load(
+                            activations_path,
+                            allow_pickle=True,
+                        ),
+                    )
+                all_activations = {**existing_arrays, **new_activations}
                 np.savez(activations_path, **all_activations)
                 print(f"[DEBUG] Saved full activations: {len(all_activations)} total entries")
+                # Update metadata to reflect new entries
+                self._update_metadata(layer, component, new_activations)
             except Exception as e:
                 print(f"[DEBUG] Error during activation extraction: {e}")
                 raise
@@ -194,18 +197,18 @@ class ActivationManager:
         question_texts: Optional[List[str]] = None
     ) -> Dict[str, np.ndarray]:
         """
-        Core activation extraction logic based on format type.
-        
-        Args:
-            texts: Input texts (prompts)
-            layer: Layer number
-            component: Component name
-            format_type: Format type ("qr", "r", "r-no-it")
-            question_texts: Optional question texts for on-policy
-            
-        Returns:
-            Dictionary mapping text hashes to activations
-        """
+		Core activation extraction logic based on format type.
+		
+		Args:
+			texts: Input texts (prompts)
+			layer: Layer number
+			component: Component name
+			format_type: Format type ("qr", "r", "r-no-it")
+			question_texts: Optional question texts for on-policy
+			
+		Returns:
+			Dictionary mapping text hashes to activations
+		"""
         if self.model is None or self.tokenizer is None:
             raise ValueError("ActivationManager is read-only. A full model is required to compute activations.")
 
@@ -240,11 +243,11 @@ class ActivationManager:
 
                     # Get activations and extract only response tokens (not question tokens)
                     response_enc = self.tokenizer(
-                        text,  # This is the response
-                        return_tensors="pt",
-                        padding=False,
-                        truncation=False,
-                        add_special_tokens=True,
+                     text,  # This is the response
+                     return_tensors="pt",
+                     padding=False,
+                     truncation=False,
+                     add_special_tokens=True,
                     )
                     response_ids = response_enc["input_ids"][0]
 
@@ -342,17 +345,17 @@ class ActivationManager:
         component: str,
     ) -> np.ndarray:
         """
-        Load and return appropriate activations based on activation_type.
-        
-        Args:
-            texts: List of input texts
-            activation_type: Type of activation to return
-            layer: Layer number
-            component: Component name
-            
-        Returns:
-            Appropriate activations array
-        """
+		Load and return appropriate activations based on activation_type.
+		
+		Args:
+			texts: List of input texts
+			activation_type: Type of activation to return
+			layer: Layer number
+			component: Component name
+			
+		Returns:
+			Appropriate activations array
+		"""
         if activation_type == "full":
             # Load full activations from saved file
             _, activations_path = self._paths(layer, component)
@@ -363,17 +366,21 @@ class ActivationManager:
                 )
 
             print(f"[DEBUG] Loading full activations from {activations_path}")
-            existing = dict(
-                np.load(activations_path, allow_pickle=True),
+            existing = np.load(
+                activations_path,
+                allow_pickle=True,
+                mmap_mode='r',
             )
+
+            print(f"[DEBUG] Existing: {len(existing.files)}")
 
             # Load activations in the order of texts
             activations_list = []
             for text in texts:
                 text_hash = self._hash(text)
-                if text_hash not in existing:
+                if text_hash not in getattr(existing, "files", []):
                     raise ValueError(f"Text not found in full activations: {text[:50]}...")
-                arr = existing[text_hash]
+                arr = np.asarray(existing[text_hash])
                 # Unsqueeze 2D arrays (S, D) to (1, S, D)
                 if len(arr.shape) == 2:
                     arr = arr[None, ...]
@@ -444,16 +451,12 @@ class ActivationManager:
                 text_hash = self._hash(text)
                 if text_hash not in aggregated_data:
                     raise ValueError(f"Text not found in aggregated activations: {text[:50]}...")
-                vec = np.asarray(aggregated_data[text_hash])
-                if vec.ndim != 1:
-                    vec = np.squeeze(vec)
-                if vec.ndim != 1 or vec.shape[0] != self.d_model:
-                    raise ValueError(
-                        f"Aggregated vector for text has wrong shape {vec.shape}; expected ({self.d_model},)"
-                    )
-                aggregated_list.append(vec[None, :])  # load as (1, D)
+                vec = np.asarray(aggregated_data[text_hash]).ravel()
+                if vec.shape[0] != self.d_model:
+                    raise ValueError(f"Aggregated vector has shape {vec.shape}, expected ({self.d_model},).")
+                aggregated_list.append(vec)
 
-            result = np.stack(aggregated_list, axis=0)  # (N, 1, D)
+            result = np.stack(aggregated_list, axis=0)
             print(f"[DEBUG] Loaded {activation_type} aggregated activations: {result.shape}")
             return result
 
@@ -499,7 +502,12 @@ class ActivationManager:
             existing_aggregated: Dict[str, np.ndarray] = {}
             if aggregated_path.exists():
                 print(f"[DEBUG] Loading existing {aggregation} aggregated activations...")
-                existing_aggregated = dict(np.load(aggregated_path, allow_pickle=True))
+                existing_aggregated = dict(
+                    np.load(
+                        aggregated_path,
+                        allow_pickle=True,
+                    ),
+                )
                 print(
                     f"[DEBUG] Loaded existing {aggregation} aggregated activations: {len(existing_aggregated)} entries"
                 )
@@ -511,6 +519,17 @@ class ActivationManager:
                     print(f"[DEBUG] Processing activation {j+1}/{len(activations_to_process)} for {aggregation}")
 
                 try:
+                    # Debug: print the activation shape before aggregation when it looks suspicious
+                    _act = np.asarray(activation)
+                    if not (_act.ndim == 2 and _act.shape[1] == self.d_model):
+                        print(
+                            f"[DEBUG] Pre-aggregation shape anomaly (idx={j}) for {aggregation}: shape={_act.shape}, ndim={_act.ndim}, expected=(*, {self.d_model})"
+                        )
+                        # If we have a leading singleton dimension, squeeze it away
+                        # Should fix this earlier, but whatever
+                        if _act.ndim == 3 and _act.shape[0] == 1:
+                            activation = np.squeeze(_act, axis=0)
+                            print(f"[DEBUG] Squeezed leading singleton dim: new shape={activation.shape}")
                     if aggregation == "mean":
                         aggregated = np.mean(activation, axis=0)
                     elif aggregation == "max":
@@ -520,6 +539,11 @@ class ActivationManager:
                     elif aggregation == "softmax":
                         weights = softmax(activation, axis=0)
                         aggregated = np.sum(weights * activation, axis=0)
+
+                    # Validate that aggregated is a 1D vector of length d_model before saving
+                    aggregated = np.asarray(aggregated)
+                    if not (aggregated.ndim == 1 and aggregated.shape[0] == self.d_model):
+                        raise ValueError(f"Aggregated vector has shape {aggregated.shape}, expected ({self.d_model},).")
 
                     existing_aggregated[text_hash] = aggregated
                 except Exception as e:
@@ -587,6 +611,52 @@ class ActivationManager:
         activations = self.cache_dir / f"{hook}.npz"
         return metadata, activations
 
+    def _load_metadata(self, layer: int, component: str) -> Optional[Dict[str, Any]]:
+        """Load metadata JSON for a given layer/component (no caching)."""
+        metadata_path, _ = self._paths(layer, component)
+        if not metadata_path.exists():
+            return None
+        try:
+            with open(metadata_path, "r") as f:
+                return json.load(f)
+        except Exception as e:
+            print(f"[DEBUG] Failed to load metadata from {metadata_path}: {e}")
+            return None
+
+    def _update_metadata(self, layer: int, component: str, new_entries: Dict[str, np.ndarray]):
+        """Update metadata JSON with new hashes and lengths."""
+        metadata_path, _ = self._paths(layer, component)
+        data = {
+            "hash_to_idx": {},
+            "lengths": {},
+        }
+        if metadata_path.exists():
+            try:
+                with open(metadata_path, "r") as f:
+                    data = json.load(f)
+            except Exception:
+                pass
+        if "hash_to_idx" not in data:
+            data["hash_to_idx"] = {}
+        if "lengths" not in data:
+            data["lengths"] = {}
+        # Append new items; use next index after current max
+        next_index = 0
+        if data["hash_to_idx"]:
+            try:
+                next_index = 1 + max(int(i) for i in data["hash_to_idx"].values())
+            except Exception:
+                next_index = len(data["hash_to_idx"])  # fallback
+        for h, arr in new_entries.items():
+            if h not in data["hash_to_idx"]:
+                data["hash_to_idx"][h] = next_index
+                next_index += 1
+            # arr shape can be (S, D) or (B, S, D). Store sequence length S.
+            seq_len = int(arr.shape[-2]) if arr.ndim >= 2 else int(arr.shape[0])
+            data["lengths"][h] = seq_len
+        with open(metadata_path, "w") as f:
+            json.dump(data, f)
+
     @staticmethod
     def _hash(prompt: str) -> str:
         return hashlib.sha1(prompt.encode()).hexdigest()
@@ -607,9 +677,9 @@ class ActivationManager:
     # HF hooking utilities #
     def _get_block_module(self, layer_index: int) -> Any:
         """
-        Try to resolve a transformer block module across popular architectures.
-        Returns the module whose forward output is the per-token hidden states at that layer.
-        """
+		Try to resolve a transformer block module across popular architectures.
+		Returns the module whose forward output is the per-token hidden states at that layer.
+		"""
         m = self.model
         # For llama/gemma: model.model.layers
         return m.model.layers[layer_index]
@@ -623,10 +693,10 @@ class ActivationManager:
         attention_mask: Optional[torch.Tensor],
     ) -> torch.Tensor:
         """
-        Run the model and capture per-token activations at the specified layer/component.
-        Only 'resid_post' is currently supported and maps to the block output hidden states.
-        Returns tensor of shape [B, S, D].
-        """
+		Run the model and capture per-token activations at the specified layer/component.
+		Only 'resid_post' is currently supported and maps to the block output hidden states.
+		Returns tensor of shape [B, S, D].
+		"""
         if component != "resid_post":
             raise NotImplementedError(
                 f"Component '{component}' is not supported without TransformerLens. Supported: 'resid_post'."

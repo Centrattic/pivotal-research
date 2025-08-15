@@ -1,0 +1,86 @@
+run_name: "spam_qwen_14B"
+model_name: "Qwen/Qwen3-14B"
+d_model: 3584 # 3584 for gemma-2-9b
+device: "cuda:0" # will use these for extracting activations, but not for sklearn probes
+cache_activations: True
+log_file: "logs/spam_exp_cpu.log"  # Custom log file path
+seeds: [42, 43, 44, 45, 46, 47, 48, 49, 50, 51] 
+
+layers: [24]
+components:
+  - "resid_post"
+
+# Qwen has transcoders in SAE-lens! Should use these woah
+# But then I cant use insturction models
+
+# Activation extraction configuration
+activation_extraction:
+  format_type: "r-no-it"  # Options: "qr" (on-policy), "r" (off-policy instruct), "r-no-it" (off-policy non-instruct)
+
+# Evaluation dataset configurations
+architectures:
+  - name: "sklearn_linear"
+    config_name: "sklearn_linear_mean"
+  - name: "sklearn_linear"
+    config_name: "sklearn_linear_max"
+  - name: "sklearn_linear"
+    config_name: "sklearn_linear_last"
+  - name: "sklearn_linear"
+    config_name: "sklearn_linear_softmax"
+  - name: "act_sim"
+    config_name: "act_sim_mean"
+  - name: "act_sim"
+    config_name: "act_sim_max"
+  - name: "act_sim"
+    config_name: "act_sim_last"
+  - name: "act_sim"
+    config_name: "act_sim_softmax"
+
+# List of experiments to run
+experiments:
+  - name: 1-spam-pred-auc
+    class_names: {0: "Ham", 1: "Spam"}
+    train_on: 94_better_spam
+    evaluate_on:
+      - 94_better_spam
+      - 87_is_spam
+  - name: 2-spam-pred-auc-increasing-spam-fixed-total
+    class_names: {0: "Ham", 1: "Spam"}
+    train_on: 94_better_spam
+    evaluate_on:
+      - 94_better_spam
+      - 87_is_spam
+    rebuild_config:
+      increasing_spam_fixed_total:
+        - {class_counts: {0: 1750, 1: 1}} # we should use all of our examples
+        - {class_counts: {0: 1750, 1: 2}}
+        - {class_counts: {0: 1750, 1: 5}}
+        - {class_counts: {0: 1750, 1: 10}}
+        - {class_counts: {0: 1750, 1: 15}}
+        - {class_counts: {0: 1750, 1: 20}}
+        - {class_counts: {0: 1750, 1: 25}}
+        - {class_counts: {0: 1750, 1: 35}}
+        - {class_counts: {0: 1750, 1: 45}}
+        - {class_counts: {0: 1750, 1: 50}}
+        - {class_counts: {0: 1750, 1: 100}}
+        - {class_counts: {0: 1750, 1: 150}}
+        - {class_counts: {0: 1750, 1: 250}}
+        - {class_counts: {0: 1750, 1: 500}}
+        
+model_check:
+  - name: spam-pred
+    hf_model_name: "Qwen/Qwen3-14B"
+    check_on: ["87_is_spam", "94_better_spam"]
+    method: "no-it"  # Options: "it" (uses chat template), "no-it" (uses few-shot prompt and no chat template)
+    check_prompt: "Is this message spam? Answer with either Yes or No. \n {prompt}"
+    few_shot_prompt: |
+      This message is spam: "get rich quick! make money fast with our amazing offer!"
+      This message is not spam: "hi john, here's the meeting agenda for tomorrow."
+
+      What about this message: 
+      "{prompt}"
+
+      Answer with one word, either Yes or No.
+    class_names: {0: ["Yes", "yes", " Yes", " yes"], 1: ["No", "no", " No", " no"]}
+
+

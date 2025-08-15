@@ -134,7 +134,14 @@ def add_hyperparams_to_filename(
     hparam_suffix = ""
 
     # Common hyperparameters to include
-    hparams_to_check = ['C', 'lr', 'weight_decay', 'batch_size', 'epochs']
+    hparams_to_check = [
+        'C',
+        'lr',
+        'weight_decay',
+        'batch_size',
+        'epochs',
+        'top_k_features',
+    ]
 
     for hparam in hparams_to_check:
         if hasattr(probe_config, hparam):
@@ -150,6 +157,9 @@ def add_hyperparams_to_filename(
                 hparam_suffix += f"_bs{value}"
             elif hparam == 'epochs' and value != 100:
                 hparam_suffix += f"_ep{value}"
+            elif hparam == 'top_k_features':
+                # Always include top-k for SAE sweeps to disambiguate artifacts
+                hparam_suffix += f"_topk{value}"
 
     if hparam_suffix:
         return base_filename + hparam_suffix
@@ -163,9 +173,11 @@ def generate_hyperparameter_sweep(
                 ActivationSimilarityProbeConfig]]:
     """Generate hyperparameter sweep configurations for a given architecture."""
     # Define sweep arrays at the top for easy editing
-    C_VALUES = [0.01, 0.1, 1.0, 10.0, 100.0]
-    LR_VALUES = [1e-5, 5e-5, 1e-4, 5e-4, 1e-3]
-    WEIGHT_DECAY_VALUES = [0.0, 1e-5, 1e-4, 1e-3]
+    # C sweep: decades from 1e-5 to 1e5
+    C_VALUES = [1e-5, 1e-4, 1e-3, 1e-2, 1e-1, 1e0, 1e1, 1e2, 1e3, 1e4, 1e5]
+    LR_VALUES = [1e-5, 2e-5, 5e-5, 1e-4, 2e-4, 5e-4, 1e-3, 2e-3, 5e-3]
+    WEIGHT_DECAY_VALUES = [0.0, 1e-6, 5e-6, 1e-5, 5e-5, 1e-4, 5e-4, 1e-3, 5e-3]
+    TOP_K_VALUES = [128, 256, 512, 1024, 2048, 3584, 4096, 8192]
 
     sweep_configs = []
 
@@ -175,12 +187,24 @@ def generate_hyperparameter_sweep(
             base_config = create_probe_config(architecture_name, config_name)
             base_config.C = C
             sweep_configs.append(base_config)
-    elif architecture_name in ["sae", "attention"]:
-        # Learning rate sweep for trainable architectures
+    elif architecture_name == "attention":
+        # Sweep over both learning rate and weight decay
         for lr in LR_VALUES:
-            base_config = create_probe_config(architecture_name, config_name)
-            base_config.lr = lr
-            sweep_configs.append(base_config)
+            for weight_decay in WEIGHT_DECAY_VALUES:
+                base_config = create_probe_config(architecture_name, config_name)
+                base_config.lr = lr
+                base_config.weight_decay = weight_decay
+                sweep_configs.append(base_config)
+    elif architecture_name == "sae" or architecture_name.startswith("sae"):
+        # SAE uses sklearn LogisticRegression; sweep C and number of selected SAE features
+        for C in C_VALUES:
+            for top_k in TOP_K_VALUES:
+                base_config = create_probe_config("sae", config_name)
+                base_config.C = C
+                # Some configs (e.g., llama) may fix top_k; set if present
+                if hasattr(base_config, 'top_k_features'):
+                    base_config.top_k_features = top_k
+                sweep_configs.append(base_config)
     else:
         # Non-trainable probes don't need hyperparameter sweeps
         sweep_configs = [create_probe_config(architecture_name, config_name)]

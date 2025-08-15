@@ -29,7 +29,14 @@ def add_hyperparams_to_filename(base_filename: str, probe_config) -> str:
     hparam_suffix = ""
 
     # Common hyperparameters to include
-    hparams_to_check = ['C', 'lr', 'weight_decay', 'batch_size', 'epochs']
+    hparams_to_check = [
+        'C',
+        'lr',
+        'weight_decay',
+        'batch_size',
+        'epochs',
+        'top_k_features',
+    ]
 
     for hparam in hparams_to_check:
         if hasattr(probe_config, hparam):
@@ -45,6 +52,8 @@ def add_hyperparams_to_filename(base_filename: str, probe_config) -> str:
                 hparam_suffix += f"_bs{value}"
             elif hparam == 'epochs' and value != 100:
                 hparam_suffix += f"_ep{value}"
+            elif hparam == 'top_k_features':
+                hparam_suffix += f"_topk{value}"
 
     if hparam_suffix:
         return base_filename + hparam_suffix
@@ -178,6 +187,7 @@ def extract_activations_for_dataset(
                         except Exception:
                             continue
                 if llm_texts:
+                    # Automatically recomputes aggregations too
                     _, llm_samples_added = ds.act_manager.get_activations_for_texts(
                         llm_texts,
                         layer,
@@ -188,12 +198,6 @@ def extract_activations_for_dataset(
                     )
                     logger.log(f"    - Cached {llm_samples_added} new activations (LLM)")
                     # Ensure aggregations are up-to-date for any new LLM activations just added
-                    if llm_samples_added > 0:
-                        logger.log(f"    - Computing aggregated activations for new LLM samples…")
-                        try:
-                            ds.act_manager._compute_and_save_aggregations(layer, component)
-                        except Exception as e:
-                            logger.log(f"    - ⚠️ Failed to compute aggregated activations for LLM samples: {e}")
             except Exception as e:
                 logger.log(f"    - ⚠️ LLM sample caching skipped due to error: {e}")
 
@@ -217,10 +221,13 @@ def train_single_probe(
     Train a single probe with the given configuration.
     """
 
-    # Create config name from architecture and probe config
-    config_name = f"{job.architecture_name}_{job.probe_config.aggregation}" if hasattr(
-        job.probe_config, 'aggregation'
-    ) else job.architecture_name
+    # Create config name robustly: if the architecture name is already a known config, use it directly
+    if job.architecture_name in PROBE_CONFIGS:
+        config_name = job.architecture_name
+    elif hasattr(job.probe_config, 'aggregation'):
+        config_name = f"{job.architecture_name}_{job.probe_config.aggregation}"
+    else:
+        config_name = job.architecture_name
 
     probe_filename_base = get_probe_filename_prefix(
         job.train_dataset,
@@ -418,7 +425,7 @@ def train_single_probe(
         logger.log(f"  [DEBUG] Fitting attention probe normally...")
         probe.fit(train_acts, y_train)
 
-    elif job.architecture_name == "sae":
+    elif job.architecture_name == "sae" or job.architecture_name.startswith("sae"):
         # SAE probe
         probe = get_probe_architecture(
             "sae",
@@ -491,10 +498,13 @@ def evaluate_single_probe(
     """
     Evaluate a single probe on a given dataset.
     """
-    # Create config name from architecture and probe config
-    config_name = f"{job.architecture_name}_{job.probe_config.aggregation}" if hasattr(
-        job.probe_config, 'aggregation'
-    ) else job.architecture_name
+    # Create config name robustly: if the architecture name is already a known config, use it directly
+    if job.architecture_name in PROBE_CONFIGS:
+        config_name = job.architecture_name
+    elif hasattr(job.probe_config, 'aggregation'):
+        config_name = f"{job.architecture_name}_{job.probe_config.aggregation}"
+    else:
+        config_name = job.architecture_name
 
     # Extract aggregation from config for results, to be backward compatible
     agg_name = extract_aggregation_from_config(
@@ -554,7 +564,7 @@ def evaluate_single_probe(
             device=config['device'],
             config=probe_config_dict
         )
-    elif job.architecture_name == "sae":
+    elif job.architecture_name == "sae" or job.architecture_name.startswith("sae"):
         probe = get_probe_architecture(
             "sae",
             d_model=get_model_d_model(config['model_name']),
