@@ -36,6 +36,7 @@ def get_model_d_model(model_name: str) -> int:
     """Get the d_model dimension for a given model name."""
     model_dims = {
         'google/gemma-2-9b': 3584,
+        'google/gemma-2-9b-it': 3584,  # Handle the -it suffix
         'meta-llama/Llama-3.3-70B-Instruct': 8192,
     }
     if model_name not in model_dims:
@@ -159,6 +160,13 @@ class Dataset:
         self.act_manager = None
         if model is not None or model_name is not None:
             try:
+                # Derive model_name from model if not explicitly provided
+                if self.model_name is None and self.model is not None:
+                    self.model_name = getattr(getattr(self.model, 'config', None), 'name_or_path', None)
+
+                if self.model_name is None:
+                    raise ValueError("model_name is not set and could not be derived from model.config.name_or_path")
+
                 cache_dir = cache_root / self.model_name / dataset_name
                 print(
                     f"Initializing ActivationManager with model: {self.model_name}, device: {device}, cache_dir: {cache_dir}"
@@ -191,8 +199,8 @@ class Dataset:
                     print(f"[DEBUG] Creating read-only activation manager for model_name={model_name}")
                     try:
                         self.act_manager = ActivationManager.create_readonly(
-                            model_name=model_name,
-                            d_model=get_model_d_model(model_name),
+                            model_name=self.model_name,
+                            d_model=get_model_d_model(self.model_name),
                             cache_dir=cache_dir,
                         )
                         print(f"[DEBUG] Successfully created read-only activation manager")
@@ -251,6 +259,18 @@ class Dataset:
         self.X_test_text = self.X[te_idx].tolist()
         self.y_test = self.y[te_idx]
         print(f"Split data: {len(self.X_train_text)} train, {len(self.X_val_text)} val, {len(self.X_test_text)} test")
+
+        # Debug: print class distributions per split
+        def _class_dist(arr):
+            uniq, cnt = np.unique(arr, return_counts=True)
+            return {int(k): int(v) for k, v in zip(uniq.tolist(), cnt.tolist())}
+
+        try:
+            print(
+                f"[DEBUG] Class distribution — train: {_class_dist(self.y_train)}, val: {_class_dist(self.y_val)}, test: {_class_dist(self.y_test)}"
+            )
+        except Exception:
+            pass
 
     def get_activations_for_texts(
         self,
@@ -506,12 +526,25 @@ class Dataset:
 
         # Apply the filter
         filtered_indices = np.array(filtered_indices)
+        # Also filter the underlying DataFrame so downstream code using len(self.df) stays consistent
+        try:
+            self.df = self.df.iloc[filtered_indices].reset_index(drop=True)
+        except Exception as e:
+            print(f"[DEBUG] Failed to filter self.df with indices, continuing with X/y only: {e}")
+
         self.X = self.X[filtered_indices]
         self.y = self.y[filtered_indices]
         if self.question_texts is not None:
             self.question_texts = self.question_texts[filtered_indices]
 
+        # Recompute class count metadata
+        self.n_classes = len(np.unique(self.y))
+
+        # Debug: counts per class post-filter
+        uniq, cnt = np.unique(self.y, return_counts=True)
+        class_counts = {int(k): int(v) for k, v in zip(uniq.tolist(), cnt.tolist())}
         print(f"Filtered dataset {self.dataset_name}: {len(filtered_indices)} examples passed the filter")
+        print(f"[DEBUG] Class distribution after filter: {class_counts}")
 
     def clear_activation_cache(
         self,
@@ -549,8 +582,9 @@ class Dataset:
         obj.df = df.copy()
         obj.model = model
         obj.tokenizer = tokenizer
+        # Prefer explicit model_name, otherwise derive safely from model.config.name_or_path
         obj.model_name = model_name or (
-            getattr(model, 'config', {}).get('name_or_path', None) if model is not None else None
+            getattr(getattr(model, 'config', None), 'name_or_path', None) if model is not None else None
         )
         obj.device = device
         obj.cache_root = cache_root
@@ -593,8 +627,13 @@ class Dataset:
 
         # Initialize ActivationManager
         obj.act_manager = None
-        if (model is not None and tokenizer is not None) or model_name is not None:
+        if (model is not None and tokenizer is not None) or obj.model_name is not None:
             try:
+                if obj.model_name is None and model is not None:
+                    obj.model_name = getattr(getattr(model, 'config', None), 'name_or_path', None)
+                if obj.model_name is None:
+                    raise ValueError("model_name is not set and could not be derived from model.config.name_or_path")
+
                 cache_dir = cache_root / obj.model_name / dataset_name
                 if model is not None and tokenizer is not None:
                     # Get d_model from model config
@@ -615,8 +654,8 @@ class Dataset:
                 else:
                     # Use read-only activation manager
                     obj.act_manager = ActivationManager.create_readonly(
-                        model_name=model_name,
-                        d_model=get_model_d_model(model_name),
+                        model_name=obj.model_name,
+                        d_model=get_model_d_model(obj.model_name),
                         cache_dir=cache_dir,
                     )
             except Exception as e:
@@ -626,6 +665,69 @@ class Dataset:
         else:
             print("No model or model_name in from_dataframe, not initializing activation manager.")
         return obj
+
+    @staticmethod
+    def build_only_test_balanced(
+        original_dataset,
+        seed: int,
+    ):
+        """
+        Build a dataset that contains only a balanced test set consisting of:
+        - all class 1 samples, and
+        - an equal number of randomly chosen class 0 samples (chosen with the given seed)
+
+        Assumes `original_dataset.df` has already been filtered if filtering is desired.
+        """
+
+        df = original_dataset.df.copy()
+        if "target" not in df.columns:
+            raise ValueError("Expected column 'target' in dataset DataFrame")
+
+        y = df["target"].to_numpy()
+        class1_indices = np.where(y == 1)[0]
+        class0_indices = np.where(y == 0)[0]
+
+        n_class1 = len(class1_indices)
+        n_class0 = len(class0_indices)
+
+        if n_class1 == 0:
+            raise ValueError("No class 1 samples found; cannot create balanced only_test set.")
+        if n_class0 < n_class1:
+            raise ValueError(
+                f"Not enough class 0 samples to match class 1 count: needed {n_class1}, available {n_class0}"
+            )
+
+        rng = np.random.RandomState(seed)
+        class0_selected = rng.choice(class0_indices, size=n_class1, replace=False)
+
+        test_indices_original = np.concatenate([class1_indices, class0_selected])
+        rng.shuffle(test_indices_original)
+
+        # Build the new DataFrame with only the selected test examples
+        all_df = df.iloc[test_indices_original].reset_index(drop=True)
+
+        # The constructed dataset will have only a test split; keep val empty
+        val_indices_new = np.array([], dtype=int)
+        test_indices_new = np.arange(len(all_df))
+
+        # Compute max_len from available data
+        max_len = (all_df["prompt_len"].max() if "prompt_len" in all_df.columns else all_df["prompt"].str.len().max())
+
+        return Dataset.from_dataframe(
+            all_df,
+            dataset_name=original_dataset.dataset_name,
+            model=original_dataset.model,
+            model_name=original_dataset.model_name,
+            device=original_dataset.device,
+            cache_root=original_dataset.cache_root,
+            seed=seed,
+            task_type=original_dataset.task_type,
+            n_classes=original_dataset.n_classes,
+            max_len=max_len,
+            train_indices=None,
+            val_indices=val_indices_new,
+            test_indices=test_indices_new,
+        )
 
     @staticmethod
     def build_llm_upsampled_dataset(
@@ -640,7 +742,10 @@ class Dataset:
         only_test: bool = False,
     ):
         if only_test:
-            return original_dataset
+            return Dataset.build_only_test_balanced(
+                original_dataset=original_dataset,
+                seed=seed,
+            )
         import copy
         import pandas as pd
         np.random.seed(seed)
@@ -696,7 +801,9 @@ class Dataset:
         n_llm_pos = n_real_pos * upsampling_factor - n_real_pos  # Total needed - real samples
 
         # The LLM samples are saved in seed-specific folders
-        llm_csv_path = Path(llm_csv_base_path) / f"seed_{seed}" / "llm_samples" / f"samples_{n_real_pos}.csv"
+        llm_csv_path = Path(
+            llm_csv_base_path
+        ) / f"seed_{seed}" / f"llm_samples_{original_dataset.name}" / f"samples_{n_real_pos}.csv"
         if not llm_csv_path.exists():
             raise FileNotFoundError(f"LLM samples file not found: {llm_csv_path}")
 
@@ -765,7 +872,10 @@ class Dataset:
         only_test: bool = False,
     ):
         if only_test:
-            return original_dataset
+            return Dataset.build_only_test_balanced(
+                original_dataset=original_dataset,
+                seed=seed,
+            )
 
         np.random.seed(seed)
         df = original_dataset.df.copy()

@@ -1,5 +1,5 @@
-run_name: "test_refactored"
-model_name: "google/gemma-2-9b-it"
+run_name: "test_refactored_no_it"
+model_name: "google/gemma-2-9b"
 d_model: 3584
 device: "cuda:0"
 cache_activations: True
@@ -50,13 +50,26 @@ experiments:
 
 model_check:
   - name: spam-pred
-    hf_model_name: "google/gemma-2-9b-it"
+    hf_model_name: "google/gemma-2-9b"
     check_on: ["87_is_spam", "94_better_spam"]
-    method: "it"  # Options: "it" (uses chat template), "no-it" (uses few-shot prompt)
-    check_prompt: "Is this email spam? Answer with either Yes or No. \n {prompt}"
+    method: "no-it"  # Options: "it" (uses chat template), "no-it" (uses few-shot prompt and no chat template)
+    check_prompt: "Is this message spam? Answer with either Yes or No. \n {prompt}"
     few_shot_prompt: |
-      This email is spam: "Get rich quick! Make money fast with our amazing offer!"
-      This email is not spam: "Hi John, here's the meeting agenda for tomorrow."
-      What about this email: "{prompt}"
-      Answer with either Yes or No.
+      This message is spam: "get rich quick! make money fast with our amazing offer!"
+      This message is not spam: "hi john, here's the meeting agenda for tomorrow."
+
+      What about this message: 
+      "{prompt}"
+
+      Answer with one word, either Yes or No.
     class_names: {0: ["Yes", "yes", " Yes", " yes"], 1: ["No", "no", " No", " no"]}
+    # few_shot_prompt: |
+    #   "get rich quick! make money fast with our amazing offer!" 
+    #   This message is: spam.
+
+    #   "hi john, here's the meeting agenda for tomorrow." 
+    #   This message is: ham.
+
+    #   "{prompt}" 
+    #   This message is:
+    # class_names: {0: ["Spam", "spam", " Spam", " spam"], 1: ["Ham", "ham", " Ham", " ham"]}

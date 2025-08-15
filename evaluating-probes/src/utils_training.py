@@ -94,9 +94,10 @@ def extract_activations_for_dataset(
     device,
     seed,
     logger,
-    on_policy=False,
+    results_dir,
+    format_type,
+    on_policy,
     include_llm_samples=True,
-    format_type="r-no-it",
 ):
     """
     Extract activations for a dataset using the full model.
@@ -108,7 +109,14 @@ def extract_activations_for_dataset(
 
     try:
         # Create dataset with full model to extract activations
-        ds = Dataset(dataset_name, model=model, tokenizer=tokenizer, model_name=model_name, device=device, seed=seed)
+        ds = Dataset(
+            dataset_name,
+            model=model,
+            tokenizer=tokenizer,
+            model_name=model_name,
+            device=device,
+            seed=seed,
+        )
 
         if on_policy:
             # For on-policy: extract activations using the specified format
@@ -116,71 +124,74 @@ def extract_activations_for_dataset(
             if hasattr(ds, 'question_texts') and ds.question_texts is not None:
                 dataset_texts = ds.X.tolist()
                 question_texts = ds.question_texts.tolist()
-                newly_added = ds.act_manager.ensure_texts_cached(
+                _, newly_added = ds.act_manager.get_activations_for_texts(
                     dataset_texts,
                     layer,
                     component,
                     format_type,
+                    activation_type="full",
                     question_texts=question_texts,
+                    return_newly_added_count=True,
                 )
                 logger.log(f"    - Cached {newly_added} new activations (on-policy format: {format_type})")
             else:
                 logger.log(f"    - Warning: No response texts found for on-policy dataset")
                 dataset_texts = ds.X.tolist()
-                newly_added = ds.act_manager.ensure_texts_cached(
+                _, newly_added = ds.act_manager.get_activations_for_texts(
                     dataset_texts,
                     layer,
                     component,
                     format_type,
+                    activation_type="full",
+                    return_newly_added_count=True,
                 )
                 logger.log(f"    - Cached {newly_added} new activations (dataset only)")
         else:
             # For off-policy: extract activations from prompts only
             logger.log(f"    - Off-policy: extracting activations from prompts...")
             dataset_texts = ds.X.tolist()
-            newly_added = ds.act_manager.ensure_texts_cached(
+            _, newly_added = ds.act_manager.get_activations_for_texts(
                 dataset_texts,
                 layer,
                 component,
                 format_type,
+                activation_type="full",
+                return_newly_added_count=True,
             )
             logger.log(f"    - Cached {newly_added} new activations (dataset)")
 
-        # If including LLM samples, scan results/<run_name>/seed_*/llm_samples/samples_*.csv for prompts and cache them
+        # If including LLM samples, scan results/<run_name>/seed_*/llm_samples_<dataset_name>/samples_*.csv for prompts and cache them
         llm_samples_added = 0
-        if include_llm_samples:
+        if include_llm_samples and results_dir is not None:
             try:
-                results_dir = Path('results')
                 llm_texts = []
-                for run_dir in results_dir.glob('*'):
-                    for seed_dir in run_dir.glob('seed_*'):
-                        llm_dir = seed_dir / 'llm_samples'
-                        if not llm_dir.exists():  # like for eval datasets, ex. 87_is_spam
+                # Look for dataset-specific llm_samples in the results directory structure
+                for seed_dir in results_dir.glob('seed_*'):
+                    llm_dir = seed_dir / f'llm_samples_{dataset_name}'
+                    if not llm_dir.exists():  # No LLM samples for this dataset
+                        continue
+                    for csv_file in llm_dir.glob('samples_*.csv'):
+                        try:
+                            df = pd.read_csv(csv_file)
+                            if 'prompt' in df.columns:
+                                llm_texts.extend(df['prompt'].astype(str).tolist())
+                        except Exception:
                             continue
-                        for csv_file in llm_dir.glob('samples_*.csv'):
-                            try:
-                                df = pd.read_csv(csv_file)
-                                if 'prompt' in df.columns:
-                                    llm_texts.extend(df['prompt'].astype(str).tolist())
-                            except Exception:
-                                continue
                 if llm_texts:
-                    llm_samples_added = ds.act_manager.ensure_texts_cached(
+                    _, llm_samples_added = ds.act_manager.get_activations_for_texts(
                         llm_texts,
                         layer,
                         component,
                         format_type,
+                        activation_type="full",
+                        return_newly_added_count=True,
                     )
                     logger.log(f"    - Cached {llm_samples_added} new activations (LLM)")
             except Exception as e:
                 logger.log(f"    - ⚠️ LLM sample caching skipped due to error: {e}")
 
-        # Then compute and save all aggregated activations (force if any new added)
-        logger.log(f"    - Computing aggregated activations...")
-        ds.act_manager.compute_and_save_all_aggregations(
-            layer, component, force_recompute=(newly_added > 0 or llm_samples_added > 0)
-        )
-        logger.log(f"    - Completed aggregations")
+        # Aggregated activations are automatically computed when new activations are extracted
+        logger.log(f"    - Aggregated activations computed automatically during extraction")
 
     except Exception as e:
         logger.log(f"    - 💀 ERROR extracting activations for {dataset_name}: {e}")
@@ -345,6 +356,22 @@ def train_single_probe(
 
     print(f"Train activations: {len(train_acts) if isinstance(train_acts, list) else train_acts.shape}")
 
+    # Debug: verify alignment and class distribution before training
+    try:
+        num_samples_X = len(train_acts) if isinstance(train_acts, list) else (
+            train_acts.shape[0] if hasattr(train_acts, 'shape') else None
+        )
+        num_samples_y = len(y_train) if y_train is not None else None
+        print(f"[DEBUG] Pre-fit sample counts — X: {num_samples_X}, y: {num_samples_y}")
+        if num_samples_X is not None and num_samples_y is not None and num_samples_X != num_samples_y:
+            print(f"[DEBUG] MISMATCH detected: X has {num_samples_X} samples while y has {num_samples_y}")
+        # Class distribution in y_train
+        unique_classes, class_counts = np.unique(y_train, return_counts=True)
+        class_dist = {int(k): int(v) for k, v in zip(unique_classes.tolist(), class_counts.tolist())}
+        print(f"[DEBUG] y_train class distribution: {class_dist}")
+    except Exception as e:
+        print(f"[DEBUG] Failed to compute pre-fit debug stats: {e}")
+
     # Create probe based on architecture_name
     logger.log(f"  [DEBUG] Creating probe for architecture: {job.architecture_name}")
 
@@ -385,7 +412,10 @@ def train_single_probe(
     elif job.architecture_name == "sae":
         # SAE probe
         probe = get_probe_architecture(
-            "sae", d_model=get_model_d_model(config['model_name']), device=config['device'], config=probe_config_dict
+            "sae",
+            d_model=get_model_d_model(config['model_name']),
+            device=config['device'],
+            config=probe_config_dict,
         )
 
         logger.log(f"  [DEBUG] Fitting SAE probe normally...")

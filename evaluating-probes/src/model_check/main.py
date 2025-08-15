@@ -62,6 +62,7 @@ def run_single_model_check(
     model,
     tokenizer,
     config,
+    logger,
 ):
     """Run model check on a single dataset. Only default to values if they might not be provided."""
     prompt_template = check['check_prompt']
@@ -83,11 +84,11 @@ def run_single_model_check(
     X_full, y_full = ds.X, ds.y  # Get the full dataset
 
     # Add debugging information
-    print(f"Dataset total size from df: {len(ds.df)}")
-    print(f"X_full size: {len(X_full)}")
-    print(f"y_full size: {len(y_full)}")
-    print(f"Test set size: {len(ds.X_test_text) if ds.X_test_text is not None else 'Not split yet'}")
-    print(f"Train set size: {len(ds.X_train_text) if ds.X_train_text is not None else 'Not split yet'}")
+    logger.log(f"Dataset total size from df: {len(ds.df)}")
+    logger.log(f"X_full size: {len(X_full)}")
+    logger.log(f"y_full size: {len(y_full)}")
+    logger.log(f"Test set size: {len(ds.X_test_text) if ds.X_test_text is not None else 'Not split yet'}")
+    logger.log(f"Train set size: {len(ds.X_train_text) if ds.X_train_text is not None else 'Not split yet'}")
 
     # Validate that we have the expected dataset size and class distribution
     if len(X_full) == 0:
@@ -97,7 +98,7 @@ def run_single_model_check(
         y_full,
         return_counts=True,
     )
-    print(f"Full dataset class distribution: {dict(zip(unique_labels, counts,))}")
+    logger.log(f"Full dataset class distribution: {dict(zip(unique_labels, counts,))}")
 
     # Get class names from config
     class_names = check.get('class_names')
@@ -140,12 +141,12 @@ def run_single_model_check(
         # Store all token IDs for this class (we'll choose the best one per prompt)
         class_token_ids[idx] = token_ids_for_class
 
-    print(f"Extracted class token IDs:")
+    logger.log(f"Extracted class token IDs:")
     for idx, token_ids_list in class_token_ids.items():
-        print(f"  Class {idx}:")
+        logger.log(f"  Class {idx}:")
         for token_id, name in token_ids_list:
             token = tokenizer.decode([token_id])
-            print(f"    '{name}' -> token_id={token_id}, token='{token}'")
+            logger.log(f"    '{name}' -> token_id={token_id}, token='{token}'")
 
     # Create messages for each dataset example
     messages_list = []
@@ -175,17 +176,17 @@ def run_single_model_check(
         8,
     )  # Default batch size for processing
 
-    print(f"Running model over all {len(messages_list)} prompts...")
-    print(f"Looking at log probabilities across the next {num_tokens_to_generate} tokens for each class...")
-    print(f"Dataset size: {len(X_full)} examples")
-    print(f"Class distribution: {dict(zip(unique_labels, counts))}")
-    print(f"Processing in batches of size: {batch_size}")
+    logger.log(f"Running model over all {len(messages_list)} prompts...")
+    logger.log(f"Looking at log probabilities across the next {num_tokens_to_generate} tokens for each class...")
+    logger.log(f"Dataset size: {len(X_full)} examples")
+    logger.log(f"Class distribution: {dict(zip(unique_labels, counts))}")
+    logger.log(f"Processing in batches of size: {batch_size}")
 
     # Initialize logit_values outside the loop to avoid UnboundLocalError
     logit_values = {}
 
     # First, tokenize all prompts to get their lengths for proper batching
-    print("Pre-tokenizing all prompts to determine batch padding...")
+    logger.log("Pre-tokenizing all prompts to determine batch padding...")
     all_tokenized = []
     for messages in tqdm(messages_list, desc="Pre-tokenizing prompts"):
         if method == "it":
@@ -386,6 +387,53 @@ def run_single_model_check(
                     chosen_tokens[idx] = best_token_name
                     chosen_positions[idx] = best_position
 
+                # Debug prints: top-5 tokens at the final position and Yes/No diffs
+                try:
+                    final_pos = all_logits.size(0) - 1
+                    final_logits = all_logits[final_pos]
+                    final_log_probs = all_log_probs[final_pos]
+                    topk = 5
+                    top_values, top_indices = torch.topk(final_logits, k=topk)
+                    print("\n--- Example", global_idx)
+                    # Show the actual rendered prompt passed to the tokenizer/model
+                    if method == "it":
+                        try:
+                            rendered_prompt = messages[0]["content"]
+                        except Exception:
+                            rendered_prompt = str(messages)
+                    else:
+                        rendered_prompt = messages  # already a formatted string for no-it
+
+                    prompt_preview = str(rendered_prompt)[:120].replace("\n", " ")
+                    print(f"Prompt preview: {prompt_preview!r}")
+                    print("Full prompt:")
+                    print(rendered_prompt)
+                    print("Top-5 tokens at final position:")
+                    for rank, (val, idx_tok) in enumerate(
+                            zip(top_values.tolist(), top_indices.tolist()),
+                            start=1,
+                    ):
+                        tok = tokenizer.decode([idx_tok])
+                        lp = final_log_probs[idx_tok].item()
+                        print(f"  {rank}. {tok!r}  logit={val:.3f}  logprob={lp:.3f}")
+
+                    if 0 in logit_values and 1 in logit_values:
+                        yes_name = chosen_tokens.get(0, "<unk>")
+                        no_name = chosen_tokens.get(1, "<unk>")
+                        yes_pos = chosen_positions.get(0, None)
+                        no_pos = chosen_positions.get(1, None)
+                        yes_logit = logit_values[0]
+                        no_logit = logit_values[1]
+                        yes_lp = log_prob_values[0]
+                        no_lp = log_prob_values[1]
+                        print("Best class tokens and diffs:")
+                        print(f"  Yes: token={yes_name!r}  pos={yes_pos}  logit={yes_logit:.3f}  logprob={yes_lp:.3f}")
+                        print(f"  No : token={no_name!r}  pos={no_pos}  logit={no_logit:.3f}  logprob={no_lp:.3f}")
+                        print(f"  logit_diff (Yes - No): {yes_logit - no_logit:.3f}")
+                        print(f"  logit_diff (No - Yes): {no_logit - yes_logit:.3f}")
+                except Exception as dbg_e:
+                    print(f"[debug-print] Skipped due to error: {dbg_e}")
+
                 # Create CSV row
                 row = {"prompt": X_full[global_idx], "label": y_full[global_idx]}
 
@@ -425,27 +473,27 @@ def run_single_model_check(
 
         except Exception as e:
             error_count += len(batch_messages)
-            print(f"⚠️  Error processing batch starting at {batch_start}: {str(e)}")
+            logger.log(f"⚠️  Error processing batch starting at {batch_start}: {str(e)}")
             continue
 
     # Save to CSV
     plot_dir.mkdir(parents=True, exist_ok=True)
     df = pd.DataFrame(csv_rows)
     df.to_csv(csv_path, index=False)
-    print(f"Saved CSV of logit diffs to: {csv_path}")
-    print(
+    logger.log(f"Saved CSV of logit diffs to: {csv_path}")
+    logger.log(
         f"Processed {processed_count} examples successfully, {error_count} errors out of {len(X_full)} total examples"
     )
 
     # Verify we processed all examples
     if processed_count != len(X_full):
-        print(
+        logger.log(
             f"⚠️  WARNING: Only processed {processed_count} examples successfully but dataset has {len(X_full)} examples!"
         )
         if error_count > 0:
-            print(f"   {error_count} examples failed due to errors")
+            logger.log(f"   {error_count} examples failed due to errors")
     else:
-        print(f"✅ Successfully processed all {processed_count} examples from the dataset")
+        logger.log(f"✅ Successfully processed all {processed_count} examples from the dataset")
 
     # Print summary statistics
     if processed_count > 0 and len(logit_values) == 2 and len(df) > 0:  # Binary classification
@@ -465,34 +513,39 @@ def run_single_model_check(
         overall_correct = class0_correct + class1_correct
         overall_accuracy = overall_correct / total_predictions if total_predictions > 0 else 0.0
 
-        print(f"\n=== SUMMARY STATISTICS ===")
-        print(f"Total predictions: {total_predictions}")
-        print(f"Correct predictions (new criterion): {overall_correct}")
-        print(f"Accuracy: {overall_accuracy:.3f} ({overall_accuracy*100:.1f}%)")
+        logger.log(f"\n=== SUMMARY STATISTICS ===")
+        logger.log(f"Total predictions: {total_predictions}")
+        logger.log(f"Correct predictions (new criterion): {overall_correct}")
+        logger.log(f"Accuracy: {overall_accuracy:.3f} ({overall_accuracy*100:.1f}%)")
 
         # Per-class accuracy
         class0_accuracy = (class0_correct / class0_total) if class0_total > 0 else 0.0
         class1_accuracy = (class1_correct / class1_total) if class1_total > 0 else 0.0
-        print(f"\nPer-class accuracy:")
-        print(f"  Class 0: {class0_correct}/{class0_total} ({class0_accuracy*100:.1f}%) [criterion: logit_diff < 0]")
-        print(f"  Class 1: {class1_correct}/{class1_total} ({class1_accuracy*100:.1f}%) [criterion: logit_diff > 0]")
+        logger.log(f"\nPer-class accuracy:")
+        logger.log(
+            f"  Class 0: {class0_correct}/{class0_total} ({class0_accuracy*100:.1f}%) [criterion: logit_diff < 0]"
+        )
+        logger.log(
+            f"  Class 1: {class1_correct}/{class1_total} ({class1_accuracy*100:.1f}%) [criterion: logit_diff > 0]"
+        )
 
         # Show average logit differences by class
-        print(f"\nAverage logit differences by true class:")
+        logger.log(f"\nAverage logit differences by true class:")
         for class_idx in [0, 1]:
             class_data = df[df["label"] == class_idx]
             if len(class_data) > 0:
                 avg_logit_diff = class_data["logit_diff"].mean()
-                print(f"  Class {class_idx}: {avg_logit_diff:.3f}")
+                logger.log(f"  Class {class_idx}: {avg_logit_diff:.3f}")
     elif processed_count == 0:
-        print(f"\n⚠️  No examples were processed successfully. Cannot compute summary statistics.")
+        logger.log(f"\n⚠️  No examples were processed successfully. Cannot compute summary statistics.")
 
 
 def run_model_check(
     config,
+    logger,
 ):
     for check in config['model_check']:
-        print(f"---\nChecking: {check['name']}")
+        logger.log(f"---\nChecking: {check['name']}")
 
         # Support both single dataset and list of datasets
         check_on = check['check_on']
@@ -502,13 +555,13 @@ def run_model_check(
             datasets_to_check = [check_on] if check_on else []
 
         model_name = check['hf_model_name']
-        print(f"Loading HuggingFace model:", model_name)
+        logger.log(f"Loading HuggingFace model: {model_name}")
         model, tokenizer = load_hf_model_and_tokenizer(model_name)
 
         # Run the check for each dataset
         for ds_name in datasets_to_check:
-            print(f"\n=== Running model check on dataset: {ds_name} ===")
-            run_single_model_check(check, ds_name, model, tokenizer, config)
+            logger.log(f"\n=== Running model check on dataset: {ds_name} ===")
+            run_single_model_check(check, ds_name, model, tokenizer, config, logger=logger)
 
         # Free model and clear CUDA memory after each check
         del model

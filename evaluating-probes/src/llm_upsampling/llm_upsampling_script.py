@@ -514,8 +514,8 @@ def run_llm_upsampling(
         print(f"Processing seed {seed}")
         print(f"{'='*80}")
 
-        # Create seed-specific output directory
-        seed_output_dir = Path('results') / run_name / f'seed_{seed}' / 'llm_samples'
+        # Create seed-specific output directory with dataset name
+        seed_output_dir = Path('results') / run_name / f'seed_{seed}' / f'llm_samples_{train_on}'
         seed_output_dir.mkdir(parents=True, exist_ok=True)
 
         print(f"Output directory: {seed_output_dir}")

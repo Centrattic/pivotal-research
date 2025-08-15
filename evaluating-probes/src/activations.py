@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import hashlib
 from pathlib import Path
-from typing import List, Tuple, Iterable, Dict, Optional, Any
+from typing import List, Tuple, Iterable, Dict, Optional, Any, Union
 import json
 
 import numpy as np
@@ -38,7 +38,10 @@ class ActivationManager:
         instance.device = "cpu"  # Default device for reading
         instance.d_model = d_model
         instance.cache_dir = cache_dir
-        instance.cache_dir.mkdir(parents=True, exist_ok=True)
+        instance.cache_dir.mkdir(
+            parents=True,
+            exist_ok=True,
+        )
 
         # Cache for metadata to avoid reloading
         instance._metadata_cache = {}
@@ -64,13 +67,17 @@ class ActivationManager:
         self.device = device
         self.d_model = d_model
         self.cache_dir = cache_dir
-        self.cache_dir.mkdir(parents=True, exist_ok=True)
+        self.cache_dir.mkdir(
+            parents=True,
+            exist_ok=True,
+        )
 
         # Cache for metadata to avoid reloading
         self._metadata_cache = {}
         self._metadata_mtimes = {}
 
     # public entrypoint #
+    # We dont want to extract activations on the fly, since its extremely slow for our probes.
     def get_activations_for_texts(
         self,
         texts: Iterable[str],
@@ -79,7 +86,8 @@ class ActivationManager:
         format_type: str,
         activation_type: str = "full",
         question_texts: Optional[Iterable[str]] = None,
-    ) -> np.ndarray:
+        return_newly_added_count: bool = False,
+    ) -> Union[np.ndarray, Tuple[np.ndarray, int]]:
         """
         Get activations for texts, with caching and aggregation support.
         
@@ -97,9 +105,10 @@ class ActivationManager:
                 - "qr": On-policy - format as prompt+question using chat template, extract question tokens
                 - "r": Off-policy instruct - format prompt as user prompt using chat template, extract prompt tokens
                 - "r-no-it": Off-policy non-instruct - use prompt text directly without chat template
+            return_newly_added_count: If True, also return the number of newly computed activations
         
         Returns:
-            Activations array (no masks returned)
+            Activations array (no masks returned), or tuple of (activations, newly_added_count) if return_newly_added_count=True
         """
         texts = list(texts)
         metadata_path, activations_path = self._paths(layer, component)
@@ -107,7 +116,12 @@ class ActivationManager:
         # Check which texts need extraction
         existing: Dict[str, np.ndarray] = {}
         if activations_path.exists():
-            existing = dict(np.load(activations_path, allow_pickle=True))
+            existing = dict(
+                np.load(
+                    activations_path,
+                    allow_pickle=True,
+                ),
+            )
 
         missing_texts: List[str] = []
         missing_question_texts: List[str] = []
@@ -117,94 +131,59 @@ class ActivationManager:
                 missing_texts.append(text)
                 if question_texts is not None:
                     missing_question_texts.append(question_texts[i])
+
+        newly_added_count = len(missing_texts)
 
         # Extract missing activations
         if missing_texts:
             print(f"[DEBUG] Extracting activations for {len(missing_texts)} missing texts")
-            new_activations = self._extract_activations(
-                missing_texts, layer, component, format_type,
-                missing_question_texts if question_texts is not None else None
-            )
+            print(f"[DEBUG] Memory before extraction: {torch.cuda.memory_allocated() / 1024**3:.2f} GB")
+            try:
+                new_activations = self._extract_activations(
+                    missing_texts,
+                    layer,
+                    component,
+                    format_type,
+                    missing_question_texts if question_texts is not None else None,
+                )
+                print(f"[DEBUG] Memory after extraction: {torch.cuda.memory_allocated() / 1024**3:.2f} GB")
+                print(f"[DEBUG] Extracted {len(new_activations)} new activations")
 
-            # Save new activations
-            all_activations = {**existing}
-            for i, text in enumerate(missing_texts):
-                text_hash = self._hash(text)
-                all_activations[text_hash] = new_activations[i]
+                # Save new activations
+                print(f"[DEBUG] Saving full activations...")
+                all_activations = {**existing, **new_activations}
+                np.savez(activations_path, **all_activations)
+                print(f"[DEBUG] Saved full activations: {len(all_activations)} total entries")
+            except Exception as e:
+                print(f"[DEBUG] Error during activation extraction: {e}")
+                raise
 
-            np.savez(activations_path, **all_activations)
+            # Compute and save aggregated activations for new activations
+            print(f"[DEBUG] Computing aggregated activations for {len(new_activations)} new activations")
+            print(f"[DEBUG] Memory before aggregation: {torch.cuda.memory_allocated() / 1024**3:.2f} GB")
 
-        # Load all activations in the order of texts
-        activations_list = []
-        for text in texts:
-            text_hash = self._hash(text)
-            if text_hash not in existing and activations_path.exists():
-                # Reload to get newly saved activations
-                existing = dict(np.load(activations_path, allow_pickle=True))
-            activations_list.append(existing[text_hash])
+            self._compute_and_save_aggregations(layer, component, new_activations)
+
+        # We might need to compute aggregations for missing aggregated files anyway
+        else:
+            missing_aggregations = self._check_missing_aggregations(layer, component)
+            if missing_aggregations:
+                print(f"[DEBUG] Computing missing aggregated files...")
+                self._compute_and_save_aggregations(layer, component)
 
         # Return appropriate activations based on type
-        return self._get_activations_for_return(activations_list, activation_type, layer, component, texts)
-
-    def ensure_texts_cached(
-        self,
-        texts: Iterable[str],
-        layer: int,
-        component: str,
-        format_type: str,
-        question_texts: Optional[Iterable[str]] = None,
-    ) -> int:
-        """
-        Ensure texts are cached. Returns number of newly computed activations.
-        
-        Args:
-            texts: Input texts
-            layer: Layer number
-            component: Component name
-            response_texts: Optional response texts for on-policy
-            format_type: Format type for extraction
-            
-        Returns:
-            Number of newly computed activations
-        """
-        if self.model is None or self.tokenizer is None:
-            raise ValueError("ActivationManager is read-only. A full model is required to compute activations.")
-
-        texts = list(texts)
-        _, activations_path = self._paths(layer, component)
-
-        # Check which texts are missing
-        existing: Dict[str, np.ndarray] = {}
-        if activations_path.exists():
-            existing = dict(np.load(activations_path, allow_pickle=True))
-
-        missing_texts: List[str] = []
-        missing_question_texts: List[str] = []
-        for i, text in enumerate(texts):
-            text_hash = self._hash(text)
-            if text_hash not in existing:
-                missing_texts.append(text)
-                if question_texts is not None:
-                    missing_question_texts.append(question_texts[i])
-
-        if not missing_texts:
-            return 0
-
-        # Extract missing activations
-        print(f"[DEBUG] Extracting activations for {len(missing_texts)} missing texts")
-        new_activations = self._extract_activations(
-            missing_texts, layer, component, format_type, missing_question_texts if question_texts is not None else None
+        result = self._get_activations_for_return(
+            texts,
+            activation_type,
+            layer,
+            component,
         )
+        print(f"[DEBUG] Returning {result.shape} activations")
 
-        # Save new activations
-        all_activations = {**existing}
-        for i, text in enumerate(missing_texts):
-            text_hash = self._hash(text)
-            all_activations[text_hash] = new_activations[i]
-
-        np.savez(activations_path, **all_activations)
-
-        return len(missing_texts)
+        if return_newly_added_count:
+            return result, newly_added_count
+        else:
+            return result
 
     def _extract_activations(
         self,
@@ -213,7 +192,7 @@ class ActivationManager:
         component: str,
         format_type: str,
         question_texts: Optional[List[str]] = None
-    ) -> np.ndarray:
+    ) -> Dict[str, np.ndarray]:
         """
         Core activation extraction logic based on format type.
         
@@ -225,13 +204,13 @@ class ActivationManager:
             question_texts: Optional question texts for on-policy
             
         Returns:
-            Extracted activations array
+            Dictionary mapping text hashes to activations
         """
         if self.model is None or self.tokenizer is None:
             raise ValueError("ActivationManager is read-only. A full model is required to compute activations.")
 
         hook_name = f"blocks.{layer}.hook_{component}"
-        activations_list = []
+        new_entries: Dict[str, np.ndarray] = {}
 
         self.model.eval()
         self.model.to(self.device)
@@ -246,7 +225,7 @@ class ActivationManager:
                     formatted = self.tokenizer.apply_chat_template(
                         [{"role": "user", "content": question}, {"role": "assistant", "content": text}],
                         tokenize=False,
-                        add_generation_prompt=False
+                        add_generation_prompt=False,
                     )
 
                     # Tokenize and get activations
@@ -273,21 +252,32 @@ class ActivationManager:
                     full_ids = input_ids[0]
                     response_start = None
                     for j in range(len(full_ids) - len(response_ids) + 1):
-                        if torch.equal(full_ids[j:j + len(response_ids)], response_ids):
+                        if torch.equal(
+                                full_ids[j:j + len(response_ids)],
+                                response_ids,
+                        ):
                             response_start = j
                             break
 
                     if response_start is None:
                         # Fallback: use all tokens
-                        activations = self._get_activations_for_input_ids(input_ids, hook_name)
+                        activations = self._get_activations_for_input_ids(
+                            input_ids,
+                            hook_name,
+                        )
                     else:
-                        activations = self._get_activations_for_input_ids(input_ids, hook_name)
+                        activations = self._get_activations_for_input_ids(
+                            input_ids,
+                            hook_name,
+                        )
                         activations = activations[:, response_start:response_start + len(response_ids), :]
 
                 elif format_type == "r":
                     # Off-policy instruct: format prompt as user prompt using chat template, extract prompt tokens
                     formatted = self.tokenizer.apply_chat_template(
-                        [{"role": "user", "content": text}], tokenize=False, add_generation_prompt=False
+                        [{"role": "user", "content": text}],
+                        tokenize=False,
+                        add_generation_prompt=False,
                     )
 
                     enc = self.tokenizer(
@@ -298,7 +288,10 @@ class ActivationManager:
                         add_special_tokens=True,
                     )
                     input_ids = enc["input_ids"].to(self.device)
-                    activations = self._get_activations_for_input_ids(input_ids, hook_name)
+                    activations = self._get_activations_for_input_ids(
+                        input_ids,
+                        hook_name,
+                    )
 
                 elif format_type == "r-no-it":
                     # Off-policy non-instruct: use prompt text directly without chat template
@@ -310,14 +303,22 @@ class ActivationManager:
                         add_special_tokens=True,
                     )
                     input_ids = enc["input_ids"].to(self.device)
-                    activations = self._get_activations_for_input_ids(input_ids, hook_name)
+                    activations = self._get_activations_for_input_ids(
+                        input_ids,
+                        hook_name,
+                    )
 
                 else:
                     raise ValueError(f"Invalid format_type: {format_type}")
 
-                activations_list.append(activations.cpu().numpy())
+                # Store activation with its hash
+                text_hash = self._hash(text)
+                if torch.is_tensor(activations):
+                    new_entries[text_hash] = activations.cpu().numpy()
+                else:
+                    new_entries[text_hash] = activations
 
-        return np.concatenate(activations_list, axis=0)
+        return new_entries
 
     def _get_activations_for_input_ids(self, input_ids: torch.Tensor, hook_name: str) -> torch.Tensor:
         """Helper to get activations for input_ids with hook."""
@@ -334,13 +335,17 @@ class ActivationManager:
         return self._run_and_capture(layer, component, input_ids, attention_mask=None)
 
     def _get_activations_for_return(
-        self, activations_list: List[np.ndarray], activation_type: str, layer: int, component: str, texts: List[str]
+        self,
+        texts: List[str],
+        activation_type: str,
+        layer: int,
+        component: str,
     ) -> np.ndarray:
         """
-        Determine what activations to return based on activation_type.
+        Load and return appropriate activations based on activation_type.
         
         Args:
-            activations_list: List of activation arrays
+            texts: List of input texts
             activation_type: Type of activation to return
             layer: Layer number
             component: Component name
@@ -349,18 +354,65 @@ class ActivationManager:
             Appropriate activations array
         """
         if activation_type == "full":
-            # Pad to max length and stack
-            max_len = max(act.shape[1] for act in activations_list)
-            padded_activations = []
+            # Load full activations from saved file
+            _, activations_path = self._paths(layer, component)
 
+            if not activations_path.exists():
+                raise ValueError(
+                    f"Full activations file {activations_path} does not exist. Run extract_activations_for_dataset first."
+                )
+
+            print(f"[DEBUG] Loading full activations from {activations_path}")
+            existing = dict(
+                np.load(activations_path, allow_pickle=True),
+            )
+
+            # Load activations in the order of texts
+            activations_list = []
+            for text in texts:
+                text_hash = self._hash(text)
+                if text_hash not in existing:
+                    raise ValueError(f"Text not found in full activations: {text[:50]}...")
+                activations_list.append(existing[text_hash])
+
+            # Estimate memory requirement before processing
+            total_elements = sum(act.size for act in activations_list)
+            estimated_memory_gb = total_elements * 4 / (1024**3)  # 4 bytes per float32
+            print(f"[DEBUG] Processing {len(activations_list)} full activations")
+            print(f"[DEBUG] Estimated memory requirement: {estimated_memory_gb:.2f} GB")
+
+            print(
+                f"[WARNING] Large memory requirement ({estimated_memory_gb:.2f} GB). Consider using aggregated activations instead."
+            )
+            print(f"[WARNING] Available aggregated types: linear_mean, linear_max, linear_last, linear_softmax")
+
+            # Pad to max length and stack - optimized for memory usage
+            max_len = max(act.shape[1] for act in activations_list)
+            print(f"[DEBUG] Max sequence length: {max_len}")
+
+            # Pre-allocate the final array to avoid multiple copies
+            total_batch_size = sum(act.shape[0] for act in activations_list)
+            final_shape = (total_batch_size, max_len, activations_list[0].shape[2])
+            print(f"[DEBUG] Final array shape: {final_shape}")
+
+            result = np.zeros(final_shape, dtype=activations_list[0].dtype)
+
+            # Fill the result array directly
+            start_idx = 0
             for act in activations_list:
+                batch_size = act.shape[0]
+                end_idx = start_idx + batch_size
+
                 if act.shape[1] < max_len:
                     # Pad with zeros
-                    padding = np.zeros((act.shape[0], max_len - act.shape[1], act.shape[2]))
-                    act = np.concatenate([act, padding], axis=1)
-                padded_activations.append(act)
+                    result[start_idx:end_idx, :act.shape[1], :] = act
+                    # The rest is already zero from np.zeros
+                else:
+                    result[start_idx:end_idx, :, :] = act
 
-            return np.concatenate(padded_activations, axis=0)
+                start_idx = end_idx
+
+            return result
 
         else:
             # For aggregated types, load from saved aggregation files
@@ -379,7 +431,10 @@ class ActivationManager:
                 )
 
             print(f"[DEBUG] Loading {activation_type} aggregated activations from {aggregated_path}")
-            aggregated_data = np.load(aggregated_path, mmap_mode='r')
+            aggregated_data = np.load(
+                aggregated_path,
+                mmap_mode='r',
+            )
 
             # Load in the order of texts
             aggregated_list = []
@@ -393,73 +448,107 @@ class ActivationManager:
             print(f"[DEBUG] Loaded {activation_type} aggregated activations: {result.shape}")
             return result
 
-    def compute_and_save_all_aggregations(
+    def _compute_and_save_aggregations(
         self,
         layer: int,
         component: str,
-        force_recompute: bool = False,
+        new_activations: Dict[str, np.ndarray] = None,
     ):
-        """Compute and save aggregated activations from the full activations file.
-        Incrementally updates existing aggregated files with any newly added texts.
-        """
+        """Compute and save aggregated activations. If new_activations is None, compute for all existing activations."""
         _, activations_path = self._paths(layer, component)
+        print(f"[DEBUG] Activations path: {activations_path}")
 
-        # If full activations don't exist, we can't compute aggregations
-        if not activations_path.exists():
-            raise ValueError(f"Full activations file {activations_path} does not exist. Extract activations first.")
-
-        # Load all full activations once
-        all_activations: Dict[str, np.ndarray] = dict(np.load(activations_path, allow_pickle=True, mmap_mode='r'))
-        print(f"[DEBUG] Loaded {len(all_activations)} full activations for aggregation")
+        # Load activations to process
+        if new_activations is None:
+            print(f"[DEBUG] No new activations provided, loading all existing activations...")
+            if not activations_path.exists():
+                print(f"[DEBUG] No full activations file found, skipping aggregation")
+                return
+            activations_to_process = dict(
+                np.load(
+                    activations_path,
+                    allow_pickle=True,
+                    mmap_mode='r',
+                ),
+            )
+        else:
+            print(f"[DEBUG] Starting aggregation computation for {len(new_activations)} new activations")
+            activations_to_process = new_activations
 
         from scipy.special import softmax
 
-        # Define aggregation methods inline since the helper function was removed
+        # Define aggregation methods
         aggregation_methods = ["mean", "max", "last", "softmax"]
+        print(f"[DEBUG] Computing aggregations: {aggregation_methods}")
+
+        for i, aggregation in enumerate(aggregation_methods):
+            print(f"[DEBUG] Processing aggregation {i+1}/{len(aggregation_methods)}: {aggregation}")
+            aggregated_path = activations_path.parent / f"{activations_path.stem}_aggregated_{aggregation}.npz"
+            print(f"[DEBUG] Aggregated path: {aggregated_path}")
+
+            # Load existing aggregated activations
+            existing_aggregated: Dict[str, np.ndarray] = {}
+            if aggregated_path.exists():
+                print(f"[DEBUG] Loading existing {aggregation} aggregated activations...")
+                existing_aggregated = dict(np.load(aggregated_path, allow_pickle=True))
+                print(
+                    f"[DEBUG] Loaded existing {aggregation} aggregated activations: {len(existing_aggregated)} entries"
+                )
+            else:
+                print(f"[DEBUG] No existing {aggregation} aggregated file found, creating new one")
+
+            for j, (text_hash, activation) in enumerate(activations_to_process.items()):
+                if j % 100 == 0:  # Progress update every 100 activations
+                    print(f"[DEBUG] Processing activation {j+1}/{len(activations_to_process)} for {aggregation}")
+
+                try:
+                    if aggregation == "mean":
+                        aggregated = np.mean(activation, axis=0)
+                    elif aggregation == "max":
+                        aggregated = np.max(activation, axis=0)
+                    elif aggregation == "last":
+                        aggregated = activation[-1]
+                    elif aggregation == "softmax":
+                        weights = softmax(activation, axis=0)
+                        aggregated = np.sum(weights * activation, axis=0)
+
+                    existing_aggregated[text_hash] = aggregated
+                except Exception as e:
+                    print(f"[DEBUG] Error processing activation {j} for {aggregation}: {e}")
+                    print(f"[DEBUG] Activation shape: {activation.shape}")
+                    raise ValueError(f"Error processing activation {j} for {aggregation}: {e}")
+
+            # Save updated aggregated activations
+            print(f"[DEBUG] Saving {aggregation} aggregated activations...")
+            try:
+                np.savez(aggregated_path, **existing_aggregated)
+                print(f"[DEBUG] Saved {aggregation} aggregated activations: {len(existing_aggregated)} total entries")
+            except Exception as e:
+                print(f"[DEBUG] Error saving {aggregation} aggregated activations: {e}")
+                print(f"[DEBUG] File path: {aggregated_path}")
+                print(f"[DEBUG] Number of entries: {len(existing_aggregated)}")
+                raise
+
+        print(f"[DEBUG] Completed all aggregation computations")
+
+    def _check_missing_aggregations(self, layer: int, component: str) -> bool:
+        """Check if any aggregated files are missing."""
+        _, activations_path = self._paths(layer, component)
+
+        # Check if full activations exist
+        if not activations_path.exists():
+            return False
+
+        # Define aggregation methods
+        aggregation_methods = ["mean", "max", "last", "softmax"]
+
         for aggregation in aggregation_methods:
             aggregated_path = activations_path.parent / f"{activations_path.stem}_aggregated_{aggregation}.npz"
-            # Load existing aggregated if present
-            if aggregated_path.exists() and not force_recompute:
-                aggregated_dict: Dict[str, np.ndarray] = dict(np.load(aggregated_path, allow_pickle=True))
-                print(f"[DEBUG] Existing {aggregation} aggregated entries: {len(aggregated_dict)}")
-            else:
-                aggregated_dict = {}
-                if force_recompute:
-                    print(f"[DEBUG] Force recompute enabled for {aggregation}; computing from scratch")
-                else:
-                    print(f"[DEBUG] No existing {aggregation} aggregated file, computing from scratch")
+            if not aggregated_path.exists():
+                print(f"[DEBUG] Missing aggregated file for {aggregation}")
+                return True
 
-            # Compute for missing hashes only
-            missing_keys = [k for k in all_activations.keys() if k not in aggregated_dict]
-            if not missing_keys and not force_recompute:
-                print(f"[DEBUG] {aggregation}: no missing entries; skipping")
-                continue
-            if force_recompute:
-                print(f"[DEBUG] {aggregation}: force recompute over all {len(all_activations)} entries")
-                missing_keys = list(all_activations.keys())
-            else:
-                print(f"[DEBUG] {aggregation}: computing {len(missing_keys)} missing entries")
-
-            for text_hash in missing_keys:
-                activation = all_activations[text_hash]
-                if aggregation == "mean":
-                    aggregated = np.mean(activation, axis=0)
-                elif aggregation == "max":
-                    aggregated = np.max(activation, axis=0)
-                elif aggregation == "last":
-                    aggregated = activation[-1]
-                elif aggregation == "softmax":
-                    weights = softmax(activation, axis=0)
-                    aggregated = np.sum(weights * activation, axis=0)
-                aggregated_dict[text_hash] = aggregated
-
-            # Save updated aggregated dict
-            np.savez_compressed(aggregated_path, **aggregated_dict)
-            print(
-                f"[DEBUG] Saved updated {aggregation} aggregated activations to {aggregated_path} ({len(aggregated_dict)} entries)"
-            )
-
-        print(f"[DEBUG] Aggregation update complete")
+        return False
 
     def get_actual_max_len(self, layer: int, component: str) -> Optional[int]:
         """Get the actual maximum token length from activations if available."""
@@ -469,7 +558,13 @@ class ActivationManager:
             return None
 
         # Load activations and find max length
-        all_activations = dict(np.load(activations_path, allow_pickle=True, mmap_mode='r'))
+        all_activations = dict(
+            np.load(
+                activations_path,
+                allow_pickle=True,
+                mmap_mode='r',
+            ),
+        )
         if not all_activations:
             return None
 
@@ -512,7 +607,11 @@ class ActivationManager:
         raise ValueError(f"Could not locate transformer block module for layer {layer_index}")
 
     def _run_and_capture(
-        self, layer: int, component: str, input_ids: torch.Tensor, attention_mask: Optional[torch.Tensor]
+        self,
+        layer: int,
+        component: str,
+        input_ids: torch.Tensor,
+        attention_mask: Optional[torch.Tensor],
     ) -> torch.Tensor:
         """
         Run the model and capture per-token activations at the specified layer/component.
@@ -538,7 +637,10 @@ class ActivationManager:
         handle = block_module.register_forward_hook(hook_fn)
         try:
             _ = self.model(
-                input_ids=input_ids, attention_mask=attention_mask, use_cache=False, output_hidden_states=False
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                use_cache=False,
+                output_hidden_states=False,
             )
         finally:
             handle.remove()

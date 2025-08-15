@@ -172,9 +172,15 @@ class SAEProbe(BaseProbe):
 
     def _get_sae_release(self) -> str:
         """Get the SAE release name for the model."""
-        if self.model_name == "gemma-2-9b":
+        # Handle full model names with prefixes and suffixes
+        if self.model_name == "google/gemma-2-9b":
             return "gemma-scope-9b-pt-res"
-        elif self.model_name == "llama-3.1-8b":
+        elif self.model_name == "google/gemma-2-9b-it":
+            return "gemma-scope-9b-it-res-canonical"
+
+        # this should never be used
+        elif self.model_name == "meta-llama/Llama-3.3-70B-Instruct":  # use this SAE https://huggingface.co/Goodfire/Llama-3.3-70B-Instruct-SAE-l50 soon swithc
+            raise ValueError("Llama-3.3-70B-Instruct is not supported for SAE probe")
             return "llama_scope_lxr_32x"
         else:
             raise ValueError(f"Unknown model name: {self.model_name}")

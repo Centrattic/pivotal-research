@@ -79,7 +79,7 @@ tokenizer = AutoTokenizer.from_pretrained("google/gemma-2-9b-it")
 2. **LLM Upsampling Execution**:
    - Calls `src.llm_upsampling.llm_upsampling_script.run_llm_upsampling()`
    - Generates synthetic samples for dataset "94_better_spam"
-   - Saves to `results/test_refactored/seed_42/llm_samples/samples_*.csv`
+   - Saves to `results/test_refactored/seed_42/llm_samples_<dataset_name>/samples_*.csv`
 
 ### Step 5: Activation Extraction
 **File**: `main.py` → `extract_all_activations()`

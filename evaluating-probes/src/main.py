@@ -191,7 +191,10 @@ def run_model_checks(
 
     if not all_checks_done:
         logger.log("\n=== Running model_check before main pipeline ===")
-        run_model_check(config)
+        run_model_check(
+            config,
+            logger,
+        )
         logger.log("=== model_check complete ===\n")
     else:
         logger.log("\n=== Skipping model_check: all runthrough directories already exist ===\n")
@@ -255,6 +258,7 @@ def extract_all_activations(
     tokenizer,
     logger: Logger,
     all_seeds: List[int],
+    results_dir: Path,
 ):
     """Extract activations for all datasets, layers, and components."""
     logger.log("\n" + "=" * 25 + " ACTIVATION EXTRACTION PHASE " + "=" * 25)
@@ -281,6 +285,14 @@ def extract_all_activations(
                             on_policy = True
                             break
 
+                # Check if this dataset is used as a training set (only include LLM samples for training sets)
+                is_training_set = False
+                for experiment in config['experiments']:
+                    train_sets = [experiment['train_on']]
+                    if dataset_name in train_sets:
+                        is_training_set = True
+                        break
+
                 # Get activation extraction format from config
                 if 'activation_extraction' not in config:
                     raise ValueError(
@@ -301,8 +313,9 @@ def extract_all_activations(
                     seed=all_seeds[0],  # Use first seed for activation extraction
                     logger=logger,
                     on_policy=on_policy,
-                    include_llm_samples=True,
-                    format_type=format_type
+                    include_llm_samples=is_training_set,  # Only include LLM samples for training sets
+                    format_type=format_type,
+                    results_dir=results_dir
                 )
 
 
@@ -560,6 +573,7 @@ def main():
             tokenizer,
             logger,
             all_seeds,
+            results_dir,
         )
 
         # Unload model after activation extraction to free GPU memory
@@ -598,7 +612,7 @@ def main():
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
         logger.log("=" * 80)
-        logger.log("\U0001f979 Run finished. Closing log file.")
+        logger.log("😜 Run finished. Closing log file.")
         logger.close()
 
 
