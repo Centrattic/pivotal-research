@@ -6,7 +6,8 @@ import torch
 import json
 import copy
 from pathlib import Path
-from typing import List, Dict, Any, Optional, Union
+from typing import List, Dict, Any, Optional, Union, Tuple
+from collections import defaultdict
 from joblib import Parallel, delayed
 import sys
 import subprocess
@@ -445,6 +446,259 @@ def create_probe_jobs(config: Dict, all_seeds: List[int]) -> List[ProbeJob]:
 
     return all_jobs
 
+
+def _canonical_rebuild_key(rebuild_config: Optional[Dict]) -> str:
+    if rebuild_config is None:
+        return "__none__"
+    try:
+        return json.dumps(rebuild_config, sort_keys=True)
+    except Exception:
+        return str(rebuild_config)
+
+
+def _build_group_dataset(job: ProbeJob, config: Dict) -> Dataset:
+    """Build a Dataset for a group key, mirroring logic in train_single_probe."""
+    # Base dataset from train dataset
+    if job.rebuild_config is not None:
+        orig_ds = Dataset(job.train_dataset, model_name=config['model_name'], device=config['device'], seed=job.seed)
+
+        # Filter data for off-policy experiments if model_check was run
+        if not job.on_policy and 'model_check' in config:
+            run_name = config.get('run_name', 'default_run')
+            for check in config['model_check']:
+                check_on = check['check_on']
+                datasets_to_check = check_on if isinstance(check_on, list) else ([check_on] if check_on else [])
+                if job.train_dataset in datasets_to_check:
+                    orig_ds.filter_data_by_model_check(run_name, check['name'])
+                    break
+
+        # Rebuild variants
+        if 'llm_upsampling' in job.rebuild_config and job.rebuild_config['llm_upsampling']:
+            n_real_neg = job.rebuild_config.get('n_real_neg')
+            n_real_pos = job.rebuild_config.get('n_real_pos')
+            upsampling_factor = job.rebuild_config.get('upsampling_factor')
+
+            results_path = Path(config.get('results_dir', '.'))
+            run_name = config.get('run_name', results_path.name)
+            llm_csv_base_path = job.rebuild_config.get('llm_csv_base_path', f'results/{run_name}')
+
+            ds = Dataset.build_llm_upsampled_dataset(
+                orig_ds,
+                seed=job.seed,
+                n_real_neg=n_real_neg,
+                n_real_pos=n_real_pos,
+                upsampling_factor=upsampling_factor,
+                val_size=job.val_size,
+                test_size=job.test_size,
+                only_test=False,
+            )
+        else:
+            train_class_counts = job.rebuild_config.get('class_counts')
+            train_class_percents = job.rebuild_config.get('class_percents')
+            train_total_samples = job.rebuild_config.get('total_samples')
+            ds = Dataset.build_imbalanced_train_balanced_eval(
+                orig_ds,
+                train_class_counts=train_class_counts,
+                train_class_percents=train_class_percents,
+                train_total_samples=train_total_samples,
+                val_size=job.val_size,
+                test_size=job.test_size,
+                seed=job.seed,
+                only_test=False,
+            )
+    else:
+        ds = Dataset(job.train_dataset, model_name=config['model_name'], device=config['device'], seed=job.seed)
+        if not job.on_policy and 'model_check' in config:
+            run_name = config.get('run_name', 'default_run')
+            for check in config['model_check']:
+                check_on = check['check_on']
+                datasets_to_check = check_on if isinstance(check_on, list) else ([check_on] if check_on else [])
+                if job.train_dataset in datasets_to_check:
+                    ds.filter_data_by_model_check(run_name, check['name'])
+                    break
+        ds.split_data(train_size=job.train_size, val_size=job.val_size, test_size=job.test_size, seed=job.seed)
+
+    return ds
+
+
+def run_batched_jobs(
+    all_jobs: List[ProbeJob],
+    config: Dict,
+    results_dir: Path,
+    cache_dir: Path,
+    log_file_path: Path,
+):
+    """Process jobs in groups sharing the same data/split settings, reusing one Dataset per group."""
+    # Group by data-identical keys
+    groups: Dict[Tuple, List[ProbeJob]] = defaultdict(list)
+    for job in all_jobs:
+        key = (
+            job.train_dataset,
+            job.layer,
+            job.component,
+            job.seed,
+            _canonical_rebuild_key(job.rebuild_config),
+            bool(job.on_policy),
+            float(job.train_size),
+            float(job.val_size),
+            float(job.test_size),
+        )
+        groups[key].append(job)
+
+    total_groups = len(groups)
+    print(f"Running {sum(len(v) for v in groups.values())} jobs in {total_groups} groups (batched)")
+
+    for group_index, (key, jobs) in enumerate(groups.items(), start=1):
+        print(f"\n=== Group {group_index}/{total_groups} — {key} ===")
+        # Build shared training dataset
+        shared_train_ds = _build_group_dataset(jobs[0], config)
+
+        # Prepare eval datasets cache per eval dataset name (build once per group)
+        eval_ds_cache: Dict[str, Dataset] = {}
+        unique_eval_datasets = set()
+        for j in jobs:
+            for ds_name in j.eval_datasets:
+                if ds_name != j.train_dataset:
+                    unique_eval_datasets.add(ds_name)
+
+        if unique_eval_datasets:
+            j0 = jobs[0]
+            for eval_dataset in sorted(unique_eval_datasets):
+                if j0.rebuild_config is not None:
+                    orig_ds = Dataset(
+                        eval_dataset,
+                        model_name=config['model_name'],
+                        device=config['device'],
+                        seed=j0.seed,
+                        only_test=True,
+                    )
+                    if 'llm_upsampling' in j0.rebuild_config and j0.rebuild_config['llm_upsampling']:
+                        n_real_neg = j0.rebuild_config.get('n_real_neg')
+                        n_real_pos = j0.rebuild_config.get('n_real_pos')
+                        upsampling_factor = j0.rebuild_config.get('upsampling_factor')
+                        results_path = results_dir
+                        run_name = results_path.name
+                        llm_csv_base_path = j0.rebuild_config.get('llm_csv_base_path', f'results/{run_name}')
+                        eval_ds = Dataset.build_llm_upsampled_dataset(
+                            orig_ds,
+                            seed=j0.seed,
+                            n_real_neg=n_real_neg,
+                            n_real_pos=n_real_pos,
+                            upsampling_factor=upsampling_factor,
+                            val_size=j0.val_size,
+                            test_size=j0.test_size,
+                            only_test=True,
+                        )
+                    else:
+                        train_class_counts = j0.rebuild_config.get('class_counts')
+                        train_class_percents = j0.rebuild_config.get('class_percents')
+                        train_total_samples = j0.rebuild_config.get('total_samples')
+                        eval_ds = Dataset.build_imbalanced_train_balanced_eval(
+                            orig_ds,
+                            train_class_counts=train_class_counts,
+                            train_class_percents=train_class_percents,
+                            train_total_samples=train_total_samples,
+                            val_size=j0.val_size,
+                            test_size=j0.test_size,
+                            seed=j0.seed,
+                            only_test=True,
+                        )
+                else:
+                    eval_ds = Dataset(
+                        eval_dataset,
+                        model_name=config['model_name'],
+                        device=config['device'],
+                        seed=j0.seed,
+                        only_test=True,
+                    )
+                    eval_ds.split_data(
+                        train_size=j0.train_size,
+                        val_size=j0.val_size,
+                        test_size=j0.test_size,
+                        seed=j0.seed,
+                    )
+                eval_ds_cache[eval_dataset] = eval_ds
+
+        for job in jobs:
+            # Create per-job directories and logger as in process_probe_job
+            seed_dir = results_dir / f"seed_{job.seed}"
+            experiment_dir = seed_dir / job.experiment_name
+            experiment_dir.mkdir(parents=True, exist_ok=True)
+            trained_dir = experiment_dir / "trained"
+            val_eval_dir = experiment_dir / "val_eval"
+            test_eval_dir = experiment_dir / "test_eval"
+            gen_eval_dir = experiment_dir / "gen_eval"
+            for dir_path in [trained_dir, val_eval_dir, test_eval_dir, gen_eval_dir]:
+                dir_path.mkdir(parents=True, exist_ok=True)
+
+            logger = Logger(log_file_path)
+            try:
+                # Train with shared dataset
+                logger.log(f"  🚀 [BATCH] Training probe: {job.architecture_name}")
+                train_single_probe(
+                    job=job,
+                    config=config,
+                    results_dir=trained_dir,
+                    cache_dir=cache_dir,
+                    logger=logger,
+                    rerun=rerun,
+                    dataset=shared_train_ds,
+                )
+
+                # Evaluate
+                logger.log(f"  🤔 [BATCH] Evaluating on {len(job.eval_datasets)} datasets…")
+                for eval_dataset in job.eval_datasets:
+                    if eval_dataset == job.train_dataset:
+                        # Val (only_test=False) then test (only_test=True) using shared train ds
+                        logger.log(f"    [BATCH] Evaluating on {eval_dataset} validation set")
+                        try:
+                            evaluate_single_probe(
+                                job=job,
+                                eval_dataset=eval_dataset,
+                                config=config,
+                                results_dir=val_eval_dir,
+                                cache_dir=cache_dir,
+                                logger=logger,
+                                only_test=False,
+                                rerun=rerun,
+                                dataset=shared_train_ds,
+                            )
+                        except Exception as e:
+                            logger.log(f"    💀💀💀 ERROR evaluating validation on '{eval_dataset}': {e}")
+
+                        logger.log(f"    [BATCH] Evaluating on {eval_dataset} test set")
+                        try:
+                            evaluate_single_probe(
+                                job=job,
+                                eval_dataset=eval_dataset,
+                                config=config,
+                                results_dir=test_eval_dir,
+                                cache_dir=cache_dir,
+                                logger=logger,
+                                only_test=True,
+                                rerun=rerun,
+                                dataset=shared_train_ds,
+                            )
+                        except Exception as e:
+                            logger.log(f"    💀💀💀 ERROR evaluating test on '{eval_dataset}': {e}")
+                    else:
+                        # Different dataset: reuse prebuilt eval dataset
+                        try:
+                            evaluate_single_probe(
+                                job=job,
+                                eval_dataset=eval_dataset,
+                                config=config,
+                                results_dir=gen_eval_dir,
+                                cache_dir=cache_dir,
+                                logger=logger,
+                                only_test=True,
+                                rerun=rerun,
+                                dataset=eval_ds_cache[eval_dataset],
+                            )
+                        except Exception as e:
+                            logger.log(f"    💀💀💀 ERROR evaluating on '{eval_dataset}': {e}")
+            finally:
+                logger.close()
 
 def process_probe_job(
     job: ProbeJob,

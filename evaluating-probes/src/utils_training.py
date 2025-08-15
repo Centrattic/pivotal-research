@@ -216,6 +216,7 @@ def train_single_probe(
     cache_dir: Path,
     logger: Logger,
     rerun: bool,
+    dataset: Dataset | None = None,
 ):
     """
     Train a single probe with the given configuration.
@@ -262,11 +263,13 @@ def train_single_probe(
 
     logger.log("  - Training new probe …")
 
-    # Prepare dataset
+    # Prepare dataset (allow passing a prebuilt dataset for batching)
     logger.log(f"  [DEBUG] Starting dataset preparation...")
-    if job.rebuild_config is not None:
+    if dataset is not None:
+        train_ds = dataset
+    elif job.rebuild_config is not None:
         logger.log(f"  [DEBUG] Using rebuild_config: {job.rebuild_config}")
-        orig_ds = Dataset(job.train_dataset, model_name=config['model_name'], device=config['device'], seed=job.seed)
+        orig_ds = Dataset(job.train_dataset, model_name=config['model_name'], device=config['device'], seed=job.seed,)
 
         # Filter data for off-policy experiments if model_check was run
         if not job.on_policy and 'model_check' in config:
@@ -494,6 +497,7 @@ def evaluate_single_probe(
     logger: Logger,
     only_test: bool,
     rerun: bool,
+    dataset: Dataset | None = None,
 ) -> None:
     """
     Evaluate a single probe on a given dataset.
@@ -600,8 +604,10 @@ def evaluate_single_probe(
     else:
         batch_size = probe_config_dict.get('batch_size', 200)
 
-    # Prepare evaluation dataset
-    if job.rebuild_config is not None:
+    # Prepare evaluation dataset (allow passing a prebuilt dataset for batching)
+    if dataset is not None:
+        eval_ds = dataset
+    elif job.rebuild_config is not None:
         orig_ds = Dataset(
             eval_dataset, model_name=config['model_name'], device=config['device'], seed=job.seed, only_test=only_test
         )

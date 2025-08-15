@@ -150,6 +150,16 @@ class Dataset:
         self.val_indices = None
         self.test_indices = None
 
+        # Activation caches per split to avoid repeated disk loads within a run
+        # Keys are tuples: (layer, component, format_type, activation_type, on_policy)
+        self._acts_cache_train = {}
+        self._acts_cache_val = {}
+        self._acts_cache_test = {}
+        # Most recently fetched activations, exposed for convenience
+        self.X_train_acts = None
+        self.X_val_acts = None
+        self.X_test_acts = None
+
         # If only_test is True, override splits: build a balanced 50/50 test set
         if only_test:
             # Find all indices for each class
@@ -396,6 +406,12 @@ class Dataset:
         # Update max_len from actual activations if available
         self.update_max_len_from_activations(layer, component)
 
+        cache_key = (layer, component, format_type, activation_type, bool(on_policy))
+        if cache_key in self._acts_cache_train:
+            acts = self._acts_cache_train[cache_key]
+            self.X_train_acts = acts
+            return acts, self.y_train
+
         # Handle different activation extraction formats
         if format_type == "qr" and self.question_texts is not None:
             # On-policy: extract activations from question texts using chat template
@@ -417,6 +433,9 @@ class Dataset:
         # Validate activations for numerical issues
         self._validate_activations(acts, "train")
 
+        # Cache and expose
+        self._acts_cache_train[cache_key] = acts
+        self.X_train_acts = acts
         return acts, self.y_train
 
     def get_val_set_activations(
@@ -434,6 +453,12 @@ class Dataset:
 
         # Update max_len from actual activations if available
         self.update_max_len_from_activations(layer, component)
+
+        cache_key = (layer, component, format_type, activation_type, bool(on_policy))
+        if cache_key in self._acts_cache_val:
+            acts = self._acts_cache_val[cache_key]
+            self.X_val_acts = acts
+            return acts, self.y_val
 
         # Handle different activation extraction formats
         if format_type == "qr" and self.question_texts is not None:
@@ -456,6 +481,9 @@ class Dataset:
         # Validate activations for numerical issues
         self._validate_activations(acts, "val")
 
+        # Cache and expose
+        self._acts_cache_val[cache_key] = acts
+        self.X_val_acts = acts
         return acts, self.y_val
 
     def get_test_set_activations(
@@ -473,6 +501,12 @@ class Dataset:
 
         # Update max_len from actual activations if available
         self.update_max_len_from_activations(layer, component)
+
+        cache_key = (layer, component, format_type, activation_type, bool(on_policy))
+        if cache_key in self._acts_cache_test:
+            acts = self._acts_cache_test[cache_key]
+            self.X_test_acts = acts
+            return acts, self.y_test
 
         # Handle different activation extraction formats
         if format_type == "qr" and self.question_texts is not None:
@@ -499,6 +533,9 @@ class Dataset:
         # Validate activations for numerical issues
         self._validate_activations(acts, "test")
 
+        # Cache and expose
+        self._acts_cache_test[cache_key] = acts
+        self.X_test_acts = acts
         return acts, self.y_test
 
     def extract_all_activations(
