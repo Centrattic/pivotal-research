@@ -187,11 +187,18 @@ def extract_activations_for_dataset(
                         return_newly_added_count=True,
                     )
                     logger.log(f"    - Cached {llm_samples_added} new activations (LLM)")
+                    # Ensure aggregations are up-to-date for any new LLM activations just added
+                    if llm_samples_added > 0:
+                        logger.log(f"    - Computing aggregated activations for new LLM samples…")
+                        try:
+                            ds.act_manager._compute_and_save_aggregations(layer, component)
+                        except Exception as e:
+                            logger.log(f"    - ⚠️ Failed to compute aggregated activations for LLM samples: {e}")
             except Exception as e:
                 logger.log(f"    - ⚠️ LLM sample caching skipped due to error: {e}")
 
-        # Aggregated activations are automatically computed when new activations are extracted
-        logger.log(f"    - Aggregated activations computed automatically during extraction")
+        # Aggregated activations are computed after any new full activations (dataset + LLM)
+        logger.log(f"    - Aggregated activations are up-to-date")
 
     except Exception as e:
         logger.log(f"    - 💀 ERROR extracting activations for {dataset_name}: {e}")

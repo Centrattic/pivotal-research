@@ -444,9 +444,16 @@ class ActivationManager:
                 text_hash = self._hash(text)
                 if text_hash not in aggregated_data:
                     raise ValueError(f"Text not found in aggregated activations: {text[:50]}...")
-                aggregated_list.append(aggregated_data[text_hash])
+                vec = np.asarray(aggregated_data[text_hash])
+                if vec.ndim != 1:
+                    vec = np.squeeze(vec)
+                if vec.ndim != 1 or vec.shape[0] != self.d_model:
+                    raise ValueError(
+                        f"Aggregated vector for text has wrong shape {vec.shape}; expected ({self.d_model},)"
+                    )
+                aggregated_list.append(vec[None, :])  # load as (1, D)
 
-            result = np.stack(aggregated_list)
+            result = np.stack(aggregated_list, axis=0)  # (N, 1, D)
             print(f"[DEBUG] Loaded {activation_type} aggregated activations: {result.shape}")
             return result
 
