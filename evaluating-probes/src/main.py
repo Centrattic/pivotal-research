@@ -44,7 +44,7 @@ def _mask_secret(value: Optional[str], keep_last: int = 4) -> str:
 
 
 def _print_env_vars():
-    keys = ["OPENAI_API_KEY", "OMP_NUM_THREADS", "CUDA_VISIBLE_DEVICES"]
+    keys = ["OPENAI_API_KEY", "OMP_NUM_THREADS", "CUDA_VISIBLE_DEVICES", "EP_BATCHED_NJOBS"]
     print("\n=== DEBUG: Environment Variables ===")
     for key in keys:
         value = os.environ.get(key)
@@ -91,6 +91,18 @@ from src.logger import Logger
 from src.utils import resample_params_to_str
 from src.model_check.main import run_model_check
 from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
+try:
+    # Keep BLAS/OMP-backed libs on a single thread even inside processes
+    from threadpoolctl import threadpool_limits  # type: ignore
+    threadpool_limits(1)
+except Exception:
+    pass
+try:
+    # Also limit PyTorch intra-op and inter-op threads explicitly
+    torch.set_num_threads(1)
+    torch.set_num_interop_threads(1)
+except Exception:
+    pass
 
 
 def create_probe_config(
@@ -704,15 +716,17 @@ def run_batched_jobs(
 
     # Execute groups in parallel using threads (CPU parallelism)
     group_items = list(groups.items())
-    n_jobs = min(40, len(group_items)) if group_items else 0
-    if n_jobs > 0:
+    # Use process-based parallelism and cap concurrency conservatively to avoid oversubscription
+    # Allow overrides via env vars
+    env_n = int(os.environ.get("EP_BATCHED_NJOBS"))
+    backend = os.environ.get("EP_BATCHED_BACKEND", "loky")
+    try: 
         results = Parallel(
-            n_jobs=n_jobs, backend='threading', verbose=10
+            n_jobs=env_n, backend=backend, verbose=0
         )(delayed(_process_group)(i + 1, key, jobs) for i, (key, jobs) in enumerate(group_items))
+    finally:
         done = sum(1 for r in results if r)
         print(f"Completed {done}/{len(group_items)} groups successfully")
-    else:
-        print("No groups to process")
 
 
 def process_probe_job(
@@ -923,47 +937,20 @@ def main():
         all_probe_jobs = create_probe_jobs(config, all_seeds)
         logger.log(f"Created {len(all_probe_jobs)} probe jobs")
 
-        # Step 6: Process all probe jobs in parallel
-        logger.log("\n" + "=" * 25 + " PROBE PROCESSING PHASE " + "=" * 25)
-        logger.log(f"Processing {len(all_probe_jobs)} probe jobs...")
-
-        # Use all available cores for maximum parallelization (conservative cap)
-        n_jobs = min(40, len(all_probe_jobs))
-        logger.log(f"Using {n_jobs} parallel jobs")
+        # Step 6: Process all probe jobs in batched mode
+        logger.log("\n" + "=" * 25 + " PROBE PROCESSING PHASE (BATCHED) " + "=" * 25)
+        logger.log(f"Processing {len(all_probe_jobs)} probe jobs in batched groups...")
 
         # Make results_dir available to helpers that expect it in config
         config['results_dir'] = str(results_dir)
 
-        results = Parallel(
-            n_jobs=n_jobs, verbose=10
-        )(
-            delayed(process_probe_job)(job, config, results_dir, cache_dir, log_file_path,)
-            for job in all_probe_jobs
+        run_batched_jobs(
+            all_jobs=all_probe_jobs,
+            config=config,
+            results_dir=results_dir,
+            cache_dir=cache_dir,
+            log_file_path=log_file_path,
         )
-
-        # Count successful jobs
-        successful_jobs = sum(1 for result in results if result)
-        logger.log(f"Completed {successful_jobs}/{len(all_probe_jobs)} probe jobs successfully")
-
-        # Summarize failed jobs with details
-        failed_indices = [i for i, r in enumerate(results) if not r]
-        if failed_indices:
-            logger.log("\n=== FAILED JOBS SUMMARY ===")
-            for idx in failed_indices:
-                job = all_probe_jobs[idx]
-                rebuild_str = resample_params_to_str(job.rebuild_config) if job.rebuild_config else "default"
-                summary = {
-                    "experiment": job.experiment_name,
-                    "seed": job.seed,
-                    "train_dataset": job.train_dataset,
-                    "eval_datasets": job.eval_datasets,
-                    "layer": job.layer,
-                    "component": job.component,
-                    "architecture": job.architecture_name,
-                    "rebuild": rebuild_str,
-                    "on_policy": job.on_policy,
-                }
-                logger.log(json.dumps(summary))
 
     finally:
         if 'model' in locals():

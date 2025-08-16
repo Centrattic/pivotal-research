@@ -60,21 +60,23 @@ class PytorchAttentionProbeConfig(ProbeConfig):
 
 @dataclass
 class SAEProbeConfig(ProbeConfig):
-    """Hyperparameters for the SAE Probe."""
+    """Hyperparameters for the sklearn-based SAE Probe."""
     aggregation: str = None  # mean, max, last, softmax
-    model_name: str = None,
+    model_name: str = None
     layer: int = 20
-    sae_id: str = None  # Specific SAE ID to use
-    top_k_features: int = 3584 # set to same as residual stream!
-    lr: float = 5e-4
-    epochs: int = 100
-    encoding_batch_size: int = 1280  # Batch size for SAE encoding (memory intensive) - H100: 100
-    training_batch_size: int = 2560  # Batch size for probe training - H100: 512
-    weight_decay: float = 0.0
-    verbose: bool = True
-    early_stopping: bool = True
-    patience: int = 10
-    min_delta: float = 1e-4
+    sae_id: Optional[str] = None  # Specific SAE ID to use
+    top_k_features: int = 3584  # set to same as residual stream!
+
+    # Batch sizes
+    encoding_batch_size: int = 1280  # Batch size for SAE encoding (memory intensive)
+    training_batch_size: int = 2560  # Retained for compatibility; sklearn training is fast
+
+    # Sklearn LogisticRegression hyperparameters
+    solver: str = "liblinear" 
+    C: float = 1.0  # Inverse of regularization strength
+    max_iter: int = 1500
+    class_weight: str = "balanced"  # balanced, None
+    random_state: int = 42
 
 
 @dataclass
