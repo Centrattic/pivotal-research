@@ -63,6 +63,7 @@ experiments:
       - 103_mask_provided_facts_honesty
       - 104_mask_statistics_honesty
     rebuild_config: *mask_pos_sweep
+    on_policy: True
 
   - name: 2-mask-pred-auc-train-99-eval-others
     train_on: 99_mask_continuations_honesty
@@ -74,6 +75,7 @@ experiments:
       - 103_mask_provided_facts_honesty
       - 104_mask_statistics_honesty
     rebuild_config: *mask_pos_sweep
+    on_policy: True
 
   - name: 2-mask-pred-auc-train-100-eval-others
     train_on: 100_mask_disinformation_honesty
@@ -85,6 +87,7 @@ experiments:
       - 103_mask_provided_facts_honesty
       - 104_mask_statistics_honesty
     rebuild_config: *mask_pos_sweep
+    on_policy: True
 
   - name: 2-mask-pred-auc-train-101-eval-others
     train_on: 101_mask_doubling_down_honesty
@@ -96,6 +99,7 @@ experiments:
       - 103_mask_provided_facts_honesty
       - 104_mask_statistics_honesty
     rebuild_config: *mask_pos_sweep
+    on_policy: True
 
   - name: 2-mask-pred-auc-train-102-eval-others
     train_on: 102_mask_known_facts_honesty
@@ -107,6 +111,7 @@ experiments:
       - 103_mask_provided_facts_honesty
       - 104_mask_statistics_honesty
     rebuild_config: *mask_pos_sweep
+    on_policy: True
 
   - name: 2-mask-pred-auc-train-103-eval-others
     train_on: 103_mask_provided_facts_honesty
@@ -118,6 +123,7 @@ experiments:
       - 102_mask_known_facts_honesty
       - 104_mask_statistics_honesty
     rebuild_config: *mask_pos_sweep
+    on_policy: True
 
   - name: 2-mask-pred-auc-train-104-eval-others
     train_on: 104_mask_statistics_honesty
@@ -129,5 +135,6 @@ experiments:
       - 102_mask_known_facts_honesty
       - 103_mask_provided_facts_honesty
     rebuild_config: *mask_pos_sweep
+    on_policy: True
 
 
