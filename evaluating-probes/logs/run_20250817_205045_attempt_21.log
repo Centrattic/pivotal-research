@@ -1,0 +1,3 @@
+2025-08-17 20:50:45 Logging attempt 21 to ./logs/run_20250817_205045_attempt_21.log
+2025-08-17 20:50:45 Starting (attempt 21) → python -m src.main -c llama_mask_cpu
+2025-08-17 20:51:02 Caught termination signal. Exiting.

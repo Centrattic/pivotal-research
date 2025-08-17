@@ -1,4 +1,4 @@
-*.pyc
+**/*.pyc
 pivotal_env/*
 evaluating-probes/activation_cache/*
 evaluating-probes/results/*
@@ -7,6 +7,10 @@ evaluating-probes/datasets/original/*
 *.zip
 runpod_cli
 runpod_cli/*
-*/.ipynb_checkpoints/*
+**/.ipynb_checkpoints
 evaluating-probes/src/.ipynb_checkpoints/*
+<<<<<<< Updated upstream
 .env
+=======
+**/*.env
+>>>>>>> Stashed changes

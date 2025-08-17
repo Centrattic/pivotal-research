@@ -690,6 +690,11 @@ class Dataset:
         obj.n_classes = n_classes
         obj.X = df["prompt"].astype(str).to_numpy()
         obj.y = df["target"].to_numpy()
+        # Ensure question_texts attribute exists for on-policy flows
+        if "question" in df.columns:
+            obj.question_texts = df["question"].astype(str).to_numpy()
+        else:
+            obj.question_texts = None
         obj.X_train_text = None
         obj.y_train = None
         obj.X_val_text = None

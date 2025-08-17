@@ -1,0 +1,2782 @@
+2025-08-17 15:37:22 Logging attempt 1 to ./logs/run_20250817_153722_attempt_1.log
+2025-08-17 15:37:22 Starting (attempt 1) → python -m src.main -c gemma_spam_gpu
+Loaded environment variables from /lambda/nfs/riya-probing/pivotal-research/evaluating-probes/.env
+
+=== DEBUG: Environment Variables ===
+OPENAI_API_KEY=sk**************************************************************************************************************************************************************VwIA
+OMP_NUM_THREADS=1
+CUDA_VISIBLE_DEVICES=None
+EP_BATCHED_NJOBS=10
+====================================
+
+Set CUDA_VISIBLE_DEVICES to 0, updated device to cuda:0
+
+=== DEBUG: Environment Variables ===
+OPENAI_API_KEY=sk**************************************************************************************************************************************************************VwIA
+OMP_NUM_THREADS=1
+CUDA_VISIBLE_DEVICES=0
+EP_BATCHED_NJOBS=10
+====================================
+
+[model_check] Clearing CUDA memory at start...
+Processing 10 seeds: [42, 43, 44, 45, 46, 47, 48, 49, 50, 51]
+
+=== Skipping model_check: all runthrough directories already exist ===
+
+
+=== Running LLM upsampling (external script) ===
+Invoking: /lambda/nfs/riya-probing/pivotal-research/pivotal_env/bin/python -m src.llm_upsampling.llm_upsampling_script -c gemma_spam_gpu --api-key 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
+Current working directory: /lambda/nfs/riya-probing/pivotal-research/evaluating-probes
+Extracted from config:
+  Seeds: [42, 43, 44, 45, 46, 47, 48, 49, 50, 51]
+  Num real samples: [1, 2, 3, 4, 5, 10]
+  Upsampling factors: [1, 2, 3, 4, 5, 10, 20]
+  Train on dataset: 94_better_spam
+Initializing LLM client with model: gpt-4o-mini
+API key length: 164 characters
+LLM client initialized successfully
+
+================================================================================
+Processing seed 42
+================================================================================
+Output directory: results/spam_gemma_9b/seed_42/llm_samples_94_better_spam
+Extracting samples using seed 42...
+Loading dataset: 94_better_spam
+No model or model_name provided, not initializing activation manager.
+Total positive samples in dataset: 4000
+Extracted 1 samples for n_real_samples=1
+Extracted 2 samples for n_real_samples=2
+Extracted 3 samples for n_real_samples=3
+Extracted 4 samples for n_real_samples=4
+Extracted 5 samples for n_real_samples=5
+Extracted 10 samples for n_real_samples=10
+
+------------------------------------------------------------
+Processing n_real_samples = 1
+------------------------------------------------------------
+📁 Loading existing samples file: results/spam_gemma_9b/seed_42/llm_samples_94_better_spam/samples_1.csv
+   Found 20 existing samples
+   Current upsampling factor: 20x
+✅ Already have enough samples for 20x upsampling
+   Skipping LLM generation for n_real_samples = 1
+   Starting with existing 20 samples
+Maximum target samples needed: 20
+📁 Using existing dataset for activation extraction
+   Debug: final_df has 20 samples, original_df has 1 samples
+   Debug: LLM samples (after original) should be 19
+📊 Final dataset breakdown:
+   - Original samples: 1
+   - Total samples in final dataset: 20
+   - Generated samples: 19
+   - Highest upsampling factor: 20x
+✅ Saved complete dataset with 20 samples to: results/spam_gemma_9b/seed_42/llm_samples_94_better_spam/samples_1.csv
+   (Includes 1 original + 19 generated samples)
+🎉 Successfully completed all upsampling factors up to 20x
+
+------------------------------------------------------------
+Processing n_real_samples = 2
+------------------------------------------------------------
+📁 Loading existing samples file: results/spam_gemma_9b/seed_42/llm_samples_94_better_spam/samples_2.csv
+   Found 40 existing samples
+   Current upsampling factor: 20x
+✅ Already have enough samples for 20x upsampling
+   Skipping LLM generation for n_real_samples = 2
+   Starting with existing 40 samples
+Maximum target samples needed: 40
+📁 Using existing dataset for activation extraction
+   Debug: final_df has 40 samples, original_df has 2 samples
+   Debug: LLM samples (after original) should be 38
+📊 Final dataset breakdown:
+   - Original samples: 2
+   - Total samples in final dataset: 40
+   - Generated samples: 38
+   - Highest upsampling factor: 20x
+✅ Saved complete dataset with 40 samples to: results/spam_gemma_9b/seed_42/llm_samples_94_better_spam/samples_2.csv
+   (Includes 2 original + 38 generated samples)
+🎉 Successfully completed all upsampling factors up to 20x
+
+------------------------------------------------------------
+Processing n_real_samples = 3
+------------------------------------------------------------
+📁 Loading existing samples file: results/spam_gemma_9b/seed_42/llm_samples_94_better_spam/samples_3.csv
+   Found 60 existing samples
+   Current upsampling factor: 20x
+✅ Already have enough samples for 20x upsampling
+   Skipping LLM generation for n_real_samples = 3
+   Starting with existing 60 samples
+Maximum target samples needed: 60
+📁 Using existing dataset for activation extraction
+   Debug: final_df has 60 samples, original_df has 3 samples
+   Debug: LLM samples (after original) should be 57
+📊 Final dataset breakdown:
+   - Original samples: 3
+   - Total samples in final dataset: 60
+   - Generated samples: 57
+   - Highest upsampling factor: 20x
+✅ Saved complete dataset with 60 samples to: results/spam_gemma_9b/seed_42/llm_samples_94_better_spam/samples_3.csv
+   (Includes 3 original + 57 generated samples)
+🎉 Successfully completed all upsampling factors up to 20x
+
+------------------------------------------------------------
+Processing n_real_samples = 4
+------------------------------------------------------------
+📁 Loading existing samples file: results/spam_gemma_9b/seed_42/llm_samples_94_better_spam/samples_4.csv
+   Found 80 existing samples
+   Current upsampling factor: 20x
+✅ Already have enough samples for 20x upsampling
+   Skipping LLM generation for n_real_samples = 4
+   Starting with existing 80 samples
+Maximum target samples needed: 80
+📁 Using existing dataset for activation extraction
+   Debug: final_df has 80 samples, original_df has 4 samples
+   Debug: LLM samples (after original) should be 76
+📊 Final dataset breakdown:
+   - Original samples: 4
+   - Total samples in final dataset: 80
+   - Generated samples: 76
+   - Highest upsampling factor: 20x
+✅ Saved complete dataset with 80 samples to: results/spam_gemma_9b/seed_42/llm_samples_94_better_spam/samples_4.csv
+   (Includes 4 original + 76 generated samples)
+🎉 Successfully completed all upsampling factors up to 20x
+
+------------------------------------------------------------
+Processing n_real_samples = 5
+------------------------------------------------------------
+📁 Loading existing samples file: results/spam_gemma_9b/seed_42/llm_samples_94_better_spam/samples_5.csv
+   Found 100 existing samples
+   Current upsampling factor: 20x
+✅ Already have enough samples for 20x upsampling
+   Skipping LLM generation for n_real_samples = 5
+   Starting with existing 100 samples
+Maximum target samples needed: 100
+📁 Using existing dataset for activation extraction
+   Debug: final_df has 100 samples, original_df has 5 samples
+   Debug: LLM samples (after original) should be 95
+📊 Final dataset breakdown:
+   - Original samples: 5
+   - Total samples in final dataset: 100
+   - Generated samples: 95
+   - Highest upsampling factor: 20x
+✅ Saved complete dataset with 100 samples to: results/spam_gemma_9b/seed_42/llm_samples_94_better_spam/samples_5.csv
+   (Includes 5 original + 95 generated samples)
+🎉 Successfully completed all upsampling factors up to 20x
+
+------------------------------------------------------------
+Processing n_real_samples = 10
+------------------------------------------------------------
+📁 Loading existing samples file: results/spam_gemma_9b/seed_42/llm_samples_94_better_spam/samples_10.csv
+   Found 200 existing samples
+   Current upsampling factor: 20x
+✅ Already have enough samples for 20x upsampling
+   Skipping LLM generation for n_real_samples = 10
+   Starting with existing 200 samples
+Maximum target samples needed: 200
+📁 Using existing dataset for activation extraction
+   Debug: final_df has 200 samples, original_df has 10 samples
+   Debug: LLM samples (after original) should be 190
+📊 Final dataset breakdown:
+   - Original samples: 10
+   - Total samples in final dataset: 200
+   - Generated samples: 190
+   - Highest upsampling factor: 20x
+✅ Saved complete dataset with 200 samples to: results/spam_gemma_9b/seed_42/llm_samples_94_better_spam/samples_10.csv
+   (Includes 10 original + 190 generated samples)
+🎉 Successfully completed all upsampling factors up to 20x
+
+Seed 42 complete! Files saved to: results/spam_gemma_9b/seed_42/llm_samples_94_better_spam
+
+================================================================================
+Processing seed 43
+================================================================================
+Output directory: results/spam_gemma_9b/seed_43/llm_samples_94_better_spam
+Extracting samples using seed 43...
+Loading dataset: 94_better_spam
+No model or model_name provided, not initializing activation manager.
+Total positive samples in dataset: 4000
+Extracted 1 samples for n_real_samples=1
+Extracted 2 samples for n_real_samples=2
+Extracted 3 samples for n_real_samples=3
+Extracted 4 samples for n_real_samples=4
+Extracted 5 samples for n_real_samples=5
+Extracted 10 samples for n_real_samples=10
+
+------------------------------------------------------------
+Processing n_real_samples = 1
+------------------------------------------------------------
+📁 Loading existing samples file: results/spam_gemma_9b/seed_43/llm_samples_94_better_spam/samples_1.csv
+   Found 20 existing samples
+   Current upsampling factor: 20x
+✅ Already have enough samples for 20x upsampling
+   Skipping LLM generation for n_real_samples = 1
+   Starting with existing 20 samples
+Maximum target samples needed: 20
+📁 Using existing dataset for activation extraction
+   Debug: final_df has 20 samples, original_df has 1 samples
+   Debug: LLM samples (after original) should be 19
+📊 Final dataset breakdown:
+   - Original samples: 1
+   - Total samples in final dataset: 20
+   - Generated samples: 19
+   - Highest upsampling factor: 20x
+✅ Saved complete dataset with 20 samples to: results/spam_gemma_9b/seed_43/llm_samples_94_better_spam/samples_1.csv
+   (Includes 1 original + 19 generated samples)
+🎉 Successfully completed all upsampling factors up to 20x
+
+------------------------------------------------------------
+Processing n_real_samples = 2
+------------------------------------------------------------
+📁 Loading existing samples file: results/spam_gemma_9b/seed_43/llm_samples_94_better_spam/samples_2.csv
+   Found 40 existing samples
+   Current upsampling factor: 20x
+✅ Already have enough samples for 20x upsampling
+   Skipping LLM generation for n_real_samples = 2
+   Starting with existing 40 samples
+Maximum target samples needed: 40
+📁 Using existing dataset for activation extraction
+   Debug: final_df has 40 samples, original_df has 2 samples
+   Debug: LLM samples (after original) should be 38
+📊 Final dataset breakdown:
+   - Original samples: 2
+   - Total samples in final dataset: 40
+   - Generated samples: 38
+   - Highest upsampling factor: 20x
+✅ Saved complete dataset with 40 samples to: results/spam_gemma_9b/seed_43/llm_samples_94_better_spam/samples_2.csv
+   (Includes 2 original + 38 generated samples)
+🎉 Successfully completed all upsampling factors up to 20x
+
+------------------------------------------------------------
+Processing n_real_samples = 3
+------------------------------------------------------------
+📁 Loading existing samples file: results/spam_gemma_9b/seed_43/llm_samples_94_better_spam/samples_3.csv
+   Found 60 existing samples
+   Current upsampling factor: 20x
+✅ Already have enough samples for 20x upsampling
+   Skipping LLM generation for n_real_samples = 3
+   Starting with existing 60 samples
+Maximum target samples needed: 60
+📁 Using existing dataset for activation extraction
+   Debug: final_df has 60 samples, original_df has 3 samples
+   Debug: LLM samples (after original) should be 57
+📊 Final dataset breakdown:
+   - Original samples: 3
+   - Total samples in final dataset: 60
+   - Generated samples: 57
+   - Highest upsampling factor: 20x
+✅ Saved complete dataset with 60 samples to: results/spam_gemma_9b/seed_43/llm_samples_94_better_spam/samples_3.csv
+   (Includes 3 original + 57 generated samples)
+🎉 Successfully completed all upsampling factors up to 20x
+
+------------------------------------------------------------
+Processing n_real_samples = 4
+------------------------------------------------------------
+📁 Loading existing samples file: results/spam_gemma_9b/seed_43/llm_samples_94_better_spam/samples_4.csv
+   Found 80 existing samples
+   Current upsampling factor: 20x
+✅ Already have enough samples for 20x upsampling
+   Skipping LLM generation for n_real_samples = 4
+   Starting with existing 80 samples
+Maximum target samples needed: 80
+📁 Using existing dataset for activation extraction
+   Debug: final_df has 80 samples, original_df has 4 samples
+   Debug: LLM samples (after original) should be 76
+📊 Final dataset breakdown:
+   - Original samples: 4
+   - Total samples in final dataset: 80
+   - Generated samples: 76
+   - Highest upsampling factor: 20x
+✅ Saved complete dataset with 80 samples to: results/spam_gemma_9b/seed_43/llm_samples_94_better_spam/samples_4.csv
+   (Includes 4 original + 76 generated samples)
+🎉 Successfully completed all upsampling factors up to 20x
+
+------------------------------------------------------------
+Processing n_real_samples = 5
+------------------------------------------------------------
+📁 Loading existing samples file: results/spam_gemma_9b/seed_43/llm_samples_94_better_spam/samples_5.csv
+   Found 100 existing samples
+   Current upsampling factor: 20x
+✅ Already have enough samples for 20x upsampling
+   Skipping LLM generation for n_real_samples = 5
+   Starting with existing 100 samples
+Maximum target samples needed: 100
+📁 Using existing dataset for activation extraction
+   Debug: final_df has 100 samples, original_df has 5 samples
+   Debug: LLM samples (after original) should be 95
+📊 Final dataset breakdown:
+   - Original samples: 5
+   - Total samples in final dataset: 100
+   - Generated samples: 95
+   - Highest upsampling factor: 20x
+✅ Saved complete dataset with 100 samples to: results/spam_gemma_9b/seed_43/llm_samples_94_better_spam/samples_5.csv
+   (Includes 5 original + 95 generated samples)
+🎉 Successfully completed all upsampling factors up to 20x
+
+------------------------------------------------------------
+Processing n_real_samples = 10
+------------------------------------------------------------
+📁 Loading existing samples file: results/spam_gemma_9b/seed_43/llm_samples_94_better_spam/samples_10.csv
+   Found 200 existing samples
+   Current upsampling factor: 20x
+✅ Already have enough samples for 20x upsampling
+   Skipping LLM generation for n_real_samples = 10
+   Starting with existing 200 samples
+Maximum target samples needed: 200
+📁 Using existing dataset for activation extraction
+   Debug: final_df has 200 samples, original_df has 10 samples
+   Debug: LLM samples (after original) should be 190
+📊 Final dataset breakdown:
+   - Original samples: 10
+   - Total samples in final dataset: 200
+   - Generated samples: 190
+   - Highest upsampling factor: 20x
+✅ Saved complete dataset with 200 samples to: results/spam_gemma_9b/seed_43/llm_samples_94_better_spam/samples_10.csv
+   (Includes 10 original + 190 generated samples)
+🎉 Successfully completed all upsampling factors up to 20x
+
+Seed 43 complete! Files saved to: results/spam_gemma_9b/seed_43/llm_samples_94_better_spam
+
+================================================================================
+Processing seed 44
+================================================================================
+Output directory: results/spam_gemma_9b/seed_44/llm_samples_94_better_spam
+Extracting samples using seed 44...
+Loading dataset: 94_better_spam
+No model or model_name provided, not initializing activation manager.
+Total positive samples in dataset: 4000
+Extracted 1 samples for n_real_samples=1
+Extracted 2 samples for n_real_samples=2
+Extracted 3 samples for n_real_samples=3
+Extracted 4 samples for n_real_samples=4
+Extracted 5 samples for n_real_samples=5
+Extracted 10 samples for n_real_samples=10
+
+------------------------------------------------------------
+Processing n_real_samples = 1
+------------------------------------------------------------
+📁 Loading existing samples file: results/spam_gemma_9b/seed_44/llm_samples_94_better_spam/samples_1.csv
+   Found 20 existing samples
+   Current upsampling factor: 20x
+✅ Already have enough samples for 20x upsampling
+   Skipping LLM generation for n_real_samples = 1
+   Starting with existing 20 samples
+Maximum target samples needed: 20
+📁 Using existing dataset for activation extraction
+   Debug: final_df has 20 samples, original_df has 1 samples
+   Debug: LLM samples (after original) should be 19
+📊 Final dataset breakdown:
+   - Original samples: 1
+   - Total samples in final dataset: 20
+   - Generated samples: 19
+   - Highest upsampling factor: 20x
+✅ Saved complete dataset with 20 samples to: results/spam_gemma_9b/seed_44/llm_samples_94_better_spam/samples_1.csv
+   (Includes 1 original + 19 generated samples)
+🎉 Successfully completed all upsampling factors up to 20x
+
+------------------------------------------------------------
+Processing n_real_samples = 2
+------------------------------------------------------------
+📁 Loading existing samples file: results/spam_gemma_9b/seed_44/llm_samples_94_better_spam/samples_2.csv
+   Found 40 existing samples
+   Current upsampling factor: 20x
+✅ Already have enough samples for 20x upsampling
+   Skipping LLM generation for n_real_samples = 2
+   Starting with existing 40 samples
+Maximum target samples needed: 40
+📁 Using existing dataset for activation extraction
+   Debug: final_df has 40 samples, original_df has 2 samples
+   Debug: LLM samples (after original) should be 38
+📊 Final dataset breakdown:
+   - Original samples: 2
+   - Total samples in final dataset: 40
+   - Generated samples: 38
+   - Highest upsampling factor: 20x
+✅ Saved complete dataset with 40 samples to: results/spam_gemma_9b/seed_44/llm_samples_94_better_spam/samples_2.csv
+   (Includes 2 original + 38 generated samples)
+🎉 Successfully completed all upsampling factors up to 20x
+
+------------------------------------------------------------
+Processing n_real_samples = 3
+------------------------------------------------------------
+📁 Loading existing samples file: results/spam_gemma_9b/seed_44/llm_samples_94_better_spam/samples_3.csv
+   Found 60 existing samples
+   Current upsampling factor: 20x
+✅ Already have enough samples for 20x upsampling
+   Skipping LLM generation for n_real_samples = 3
+   Starting with existing 60 samples
+Maximum target samples needed: 60
+📁 Using existing dataset for activation extraction
+   Debug: final_df has 60 samples, original_df has 3 samples
+   Debug: LLM samples (after original) should be 57
+📊 Final dataset breakdown:
+   - Original samples: 3
+   - Total samples in final dataset: 60
+   - Generated samples: 57
+   - Highest upsampling factor: 20x
+✅ Saved complete dataset with 60 samples to: results/spam_gemma_9b/seed_44/llm_samples_94_better_spam/samples_3.csv
+   (Includes 3 original + 57 generated samples)
+🎉 Successfully completed all upsampling factors up to 20x
+
+------------------------------------------------------------
+Processing n_real_samples = 4
+------------------------------------------------------------
+📁 Loading existing samples file: results/spam_gemma_9b/seed_44/llm_samples_94_better_spam/samples_4.csv
+   Found 80 existing samples
+   Current upsampling factor: 20x
+✅ Already have enough samples for 20x upsampling
+   Skipping LLM generation for n_real_samples = 4
+   Starting with existing 80 samples
+Maximum target samples needed: 80
+📁 Using existing dataset for activation extraction
+   Debug: final_df has 80 samples, original_df has 4 samples
+   Debug: LLM samples (after original) should be 76
+📊 Final dataset breakdown:
+   - Original samples: 4
+   - Total samples in final dataset: 80
+   - Generated samples: 76
+   - Highest upsampling factor: 20x
+✅ Saved complete dataset with 80 samples to: results/spam_gemma_9b/seed_44/llm_samples_94_better_spam/samples_4.csv
+   (Includes 4 original + 76 generated samples)
+🎉 Successfully completed all upsampling factors up to 20x
+
+------------------------------------------------------------
+Processing n_real_samples = 5
+------------------------------------------------------------
+📁 Loading existing samples file: results/spam_gemma_9b/seed_44/llm_samples_94_better_spam/samples_5.csv
+   Found 100 existing samples
+   Current upsampling factor: 20x
+✅ Already have enough samples for 20x upsampling
+   Skipping LLM generation for n_real_samples = 5
+   Starting with existing 100 samples
+Maximum target samples needed: 100
+📁 Using existing dataset for activation extraction
+   Debug: final_df has 100 samples, original_df has 5 samples
+   Debug: LLM samples (after original) should be 95
+📊 Final dataset breakdown:
+   - Original samples: 5
+   - Total samples in final dataset: 100
+   - Generated samples: 95
+   - Highest upsampling factor: 20x
+✅ Saved complete dataset with 100 samples to: results/spam_gemma_9b/seed_44/llm_samples_94_better_spam/samples_5.csv
+   (Includes 5 original + 95 generated samples)
+🎉 Successfully completed all upsampling factors up to 20x
+
+------------------------------------------------------------
+Processing n_real_samples = 10
+------------------------------------------------------------
+📁 Loading existing samples file: results/spam_gemma_9b/seed_44/llm_samples_94_better_spam/samples_10.csv
+   Found 200 existing samples
+   Current upsampling factor: 20x
+✅ Already have enough samples for 20x upsampling
+   Skipping LLM generation for n_real_samples = 10
+   Starting with existing 200 samples
+Maximum target samples needed: 200
+📁 Using existing dataset for activation extraction
+   Debug: final_df has 200 samples, original_df has 10 samples
+   Debug: LLM samples (after original) should be 190
+📊 Final dataset breakdown:
+   - Original samples: 10
+   - Total samples in final dataset: 200
+   - Generated samples: 190
+   - Highest upsampling factor: 20x
+✅ Saved complete dataset with 200 samples to: results/spam_gemma_9b/seed_44/llm_samples_94_better_spam/samples_10.csv
+   (Includes 10 original + 190 generated samples)
+🎉 Successfully completed all upsampling factors up to 20x
+
+Seed 44 complete! Files saved to: results/spam_gemma_9b/seed_44/llm_samples_94_better_spam
+
+================================================================================
+Processing seed 45
+================================================================================
+Output directory: results/spam_gemma_9b/seed_45/llm_samples_94_better_spam
+Extracting samples using seed 45...
+Loading dataset: 94_better_spam
+No model or model_name provided, not initializing activation manager.
+Total positive samples in dataset: 4000
+Extracted 1 samples for n_real_samples=1
+Extracted 2 samples for n_real_samples=2
+Extracted 3 samples for n_real_samples=3
+Extracted 4 samples for n_real_samples=4
+Extracted 5 samples for n_real_samples=5
+Extracted 10 samples for n_real_samples=10
+
+------------------------------------------------------------
+Processing n_real_samples = 1
+------------------------------------------------------------
+📁 Loading existing samples file: results/spam_gemma_9b/seed_45/llm_samples_94_better_spam/samples_1.csv
+   Found 20 existing samples
+   Current upsampling factor: 20x
+✅ Already have enough samples for 20x upsampling
+   Skipping LLM generation for n_real_samples = 1
+   Starting with existing 20 samples
+Maximum target samples needed: 20
+📁 Using existing dataset for activation extraction
+   Debug: final_df has 20 samples, original_df has 1 samples
+   Debug: LLM samples (after original) should be 19
+📊 Final dataset breakdown:
+   - Original samples: 1
+   - Total samples in final dataset: 20
+   - Generated samples: 19
+   - Highest upsampling factor: 20x
+✅ Saved complete dataset with 20 samples to: results/spam_gemma_9b/seed_45/llm_samples_94_better_spam/samples_1.csv
+   (Includes 1 original + 19 generated samples)
+🎉 Successfully completed all upsampling factors up to 20x
+
+------------------------------------------------------------
+Processing n_real_samples = 2
+------------------------------------------------------------
+📁 Loading existing samples file: results/spam_gemma_9b/seed_45/llm_samples_94_better_spam/samples_2.csv
+   Found 40 existing samples
+   Current upsampling factor: 20x
+✅ Already have enough samples for 20x upsampling
+   Skipping LLM generation for n_real_samples = 2
+   Starting with existing 40 samples
+Maximum target samples needed: 40
+📁 Using existing dataset for activation extraction
+   Debug: final_df has 40 samples, original_df has 2 samples
+   Debug: LLM samples (after original) should be 38
+📊 Final dataset breakdown:
+   - Original samples: 2
+   - Total samples in final dataset: 40
+   - Generated samples: 38
+   - Highest upsampling factor: 20x
+✅ Saved complete dataset with 40 samples to: results/spam_gemma_9b/seed_45/llm_samples_94_better_spam/samples_2.csv
+   (Includes 2 original + 38 generated samples)
+🎉 Successfully completed all upsampling factors up to 20x
+
+------------------------------------------------------------
+Processing n_real_samples = 3
+------------------------------------------------------------
+📁 Loading existing samples file: results/spam_gemma_9b/seed_45/llm_samples_94_better_spam/samples_3.csv
+   Found 60 existing samples
+   Current upsampling factor: 20x
+✅ Already have enough samples for 20x upsampling
+   Skipping LLM generation for n_real_samples = 3
+   Starting with existing 60 samples
+Maximum target samples needed: 60
+📁 Using existing dataset for activation extraction
+   Debug: final_df has 60 samples, original_df has 3 samples
+   Debug: LLM samples (after original) should be 57
+📊 Final dataset breakdown:
+   - Original samples: 3
+   - Total samples in final dataset: 60
+   - Generated samples: 57
+   - Highest upsampling factor: 20x
+✅ Saved complete dataset with 60 samples to: results/spam_gemma_9b/seed_45/llm_samples_94_better_spam/samples_3.csv
+   (Includes 3 original + 57 generated samples)
+🎉 Successfully completed all upsampling factors up to 20x
+
+------------------------------------------------------------
+Processing n_real_samples = 4
+------------------------------------------------------------
+📁 Loading existing samples file: results/spam_gemma_9b/seed_45/llm_samples_94_better_spam/samples_4.csv
+   Found 80 existing samples
+   Current upsampling factor: 20x
+✅ Already have enough samples for 20x upsampling
+   Skipping LLM generation for n_real_samples = 4
+   Starting with existing 80 samples
+Maximum target samples needed: 80
+📁 Using existing dataset for activation extraction
+   Debug: final_df has 80 samples, original_df has 4 samples
+   Debug: LLM samples (after original) should be 76
+📊 Final dataset breakdown:
+   - Original samples: 4
+   - Total samples in final dataset: 80
+   - Generated samples: 76
+   - Highest upsampling factor: 20x
+✅ Saved complete dataset with 80 samples to: results/spam_gemma_9b/seed_45/llm_samples_94_better_spam/samples_4.csv
+   (Includes 4 original + 76 generated samples)
+🎉 Successfully completed all upsampling factors up to 20x
+
+------------------------------------------------------------
+Processing n_real_samples = 5
+------------------------------------------------------------
+📁 Loading existing samples file: results/spam_gemma_9b/seed_45/llm_samples_94_better_spam/samples_5.csv
+   Found 100 existing samples
+   Current upsampling factor: 20x
+✅ Already have enough samples for 20x upsampling
+   Skipping LLM generation for n_real_samples = 5
+   Starting with existing 100 samples
+Maximum target samples needed: 100
+📁 Using existing dataset for activation extraction
+   Debug: final_df has 100 samples, original_df has 5 samples
+   Debug: LLM samples (after original) should be 95
+📊 Final dataset breakdown:
+   - Original samples: 5
+   - Total samples in final dataset: 100
+   - Generated samples: 95
+   - Highest upsampling factor: 20x
+✅ Saved complete dataset with 100 samples to: results/spam_gemma_9b/seed_45/llm_samples_94_better_spam/samples_5.csv
+   (Includes 5 original + 95 generated samples)
+🎉 Successfully completed all upsampling factors up to 20x
+
+------------------------------------------------------------
+Processing n_real_samples = 10
+------------------------------------------------------------
+📁 Loading existing samples file: results/spam_gemma_9b/seed_45/llm_samples_94_better_spam/samples_10.csv
+   Found 200 existing samples
+   Current upsampling factor: 20x
+✅ Already have enough samples for 20x upsampling
+   Skipping LLM generation for n_real_samples = 10
+   Starting with existing 200 samples
+Maximum target samples needed: 200
+📁 Using existing dataset for activation extraction
+   Debug: final_df has 200 samples, original_df has 10 samples
+   Debug: LLM samples (after original) should be 190
+📊 Final dataset breakdown:
+   - Original samples: 10
+   - Total samples in final dataset: 200
+   - Generated samples: 190
+   - Highest upsampling factor: 20x
+✅ Saved complete dataset with 200 samples to: results/spam_gemma_9b/seed_45/llm_samples_94_better_spam/samples_10.csv
+   (Includes 10 original + 190 generated samples)
+🎉 Successfully completed all upsampling factors up to 20x
+
+Seed 45 complete! Files saved to: results/spam_gemma_9b/seed_45/llm_samples_94_better_spam
+
+================================================================================
+Processing seed 46
+================================================================================
+Output directory: results/spam_gemma_9b/seed_46/llm_samples_94_better_spam
+Extracting samples using seed 46...
+Loading dataset: 94_better_spam
+No model or model_name provided, not initializing activation manager.
+Total positive samples in dataset: 4000
+Extracted 1 samples for n_real_samples=1
+Extracted 2 samples for n_real_samples=2
+Extracted 3 samples for n_real_samples=3
+Extracted 4 samples for n_real_samples=4
+Extracted 5 samples for n_real_samples=5
+Extracted 10 samples for n_real_samples=10
+
+------------------------------------------------------------
+Processing n_real_samples = 1
+------------------------------------------------------------
+📁 Loading existing samples file: results/spam_gemma_9b/seed_46/llm_samples_94_better_spam/samples_1.csv
+   Found 20 existing samples
+   Current upsampling factor: 20x
+✅ Already have enough samples for 20x upsampling
+   Skipping LLM generation for n_real_samples = 1
+   Starting with existing 20 samples
+Maximum target samples needed: 20
+📁 Using existing dataset for activation extraction
+   Debug: final_df has 20 samples, original_df has 1 samples
+   Debug: LLM samples (after original) should be 19
+📊 Final dataset breakdown:
+   - Original samples: 1
+   - Total samples in final dataset: 20
+   - Generated samples: 19
+   - Highest upsampling factor: 20x
+✅ Saved complete dataset with 20 samples to: results/spam_gemma_9b/seed_46/llm_samples_94_better_spam/samples_1.csv
+   (Includes 1 original + 19 generated samples)
+🎉 Successfully completed all upsampling factors up to 20x
+
+------------------------------------------------------------
+Processing n_real_samples = 2
+------------------------------------------------------------
+📁 Loading existing samples file: results/spam_gemma_9b/seed_46/llm_samples_94_better_spam/samples_2.csv
+   Found 40 existing samples
+   Current upsampling factor: 20x
+✅ Already have enough samples for 20x upsampling
+   Skipping LLM generation for n_real_samples = 2
+   Starting with existing 40 samples
+Maximum target samples needed: 40
+📁 Using existing dataset for activation extraction
+   Debug: final_df has 40 samples, original_df has 2 samples
+   Debug: LLM samples (after original) should be 38
+📊 Final dataset breakdown:
+   - Original samples: 2
+   - Total samples in final dataset: 40
+   - Generated samples: 38
+   - Highest upsampling factor: 20x
+✅ Saved complete dataset with 40 samples to: results/spam_gemma_9b/seed_46/llm_samples_94_better_spam/samples_2.csv
+   (Includes 2 original + 38 generated samples)
+🎉 Successfully completed all upsampling factors up to 20x
+
+------------------------------------------------------------
+Processing n_real_samples = 3
+------------------------------------------------------------
+📁 Loading existing samples file: results/spam_gemma_9b/seed_46/llm_samples_94_better_spam/samples_3.csv
+   Found 60 existing samples
+   Current upsampling factor: 20x
+✅ Already have enough samples for 20x upsampling
+   Skipping LLM generation for n_real_samples = 3
+   Starting with existing 60 samples
+Maximum target samples needed: 60
+📁 Using existing dataset for activation extraction
+   Debug: final_df has 60 samples, original_df has 3 samples
+   Debug: LLM samples (after original) should be 57
+📊 Final dataset breakdown:
+   - Original samples: 3
+   - Total samples in final dataset: 60
+   - Generated samples: 57
+   - Highest upsampling factor: 20x
+✅ Saved complete dataset with 60 samples to: results/spam_gemma_9b/seed_46/llm_samples_94_better_spam/samples_3.csv
+   (Includes 3 original + 57 generated samples)
+🎉 Successfully completed all upsampling factors up to 20x
+
+------------------------------------------------------------
+Processing n_real_samples = 4
+------------------------------------------------------------
+📁 Loading existing samples file: results/spam_gemma_9b/seed_46/llm_samples_94_better_spam/samples_4.csv
+   Found 80 existing samples
+   Current upsampling factor: 20x
+✅ Already have enough samples for 20x upsampling
+   Skipping LLM generation for n_real_samples = 4
+   Starting with existing 80 samples
+Maximum target samples needed: 80
+📁 Using existing dataset for activation extraction
+   Debug: final_df has 80 samples, original_df has 4 samples
+   Debug: LLM samples (after original) should be 76
+📊 Final dataset breakdown:
+   - Original samples: 4
+   - Total samples in final dataset: 80
+   - Generated samples: 76
+   - Highest upsampling factor: 20x
+✅ Saved complete dataset with 80 samples to: results/spam_gemma_9b/seed_46/llm_samples_94_better_spam/samples_4.csv
+   (Includes 4 original + 76 generated samples)
+🎉 Successfully completed all upsampling factors up to 20x
+
+------------------------------------------------------------
+Processing n_real_samples = 5
+------------------------------------------------------------
+📁 Loading existing samples file: results/spam_gemma_9b/seed_46/llm_samples_94_better_spam/samples_5.csv
+   Found 100 existing samples
+   Current upsampling factor: 20x
+✅ Already have enough samples for 20x upsampling
+   Skipping LLM generation for n_real_samples = 5
+   Starting with existing 100 samples
+Maximum target samples needed: 100
+📁 Using existing dataset for activation extraction
+   Debug: final_df has 100 samples, original_df has 5 samples
+   Debug: LLM samples (after original) should be 95
+📊 Final dataset breakdown:
+   - Original samples: 5
+   - Total samples in final dataset: 100
+   - Generated samples: 95
+   - Highest upsampling factor: 20x
+✅ Saved complete dataset with 100 samples to: results/spam_gemma_9b/seed_46/llm_samples_94_better_spam/samples_5.csv
+   (Includes 5 original + 95 generated samples)
+🎉 Successfully completed all upsampling factors up to 20x
+
+------------------------------------------------------------
+Processing n_real_samples = 10
+------------------------------------------------------------
+📁 Loading existing samples file: results/spam_gemma_9b/seed_46/llm_samples_94_better_spam/samples_10.csv
+   Found 200 existing samples
+   Current upsampling factor: 20x
+✅ Already have enough samples for 20x upsampling
+   Skipping LLM generation for n_real_samples = 10
+   Starting with existing 200 samples
+Maximum target samples needed: 200
+📁 Using existing dataset for activation extraction
+   Debug: final_df has 200 samples, original_df has 10 samples
+   Debug: LLM samples (after original) should be 190
+📊 Final dataset breakdown:
+   - Original samples: 10
+   - Total samples in final dataset: 200
+   - Generated samples: 190
+   - Highest upsampling factor: 20x
+✅ Saved complete dataset with 200 samples to: results/spam_gemma_9b/seed_46/llm_samples_94_better_spam/samples_10.csv
+   (Includes 10 original + 190 generated samples)
+🎉 Successfully completed all upsampling factors up to 20x
+
+Seed 46 complete! Files saved to: results/spam_gemma_9b/seed_46/llm_samples_94_better_spam
+
+================================================================================
+Processing seed 47
+================================================================================
+Output directory: results/spam_gemma_9b/seed_47/llm_samples_94_better_spam
+Extracting samples using seed 47...
+Loading dataset: 94_better_spam
+No model or model_name provided, not initializing activation manager.
+Total positive samples in dataset: 4000
+Extracted 1 samples for n_real_samples=1
+Extracted 2 samples for n_real_samples=2
+Extracted 3 samples for n_real_samples=3
+Extracted 4 samples for n_real_samples=4
+Extracted 5 samples for n_real_samples=5
+Extracted 10 samples for n_real_samples=10
+
+------------------------------------------------------------
+Processing n_real_samples = 1
+------------------------------------------------------------
+📁 Loading existing samples file: results/spam_gemma_9b/seed_47/llm_samples_94_better_spam/samples_1.csv
+   Found 20 existing samples
+   Current upsampling factor: 20x
+✅ Already have enough samples for 20x upsampling
+   Skipping LLM generation for n_real_samples = 1
+   Starting with existing 20 samples
+Maximum target samples needed: 20
+📁 Using existing dataset for activation extraction
+   Debug: final_df has 20 samples, original_df has 1 samples
+   Debug: LLM samples (after original) should be 19
+📊 Final dataset breakdown:
+   - Original samples: 1
+   - Total samples in final dataset: 20
+   - Generated samples: 19
+   - Highest upsampling factor: 20x
+✅ Saved complete dataset with 20 samples to: results/spam_gemma_9b/seed_47/llm_samples_94_better_spam/samples_1.csv
+   (Includes 1 original + 19 generated samples)
+🎉 Successfully completed all upsampling factors up to 20x
+
+------------------------------------------------------------
+Processing n_real_samples = 2
+------------------------------------------------------------
+📁 Loading existing samples file: results/spam_gemma_9b/seed_47/llm_samples_94_better_spam/samples_2.csv
+   Found 40 existing samples
+   Current upsampling factor: 20x
+✅ Already have enough samples for 20x upsampling
+   Skipping LLM generation for n_real_samples = 2
+   Starting with existing 40 samples
+Maximum target samples needed: 40
+📁 Using existing dataset for activation extraction
+   Debug: final_df has 40 samples, original_df has 2 samples
+   Debug: LLM samples (after original) should be 38
+📊 Final dataset breakdown:
+   - Original samples: 2
+   - Total samples in final dataset: 40
+   - Generated samples: 38
+   - Highest upsampling factor: 20x
+✅ Saved complete dataset with 40 samples to: results/spam_gemma_9b/seed_47/llm_samples_94_better_spam/samples_2.csv
+   (Includes 2 original + 38 generated samples)
+🎉 Successfully completed all upsampling factors up to 20x
+
+------------------------------------------------------------
+Processing n_real_samples = 3
+------------------------------------------------------------
+📁 Loading existing samples file: results/spam_gemma_9b/seed_47/llm_samples_94_better_spam/samples_3.csv
+   Found 60 existing samples
+   Current upsampling factor: 20x
+✅ Already have enough samples for 20x upsampling
+   Skipping LLM generation for n_real_samples = 3
+   Starting with existing 60 samples
+Maximum target samples needed: 60
+📁 Using existing dataset for activation extraction
+   Debug: final_df has 60 samples, original_df has 3 samples
+   Debug: LLM samples (after original) should be 57
+📊 Final dataset breakdown:
+   - Original samples: 3
+   - Total samples in final dataset: 60
+   - Generated samples: 57
+   - Highest upsampling factor: 20x
+✅ Saved complete dataset with 60 samples to: results/spam_gemma_9b/seed_47/llm_samples_94_better_spam/samples_3.csv
+   (Includes 3 original + 57 generated samples)
+🎉 Successfully completed all upsampling factors up to 20x
+
+------------------------------------------------------------
+Processing n_real_samples = 4
+------------------------------------------------------------
+📁 Loading existing samples file: results/spam_gemma_9b/seed_47/llm_samples_94_better_spam/samples_4.csv
+   Found 80 existing samples
+   Current upsampling factor: 20x
+✅ Already have enough samples for 20x upsampling
+   Skipping LLM generation for n_real_samples = 4
+   Starting with existing 80 samples
+Maximum target samples needed: 80
+📁 Using existing dataset for activation extraction
+   Debug: final_df has 80 samples, original_df has 4 samples
+   Debug: LLM samples (after original) should be 76
+📊 Final dataset breakdown:
+   - Original samples: 4
+   - Total samples in final dataset: 80
+   - Generated samples: 76
+   - Highest upsampling factor: 20x
+✅ Saved complete dataset with 80 samples to: results/spam_gemma_9b/seed_47/llm_samples_94_better_spam/samples_4.csv
+   (Includes 4 original + 76 generated samples)
+🎉 Successfully completed all upsampling factors up to 20x
+
+------------------------------------------------------------
+Processing n_real_samples = 5
+------------------------------------------------------------
+📁 Loading existing samples file: results/spam_gemma_9b/seed_47/llm_samples_94_better_spam/samples_5.csv
+   Found 100 existing samples
+   Current upsampling factor: 20x
+✅ Already have enough samples for 20x upsampling
+   Skipping LLM generation for n_real_samples = 5
+   Starting with existing 100 samples
+Maximum target samples needed: 100
+📁 Using existing dataset for activation extraction
+   Debug: final_df has 100 samples, original_df has 5 samples
+   Debug: LLM samples (after original) should be 95
+📊 Final dataset breakdown:
+   - Original samples: 5
+   - Total samples in final dataset: 100
+   - Generated samples: 95
+   - Highest upsampling factor: 20x
+✅ Saved complete dataset with 100 samples to: results/spam_gemma_9b/seed_47/llm_samples_94_better_spam/samples_5.csv
+   (Includes 5 original + 95 generated samples)
+🎉 Successfully completed all upsampling factors up to 20x
+
+------------------------------------------------------------
+Processing n_real_samples = 10
+------------------------------------------------------------
+📁 Loading existing samples file: results/spam_gemma_9b/seed_47/llm_samples_94_better_spam/samples_10.csv
+   Found 200 existing samples
+   Current upsampling factor: 20x
+✅ Already have enough samples for 20x upsampling
+   Skipping LLM generation for n_real_samples = 10
+   Starting with existing 200 samples
+Maximum target samples needed: 200
+📁 Using existing dataset for activation extraction
+   Debug: final_df has 200 samples, original_df has 10 samples
+   Debug: LLM samples (after original) should be 190
+📊 Final dataset breakdown:
+   - Original samples: 10
+   - Total samples in final dataset: 200
+   - Generated samples: 190
+   - Highest upsampling factor: 20x
+✅ Saved complete dataset with 200 samples to: results/spam_gemma_9b/seed_47/llm_samples_94_better_spam/samples_10.csv
+   (Includes 10 original + 190 generated samples)
+🎉 Successfully completed all upsampling factors up to 20x
+
+Seed 47 complete! Files saved to: results/spam_gemma_9b/seed_47/llm_samples_94_better_spam
+
+================================================================================
+Processing seed 48
+================================================================================
+Output directory: results/spam_gemma_9b/seed_48/llm_samples_94_better_spam
+Extracting samples using seed 48...
+Loading dataset: 94_better_spam
+No model or model_name provided, not initializing activation manager.
+Total positive samples in dataset: 4000
+Extracted 1 samples for n_real_samples=1
+Extracted 2 samples for n_real_samples=2
+Extracted 3 samples for n_real_samples=3
+Extracted 4 samples for n_real_samples=4
+Extracted 5 samples for n_real_samples=5
+Extracted 10 samples for n_real_samples=10
+
+------------------------------------------------------------
+Processing n_real_samples = 1
+------------------------------------------------------------
+📁 Loading existing samples file: results/spam_gemma_9b/seed_48/llm_samples_94_better_spam/samples_1.csv
+   Found 20 existing samples
+   Current upsampling factor: 20x
+✅ Already have enough samples for 20x upsampling
+   Skipping LLM generation for n_real_samples = 1
+   Starting with existing 20 samples
+Maximum target samples needed: 20
+📁 Using existing dataset for activation extraction
+   Debug: final_df has 20 samples, original_df has 1 samples
+   Debug: LLM samples (after original) should be 19
+📊 Final dataset breakdown:
+   - Original samples: 1
+   - Total samples in final dataset: 20
+   - Generated samples: 19
+   - Highest upsampling factor: 20x
+✅ Saved complete dataset with 20 samples to: results/spam_gemma_9b/seed_48/llm_samples_94_better_spam/samples_1.csv
+   (Includes 1 original + 19 generated samples)
+🎉 Successfully completed all upsampling factors up to 20x
+
+------------------------------------------------------------
+Processing n_real_samples = 2
+------------------------------------------------------------
+📁 Loading existing samples file: results/spam_gemma_9b/seed_48/llm_samples_94_better_spam/samples_2.csv
+   Found 40 existing samples
+   Current upsampling factor: 20x
+✅ Already have enough samples for 20x upsampling
+   Skipping LLM generation for n_real_samples = 2
+   Starting with existing 40 samples
+Maximum target samples needed: 40
+📁 Using existing dataset for activation extraction
+   Debug: final_df has 40 samples, original_df has 2 samples
+   Debug: LLM samples (after original) should be 38
+📊 Final dataset breakdown:
+   - Original samples: 2
+   - Total samples in final dataset: 40
+   - Generated samples: 38
+   - Highest upsampling factor: 20x
+✅ Saved complete dataset with 40 samples to: results/spam_gemma_9b/seed_48/llm_samples_94_better_spam/samples_2.csv
+   (Includes 2 original + 38 generated samples)
+🎉 Successfully completed all upsampling factors up to 20x
+
+------------------------------------------------------------
+Processing n_real_samples = 3
+------------------------------------------------------------
+📁 Loading existing samples file: results/spam_gemma_9b/seed_48/llm_samples_94_better_spam/samples_3.csv
+   Found 60 existing samples
+   Current upsampling factor: 20x
+✅ Already have enough samples for 20x upsampling
+   Skipping LLM generation for n_real_samples = 3
+   Starting with existing 60 samples
+Maximum target samples needed: 60
+📁 Using existing dataset for activation extraction
+   Debug: final_df has 60 samples, original_df has 3 samples
+   Debug: LLM samples (after original) should be 57
+📊 Final dataset breakdown:
+   - Original samples: 3
+   - Total samples in final dataset: 60
+   - Generated samples: 57
+   - Highest upsampling factor: 20x
+✅ Saved complete dataset with 60 samples to: results/spam_gemma_9b/seed_48/llm_samples_94_better_spam/samples_3.csv
+   (Includes 3 original + 57 generated samples)
+🎉 Successfully completed all upsampling factors up to 20x
+
+------------------------------------------------------------
+Processing n_real_samples = 4
+------------------------------------------------------------
+📁 Loading existing samples file: results/spam_gemma_9b/seed_48/llm_samples_94_better_spam/samples_4.csv
+   Found 80 existing samples
+   Current upsampling factor: 20x
+✅ Already have enough samples for 20x upsampling
+   Skipping LLM generation for n_real_samples = 4
+   Starting with existing 80 samples
+Maximum target samples needed: 80
+📁 Using existing dataset for activation extraction
+   Debug: final_df has 80 samples, original_df has 4 samples
+   Debug: LLM samples (after original) should be 76
+📊 Final dataset breakdown:
+   - Original samples: 4
+   - Total samples in final dataset: 80
+   - Generated samples: 76
+   - Highest upsampling factor: 20x
+✅ Saved complete dataset with 80 samples to: results/spam_gemma_9b/seed_48/llm_samples_94_better_spam/samples_4.csv
+   (Includes 4 original + 76 generated samples)
+🎉 Successfully completed all upsampling factors up to 20x
+
+------------------------------------------------------------
+Processing n_real_samples = 5
+------------------------------------------------------------
+📁 Loading existing samples file: results/spam_gemma_9b/seed_48/llm_samples_94_better_spam/samples_5.csv
+   Found 100 existing samples
+   Current upsampling factor: 20x
+✅ Already have enough samples for 20x upsampling
+   Skipping LLM generation for n_real_samples = 5
+   Starting with existing 100 samples
+Maximum target samples needed: 100
+📁 Using existing dataset for activation extraction
+   Debug: final_df has 100 samples, original_df has 5 samples
+   Debug: LLM samples (after original) should be 95
+📊 Final dataset breakdown:
+   - Original samples: 5
+   - Total samples in final dataset: 100
+   - Generated samples: 95
+   - Highest upsampling factor: 20x
+✅ Saved complete dataset with 100 samples to: results/spam_gemma_9b/seed_48/llm_samples_94_better_spam/samples_5.csv
+   (Includes 5 original + 95 generated samples)
+🎉 Successfully completed all upsampling factors up to 20x
+
+------------------------------------------------------------
+Processing n_real_samples = 10
+------------------------------------------------------------
+📁 Loading existing samples file: results/spam_gemma_9b/seed_48/llm_samples_94_better_spam/samples_10.csv
+   Found 200 existing samples
+   Current upsampling factor: 20x
+✅ Already have enough samples for 20x upsampling
+   Skipping LLM generation for n_real_samples = 10
+   Starting with existing 200 samples
+Maximum target samples needed: 200
+📁 Using existing dataset for activation extraction
+   Debug: final_df has 200 samples, original_df has 10 samples
+   Debug: LLM samples (after original) should be 190
+📊 Final dataset breakdown:
+   - Original samples: 10
+   - Total samples in final dataset: 200
+   - Generated samples: 190
+   - Highest upsampling factor: 20x
+✅ Saved complete dataset with 200 samples to: results/spam_gemma_9b/seed_48/llm_samples_94_better_spam/samples_10.csv
+   (Includes 10 original + 190 generated samples)
+🎉 Successfully completed all upsampling factors up to 20x
+
+Seed 48 complete! Files saved to: results/spam_gemma_9b/seed_48/llm_samples_94_better_spam
+
+================================================================================
+Processing seed 49
+================================================================================
+Output directory: results/spam_gemma_9b/seed_49/llm_samples_94_better_spam
+Extracting samples using seed 49...
+Loading dataset: 94_better_spam
+No model or model_name provided, not initializing activation manager.
+Total positive samples in dataset: 4000
+Extracted 1 samples for n_real_samples=1
+Extracted 2 samples for n_real_samples=2
+Extracted 3 samples for n_real_samples=3
+Extracted 4 samples for n_real_samples=4
+Extracted 5 samples for n_real_samples=5
+Extracted 10 samples for n_real_samples=10
+
+------------------------------------------------------------
+Processing n_real_samples = 1
+------------------------------------------------------------
+📁 Loading existing samples file: results/spam_gemma_9b/seed_49/llm_samples_94_better_spam/samples_1.csv
+   Found 20 existing samples
+   Current upsampling factor: 20x
+✅ Already have enough samples for 20x upsampling
+   Skipping LLM generation for n_real_samples = 1
+   Starting with existing 20 samples
+Maximum target samples needed: 20
+📁 Using existing dataset for activation extraction
+   Debug: final_df has 20 samples, original_df has 1 samples
+   Debug: LLM samples (after original) should be 19
+📊 Final dataset breakdown:
+   - Original samples: 1
+   - Total samples in final dataset: 20
+   - Generated samples: 19
+   - Highest upsampling factor: 20x
+✅ Saved complete dataset with 20 samples to: results/spam_gemma_9b/seed_49/llm_samples_94_better_spam/samples_1.csv
+   (Includes 1 original + 19 generated samples)
+🎉 Successfully completed all upsampling factors up to 20x
+
+------------------------------------------------------------
+Processing n_real_samples = 2
+------------------------------------------------------------
+📁 Loading existing samples file: results/spam_gemma_9b/seed_49/llm_samples_94_better_spam/samples_2.csv
+   Found 40 existing samples
+   Current upsampling factor: 20x
+✅ Already have enough samples for 20x upsampling
+   Skipping LLM generation for n_real_samples = 2
+   Starting with existing 40 samples
+Maximum target samples needed: 40
+📁 Using existing dataset for activation extraction
+   Debug: final_df has 40 samples, original_df has 2 samples
+   Debug: LLM samples (after original) should be 38
+📊 Final dataset breakdown:
+   - Original samples: 2
+   - Total samples in final dataset: 40
+   - Generated samples: 38
+   - Highest upsampling factor: 20x
+✅ Saved complete dataset with 40 samples to: results/spam_gemma_9b/seed_49/llm_samples_94_better_spam/samples_2.csv
+   (Includes 2 original + 38 generated samples)
+🎉 Successfully completed all upsampling factors up to 20x
+
+------------------------------------------------------------
+Processing n_real_samples = 3
+------------------------------------------------------------
+📁 Loading existing samples file: results/spam_gemma_9b/seed_49/llm_samples_94_better_spam/samples_3.csv
+   Found 60 existing samples
+   Current upsampling factor: 20x
+✅ Already have enough samples for 20x upsampling
+   Skipping LLM generation for n_real_samples = 3
+   Starting with existing 60 samples
+Maximum target samples needed: 60
+📁 Using existing dataset for activation extraction
+   Debug: final_df has 60 samples, original_df has 3 samples
+   Debug: LLM samples (after original) should be 57
+📊 Final dataset breakdown:
+   - Original samples: 3
+   - Total samples in final dataset: 60
+   - Generated samples: 57
+   - Highest upsampling factor: 20x
+✅ Saved complete dataset with 60 samples to: results/spam_gemma_9b/seed_49/llm_samples_94_better_spam/samples_3.csv
+   (Includes 3 original + 57 generated samples)
+🎉 Successfully completed all upsampling factors up to 20x
+
+------------------------------------------------------------
+Processing n_real_samples = 4
+------------------------------------------------------------
+📁 Loading existing samples file: results/spam_gemma_9b/seed_49/llm_samples_94_better_spam/samples_4.csv
+   Found 80 existing samples
+   Current upsampling factor: 20x
+✅ Already have enough samples for 20x upsampling
+   Skipping LLM generation for n_real_samples = 4
+   Starting with existing 80 samples
+Maximum target samples needed: 80
+📁 Using existing dataset for activation extraction
+   Debug: final_df has 80 samples, original_df has 4 samples
+   Debug: LLM samples (after original) should be 76
+📊 Final dataset breakdown:
+   - Original samples: 4
+   - Total samples in final dataset: 80
+   - Generated samples: 76
+   - Highest upsampling factor: 20x
+✅ Saved complete dataset with 80 samples to: results/spam_gemma_9b/seed_49/llm_samples_94_better_spam/samples_4.csv
+   (Includes 4 original + 76 generated samples)
+🎉 Successfully completed all upsampling factors up to 20x
+
+------------------------------------------------------------
+Processing n_real_samples = 5
+------------------------------------------------------------
+📁 Loading existing samples file: results/spam_gemma_9b/seed_49/llm_samples_94_better_spam/samples_5.csv
+   Found 100 existing samples
+   Current upsampling factor: 20x
+✅ Already have enough samples for 20x upsampling
+   Skipping LLM generation for n_real_samples = 5
+   Starting with existing 100 samples
+Maximum target samples needed: 100
+📁 Using existing dataset for activation extraction
+   Debug: final_df has 100 samples, original_df has 5 samples
+   Debug: LLM samples (after original) should be 95
+📊 Final dataset breakdown:
+   - Original samples: 5
+   - Total samples in final dataset: 100
+   - Generated samples: 95
+   - Highest upsampling factor: 20x
+✅ Saved complete dataset with 100 samples to: results/spam_gemma_9b/seed_49/llm_samples_94_better_spam/samples_5.csv
+   (Includes 5 original + 95 generated samples)
+🎉 Successfully completed all upsampling factors up to 20x
+
+------------------------------------------------------------
+Processing n_real_samples = 10
+------------------------------------------------------------
+📁 Loading existing samples file: results/spam_gemma_9b/seed_49/llm_samples_94_better_spam/samples_10.csv
+   Found 200 existing samples
+   Current upsampling factor: 20x
+✅ Already have enough samples for 20x upsampling
+   Skipping LLM generation for n_real_samples = 10
+   Starting with existing 200 samples
+Maximum target samples needed: 200
+📁 Using existing dataset for activation extraction
+   Debug: final_df has 200 samples, original_df has 10 samples
+   Debug: LLM samples (after original) should be 190
+📊 Final dataset breakdown:
+   - Original samples: 10
+   - Total samples in final dataset: 200
+   - Generated samples: 190
+   - Highest upsampling factor: 20x
+✅ Saved complete dataset with 200 samples to: results/spam_gemma_9b/seed_49/llm_samples_94_better_spam/samples_10.csv
+   (Includes 10 original + 190 generated samples)
+🎉 Successfully completed all upsampling factors up to 20x
+
+Seed 49 complete! Files saved to: results/spam_gemma_9b/seed_49/llm_samples_94_better_spam
+
+================================================================================
+Processing seed 50
+================================================================================
+Output directory: results/spam_gemma_9b/seed_50/llm_samples_94_better_spam
+Extracting samples using seed 50...
+Loading dataset: 94_better_spam
+No model or model_name provided, not initializing activation manager.
+Total positive samples in dataset: 4000
+Extracted 1 samples for n_real_samples=1
+Extracted 2 samples for n_real_samples=2
+Extracted 3 samples for n_real_samples=3
+Extracted 4 samples for n_real_samples=4
+Extracted 5 samples for n_real_samples=5
+Extracted 10 samples for n_real_samples=10
+
+------------------------------------------------------------
+Processing n_real_samples = 1
+------------------------------------------------------------
+📁 Loading existing samples file: results/spam_gemma_9b/seed_50/llm_samples_94_better_spam/samples_1.csv
+   Found 20 existing samples
+   Current upsampling factor: 20x
+✅ Already have enough samples for 20x upsampling
+   Skipping LLM generation for n_real_samples = 1
+   Starting with existing 20 samples
+Maximum target samples needed: 20
+📁 Using existing dataset for activation extraction
+   Debug: final_df has 20 samples, original_df has 1 samples
+   Debug: LLM samples (after original) should be 19
+📊 Final dataset breakdown:
+   - Original samples: 1
+   - Total samples in final dataset: 20
+   - Generated samples: 19
+   - Highest upsampling factor: 20x
+✅ Saved complete dataset with 20 samples to: results/spam_gemma_9b/seed_50/llm_samples_94_better_spam/samples_1.csv
+   (Includes 1 original + 19 generated samples)
+🎉 Successfully completed all upsampling factors up to 20x
+
+------------------------------------------------------------
+Processing n_real_samples = 2
+------------------------------------------------------------
+📁 Loading existing samples file: results/spam_gemma_9b/seed_50/llm_samples_94_better_spam/samples_2.csv
+   Found 40 existing samples
+   Current upsampling factor: 20x
+✅ Already have enough samples for 20x upsampling
+   Skipping LLM generation for n_real_samples = 2
+   Starting with existing 40 samples
+Maximum target samples needed: 40
+📁 Using existing dataset for activation extraction
+   Debug: final_df has 40 samples, original_df has 2 samples
+   Debug: LLM samples (after original) should be 38
+📊 Final dataset breakdown:
+   - Original samples: 2
+   - Total samples in final dataset: 40
+   - Generated samples: 38
+   - Highest upsampling factor: 20x
+✅ Saved complete dataset with 40 samples to: results/spam_gemma_9b/seed_50/llm_samples_94_better_spam/samples_2.csv
+   (Includes 2 original + 38 generated samples)
+🎉 Successfully completed all upsampling factors up to 20x
+
+------------------------------------------------------------
+Processing n_real_samples = 3
+------------------------------------------------------------
+📁 Loading existing samples file: results/spam_gemma_9b/seed_50/llm_samples_94_better_spam/samples_3.csv
+   Found 60 existing samples
+   Current upsampling factor: 20x
+✅ Already have enough samples for 20x upsampling
+   Skipping LLM generation for n_real_samples = 3
+   Starting with existing 60 samples
+Maximum target samples needed: 60
+📁 Using existing dataset for activation extraction
+   Debug: final_df has 60 samples, original_df has 3 samples
+   Debug: LLM samples (after original) should be 57
+📊 Final dataset breakdown:
+   - Original samples: 3
+   - Total samples in final dataset: 60
+   - Generated samples: 57
+   - Highest upsampling factor: 20x
+✅ Saved complete dataset with 60 samples to: results/spam_gemma_9b/seed_50/llm_samples_94_better_spam/samples_3.csv
+   (Includes 3 original + 57 generated samples)
+🎉 Successfully completed all upsampling factors up to 20x
+
+------------------------------------------------------------
+Processing n_real_samples = 4
+------------------------------------------------------------
+📁 Loading existing samples file: results/spam_gemma_9b/seed_50/llm_samples_94_better_spam/samples_4.csv
+   Found 80 existing samples
+   Current upsampling factor: 20x
+✅ Already have enough samples for 20x upsampling
+   Skipping LLM generation for n_real_samples = 4
+   Starting with existing 80 samples
+Maximum target samples needed: 80
+📁 Using existing dataset for activation extraction
+   Debug: final_df has 80 samples, original_df has 4 samples
+   Debug: LLM samples (after original) should be 76
+📊 Final dataset breakdown:
+   - Original samples: 4
+   - Total samples in final dataset: 80
+   - Generated samples: 76
+   - Highest upsampling factor: 20x
+✅ Saved complete dataset with 80 samples to: results/spam_gemma_9b/seed_50/llm_samples_94_better_spam/samples_4.csv
+   (Includes 4 original + 76 generated samples)
+🎉 Successfully completed all upsampling factors up to 20x
+
+------------------------------------------------------------
+Processing n_real_samples = 5
+------------------------------------------------------------
+📁 Loading existing samples file: results/spam_gemma_9b/seed_50/llm_samples_94_better_spam/samples_5.csv
+   Found 100 existing samples
+   Current upsampling factor: 20x
+✅ Already have enough samples for 20x upsampling
+   Skipping LLM generation for n_real_samples = 5
+   Starting with existing 100 samples
+Maximum target samples needed: 100
+📁 Using existing dataset for activation extraction
+   Debug: final_df has 100 samples, original_df has 5 samples
+   Debug: LLM samples (after original) should be 95
+📊 Final dataset breakdown:
+   - Original samples: 5
+   - Total samples in final dataset: 100
+   - Generated samples: 95
+   - Highest upsampling factor: 20x
+✅ Saved complete dataset with 100 samples to: results/spam_gemma_9b/seed_50/llm_samples_94_better_spam/samples_5.csv
+   (Includes 5 original + 95 generated samples)
+🎉 Successfully completed all upsampling factors up to 20x
+
+------------------------------------------------------------
+Processing n_real_samples = 10
+------------------------------------------------------------
+📁 Loading existing samples file: results/spam_gemma_9b/seed_50/llm_samples_94_better_spam/samples_10.csv
+   Found 200 existing samples
+   Current upsampling factor: 20x
+✅ Already have enough samples for 20x upsampling
+   Skipping LLM generation for n_real_samples = 10
+   Starting with existing 200 samples
+Maximum target samples needed: 200
+📁 Using existing dataset for activation extraction
+   Debug: final_df has 200 samples, original_df has 10 samples
+   Debug: LLM samples (after original) should be 190
+📊 Final dataset breakdown:
+   - Original samples: 10
+   - Total samples in final dataset: 200
+   - Generated samples: 190
+   - Highest upsampling factor: 20x
+✅ Saved complete dataset with 200 samples to: results/spam_gemma_9b/seed_50/llm_samples_94_better_spam/samples_10.csv
+   (Includes 10 original + 190 generated samples)
+🎉 Successfully completed all upsampling factors up to 20x
+
+Seed 50 complete! Files saved to: results/spam_gemma_9b/seed_50/llm_samples_94_better_spam
+
+================================================================================
+Processing seed 51
+================================================================================
+Output directory: results/spam_gemma_9b/seed_51/llm_samples_94_better_spam
+Extracting samples using seed 51...
+Loading dataset: 94_better_spam
+No model or model_name provided, not initializing activation manager.
+Total positive samples in dataset: 4000
+Extracted 1 samples for n_real_samples=1
+Extracted 2 samples for n_real_samples=2
+Extracted 3 samples for n_real_samples=3
+Extracted 4 samples for n_real_samples=4
+Extracted 5 samples for n_real_samples=5
+Extracted 10 samples for n_real_samples=10
+
+------------------------------------------------------------
+Processing n_real_samples = 1
+------------------------------------------------------------
+📁 Loading existing samples file: results/spam_gemma_9b/seed_51/llm_samples_94_better_spam/samples_1.csv
+   Found 20 existing samples
+   Current upsampling factor: 20x
+✅ Already have enough samples for 20x upsampling
+   Skipping LLM generation for n_real_samples = 1
+   Starting with existing 20 samples
+Maximum target samples needed: 20
+📁 Using existing dataset for activation extraction
+   Debug: final_df has 20 samples, original_df has 1 samples
+   Debug: LLM samples (after original) should be 19
+📊 Final dataset breakdown:
+   - Original samples: 1
+   - Total samples in final dataset: 20
+   - Generated samples: 19
+   - Highest upsampling factor: 20x
+✅ Saved complete dataset with 20 samples to: results/spam_gemma_9b/seed_51/llm_samples_94_better_spam/samples_1.csv
+   (Includes 1 original + 19 generated samples)
+🎉 Successfully completed all upsampling factors up to 20x
+
+------------------------------------------------------------
+Processing n_real_samples = 2
+------------------------------------------------------------
+📁 Loading existing samples file: results/spam_gemma_9b/seed_51/llm_samples_94_better_spam/samples_2.csv
+   Found 40 existing samples
+   Current upsampling factor: 20x
+✅ Already have enough samples for 20x upsampling
+   Skipping LLM generation for n_real_samples = 2
+   Starting with existing 40 samples
+Maximum target samples needed: 40
+📁 Using existing dataset for activation extraction
+   Debug: final_df has 40 samples, original_df has 2 samples
+   Debug: LLM samples (after original) should be 38
+📊 Final dataset breakdown:
+   - Original samples: 2
+   - Total samples in final dataset: 40
+   - Generated samples: 38
+   - Highest upsampling factor: 20x
+✅ Saved complete dataset with 40 samples to: results/spam_gemma_9b/seed_51/llm_samples_94_better_spam/samples_2.csv
+   (Includes 2 original + 38 generated samples)
+🎉 Successfully completed all upsampling factors up to 20x
+
+------------------------------------------------------------
+Processing n_real_samples = 3
+------------------------------------------------------------
+📁 Loading existing samples file: results/spam_gemma_9b/seed_51/llm_samples_94_better_spam/samples_3.csv
+   Found 60 existing samples
+   Current upsampling factor: 20x
+✅ Already have enough samples for 20x upsampling
+   Skipping LLM generation for n_real_samples = 3
+   Starting with existing 60 samples
+Maximum target samples needed: 60
+📁 Using existing dataset for activation extraction
+   Debug: final_df has 60 samples, original_df has 3 samples
+   Debug: LLM samples (after original) should be 57
+📊 Final dataset breakdown:
+   - Original samples: 3
+   - Total samples in final dataset: 60
+   - Generated samples: 57
+   - Highest upsampling factor: 20x
+✅ Saved complete dataset with 60 samples to: results/spam_gemma_9b/seed_51/llm_samples_94_better_spam/samples_3.csv
+   (Includes 3 original + 57 generated samples)
+🎉 Successfully completed all upsampling factors up to 20x
+
+------------------------------------------------------------
+Processing n_real_samples = 4
+------------------------------------------------------------
+📁 Loading existing samples file: results/spam_gemma_9b/seed_51/llm_samples_94_better_spam/samples_4.csv
+   Found 80 existing samples
+   Current upsampling factor: 20x
+✅ Already have enough samples for 20x upsampling
+   Skipping LLM generation for n_real_samples = 4
+   Starting with existing 80 samples
+Maximum target samples needed: 80
+📁 Using existing dataset for activation extraction
+   Debug: final_df has 80 samples, original_df has 4 samples
+   Debug: LLM samples (after original) should be 76
+📊 Final dataset breakdown:
+   - Original samples: 4
+   - Total samples in final dataset: 80
+   - Generated samples: 76
+   - Highest upsampling factor: 20x
+✅ Saved complete dataset with 80 samples to: results/spam_gemma_9b/seed_51/llm_samples_94_better_spam/samples_4.csv
+   (Includes 4 original + 76 generated samples)
+🎉 Successfully completed all upsampling factors up to 20x
+
+------------------------------------------------------------
+Processing n_real_samples = 5
+------------------------------------------------------------
+📁 Loading existing samples file: results/spam_gemma_9b/seed_51/llm_samples_94_better_spam/samples_5.csv
+   Found 100 existing samples
+   Current upsampling factor: 20x
+✅ Already have enough samples for 20x upsampling
+   Skipping LLM generation for n_real_samples = 5
+   Starting with existing 100 samples
+Maximum target samples needed: 100
+📁 Using existing dataset for activation extraction
+   Debug: final_df has 100 samples, original_df has 5 samples
+   Debug: LLM samples (after original) should be 95
+📊 Final dataset breakdown:
+   - Original samples: 5
+   - Total samples in final dataset: 100
+   - Generated samples: 95
+   - Highest upsampling factor: 20x
+✅ Saved complete dataset with 100 samples to: results/spam_gemma_9b/seed_51/llm_samples_94_better_spam/samples_5.csv
+   (Includes 5 original + 95 generated samples)
+🎉 Successfully completed all upsampling factors up to 20x
+
+------------------------------------------------------------
+Processing n_real_samples = 10
+------------------------------------------------------------
+📁 Loading existing samples file: results/spam_gemma_9b/seed_51/llm_samples_94_better_spam/samples_10.csv
+   Found 200 existing samples
+   Current upsampling factor: 20x
+✅ Already have enough samples for 20x upsampling
+   Skipping LLM generation for n_real_samples = 10
+   Starting with existing 200 samples
+Maximum target samples needed: 200
+📁 Using existing dataset for activation extraction
+   Debug: final_df has 200 samples, original_df has 10 samples
+   Debug: LLM samples (after original) should be 190
+📊 Final dataset breakdown:
+   - Original samples: 10
+   - Total samples in final dataset: 200
+   - Generated samples: 190
+   - Highest upsampling factor: 20x
+✅ Saved complete dataset with 200 samples to: results/spam_gemma_9b/seed_51/llm_samples_94_better_spam/samples_10.csv
+   (Includes 10 original + 190 generated samples)
+🎉 Successfully completed all upsampling factors up to 20x
+
+Seed 51 complete! Files saved to: results/spam_gemma_9b/seed_51/llm_samples_94_better_spam
+
+================================================================================
+LLM upsampling complete for all seeds!
+Results saved to: results/spam_gemma_9b/seed_*/llm_samples/
+Upsampling factors processed: [1, 2, 3, 4, 5, 10, 20]
+================================================================================
+=== LLM upsampling complete ===
+Loading model 'google/gemma-2-9b' for activation extraction...
+Loading checkpoint shards:   0%|                          | 0/8 [00:00<?, ?it/s]Loading checkpoint shards:  12%|██▎               | 1/8 [00:00<00:03,  1.78it/s]Loading checkpoint shards:  25%|████▌             | 2/8 [00:01<00:03,  1.78it/s]Loading checkpoint shards:  38%|██████▊           | 3/8 [00:01<00:02,  1.78it/s]Loading checkpoint shards:  50%|█████████         | 4/8 [00:02<00:02,  1.78it/s]Loading checkpoint shards:  62%|███████████▎      | 5/8 [00:02<00:01,  1.78it/s]Loading checkpoint shards:  75%|█████████████▌    | 6/8 [00:03<00:01,  1.78it/s]Loading checkpoint shards:  88%|███████████████▊  | 7/8 [00:03<00:00,  1.78it/s]Loading checkpoint shards: 100%|██████████████████| 8/8 [00:04<00:00,  2.14it/s]Loading checkpoint shards: 100%|██████████████████| 8/8 [00:04<00:00,  1.91it/s]
+
+========================= ACTIVATION EXTRACTION PHASE =========================
+  - Extracting activations for 87_is_spam, L20, resid_post (on_policy=False)
+Initializing ActivationManager with model: google/gemma-2-9b, device: cuda:0, cache_dir: activation_cache/google/gemma-2-9b/87_is_spam
+[DEBUG] model_name parameter: google/gemma-2-9b
+[DEBUG] self.model_name: google/gemma-2-9b
+[DEBUG] model parameter: Gemma2ForCausalLM(
+  (model): Gemma2Model(
+    (embed_tokens): Embedding(256000, 3584, padding_idx=0)
+    (layers): ModuleList(
+      (0-41): 42 x Gemma2DecoderLayer(
+        (self_attn): Gemma2Attention(
+          (q_proj): Linear(in_features=3584, out_features=4096, bias=False)
+          (k_proj): Linear(in_features=3584, out_features=2048, bias=False)
+          (v_proj): Linear(in_features=3584, out_features=2048, bias=False)
+          (o_proj): Linear(in_features=4096, out_features=3584, bias=False)
+        )
+        (mlp): Gemma2MLP(
+          (gate_proj): Linear(in_features=3584, out_features=14336, bias=False)
+          (up_proj): Linear(in_features=3584, out_features=14336, bias=False)
+          (down_proj): Linear(in_features=14336, out_features=3584, bias=False)
+          (act_fn): PytorchGELUTanh()
+        )
+        (input_layernorm): Gemma2RMSNorm((3584,), eps=1e-06)
+        (post_attention_layernorm): Gemma2RMSNorm((3584,), eps=1e-06)
+        (pre_feedforward_layernorm): Gemma2RMSNorm((3584,), eps=1e-06)
+        (post_feedforward_layernorm): Gemma2RMSNorm((3584,), eps=1e-06)
+      )
+    )
+    (norm): Gemma2RMSNorm((3584,), eps=1e-06)
+    (rotary_emb): Gemma2RotaryEmbedding()
+  )
+  (lm_head): Linear(in_features=3584, out_features=256000, bias=False)
+)
+[DEBUG] model type: <class 'transformers.models.gemma2.modeling_gemma2.Gemma2ForCausalLM'>
+Successfully initialized ActivationManager
+    - Off-policy: extracting activations from prompts...
+[DEBUG] Newly added count: 0
+[DEBUG] Loading full activations from activation_cache/google/gemma-2-9b/87_is_spam/blocks‑20‑hook_resid_post.npz
+[DEBUG] Existing: 5157
+[DEBUG] Processing 5157 full activations
+[DEBUG] Estimated memory requirement: 1.63 GB
+[WARNING] Large memory requirement (1.63 GB).
+[DEBUG] Max sequence length: 237
+[DEBUG] Shape of first activation: (1, 27, 3584)
+[DEBUG] Final array shape: (5157, 237, 3584)
+[DEBUG] Returning (5157, 237, 3584) activations
+    - Cached 0 new activations (dataset)
+    - Aggregated activations are up-to-date
+  - Extracting activations for 94_better_spam, L20, resid_post (on_policy=False)
+Initializing ActivationManager with model: google/gemma-2-9b, device: cuda:0, cache_dir: activation_cache/google/gemma-2-9b/94_better_spam
+[DEBUG] model_name parameter: google/gemma-2-9b
+[DEBUG] self.model_name: google/gemma-2-9b
+[DEBUG] model parameter: Gemma2ForCausalLM(
+  (model): Gemma2Model(
+    (embed_tokens): Embedding(256000, 3584, padding_idx=0)
+    (layers): ModuleList(
+      (0-41): 42 x Gemma2DecoderLayer(
+        (self_attn): Gemma2Attention(
+          (q_proj): Linear(in_features=3584, out_features=4096, bias=False)
+          (k_proj): Linear(in_features=3584, out_features=2048, bias=False)
+          (v_proj): Linear(in_features=3584, out_features=2048, bias=False)
+          (o_proj): Linear(in_features=4096, out_features=3584, bias=False)
+        )
+        (mlp): Gemma2MLP(
+          (gate_proj): Linear(in_features=3584, out_features=14336, bias=False)
+          (up_proj): Linear(in_features=3584, out_features=14336, bias=False)
+          (down_proj): Linear(in_features=14336, out_features=3584, bias=False)
+          (act_fn): PytorchGELUTanh()
+        )
+        (input_layernorm): Gemma2RMSNorm((3584,), eps=1e-06)
+        (post_attention_layernorm): Gemma2RMSNorm((3584,), eps=1e-06)
+        (pre_feedforward_layernorm): Gemma2RMSNorm((3584,), eps=1e-06)
+        (post_feedforward_layernorm): Gemma2RMSNorm((3584,), eps=1e-06)
+      )
+    )
+    (norm): Gemma2RMSNorm((3584,), eps=1e-06)
+    (rotary_emb): Gemma2RotaryEmbedding()
+  )
+  (lm_head): Linear(in_features=3584, out_features=256000, bias=False)
+)
+[DEBUG] model type: <class 'transformers.models.gemma2.modeling_gemma2.Gemma2ForCausalLM'>
+Successfully initialized ActivationManager
+    - Off-policy: extracting activations from prompts...
+[DEBUG] Newly added count: 0
+[DEBUG] Loading full activations from activation_cache/google/gemma-2-9b/94_better_spam/blocks‑20‑hook_resid_post.npz
+[DEBUG] Existing: 12750
+[DEBUG] Processing 8000 full activations
+[DEBUG] Estimated memory requirement: 19.66 GB
+[WARNING] Large memory requirement (19.66 GB).
+[DEBUG] Max sequence length: 1167
+[DEBUG] Shape of first activation: (1, 47, 3584)
+[DEBUG] Final array shape: (8000, 1167, 3584)
+[DEBUG] Returning (8000, 1167, 3584) activations
+    - Cached 0 new activations (dataset)
+[DEBUG] Newly added count: 0
+[DEBUG] Loading full activations from activation_cache/google/gemma-2-9b/94_better_spam/blocks‑20‑hook_resid_post.npz
+[DEBUG] Existing: 12750
+[DEBUG] Processing 5000 full activations
+[DEBUG] Estimated memory requirement: 5.41 GB
+[WARNING] Large memory requirement (5.41 GB).
+[DEBUG] Max sequence length: 935
+[DEBUG] Shape of first activation: (1, 252, 3584)
+[DEBUG] Final array shape: (5000, 935, 3584)
+[DEBUG] Returning (5000, 935, 3584) activations
+    - Cached 0 new activations (LLM)
+    - Aggregated activations are up-to-date
+
+========================= MODEL UNLOADING PHASE =========================
+Unloading model to free GPU memory for parallel processing...
+Model unloaded successfully
+
+========================= JOB CREATION PHASE =========================
+Created 6300 probe jobs
+
+========================= PROBE PROCESSING PHASE (BATCHED) =========================
+Processing 6300 probe jobs in batched groups...
+Running 6300 jobs in 700 groups (batched)
+
+=== Group 5/700 — ('94_better_spam', 20, 'resid_post', 46, '__none__', False, 0.75, 0.1, 0.15) ===
+Initializing ActivationManager with model: google/gemma-2-9b, device: cuda:0, cache_dir: activation_cache/google/gemma-2-9b/94_better_spam
+[DEBUG] model_name parameter: google/gemma-2-9b
+[DEBUG] self.model_name: google/gemma-2-9b
+[DEBUG] model parameter: None
+[DEBUG] model type: <class 'NoneType'>
+[DEBUG] Creating read-only activation manager for model_name=google/gemma-2-9b
+[INFO] Created read-only ActivationManager for google/gemma-2-9b (no tokenizer needed)
+[DEBUG] Successfully created read-only activation manager
+Successfully initialized ActivationManager
+Filtered dataset 94_better_spam: 3577 examples passed the filter
+[DEBUG] Class distribution after filter: {0: 2863, 1: 714}
+Split data: 2682 train, 358 val, 537 test
+[DEBUG] Class distribution — train: {0: 2146, 1: 536}, val: {0: 287, 1: 71}, test: {0: 430, 1: 107}
+Initializing ActivationManager with model: google/gemma-2-9b, device: cuda:0, cache_dir: activation_cache/google/gemma-2-9b/87_is_spam
+[DEBUG] model_name parameter: google/gemma-2-9b
+[DEBUG] self.model_name: google/gemma-2-9b
+[DEBUG] model parameter: None
+[DEBUG] model type: <class 'NoneType'>
+[DEBUG] Creating read-only activation manager for model_name=google/gemma-2-9b
+[INFO] Created read-only ActivationManager for google/gemma-2-9b (no tokenizer needed)
+[DEBUG] Successfully created read-only activation manager
+Successfully initialized ActivationManager
+Split data (only_test): 0 train, 0 val, 5157 test (non-balanced)
+  🚀 [BATCH] Training probe: sae_16k_l0_408_mean
+  - [SKIP] Probe already trained: train_on_94_better_spam_sae_16k_l0_408_mean_L20_resid_post_topk3584_state.npz
+  🤔 [BATCH] Evaluating on 2 datasets…
+    [BATCH] Evaluating on 94_better_spam validation set
+  - 😋 Using cached evaluation result 
+    [BATCH] Evaluating on 94_better_spam test set
+  - 😋 Using cached evaluation result 
+  - 😋 Using cached evaluation result 
+  🚀 [BATCH] Training probe: sae_16k_l0_408_max
+  - [SKIP] Probe already trained: train_on_94_better_spam_sae_16k_l0_408_max_L20_resid_post_topk3584_state.npz
+  🤔 [BATCH] Evaluating on 2 datasets…
+    [BATCH] Evaluating on 94_better_spam validation set
+  - 😋 Using cached evaluation result 
+    [BATCH] Evaluating on 94_better_spam test set
+  - 😋 Using cached evaluation result 
+  - 😋 Using cached evaluation result 
+  🚀 [BATCH] Training probe: sae_16k_l0_408_last
+  - [SKIP] Probe already trained: train_on_94_better_spam_sae_16k_l0_408_last_L20_resid_post_topk3584_state.npz
+  🤔 [BATCH] Evaluating on 2 datasets…
+    [BATCH] Evaluating on 94_better_spam validation set
+  - 😋 Using cached evaluation result 
+    [BATCH] Evaluating on 94_better_spam test set
+  - 😋 Using cached evaluation result 
+  - 😋 Using cached evaluation result 
+  🚀 [BATCH] Training probe: sae_16k_l0_408_softmax
+  - [SKIP] Probe already trained: train_on_94_better_spam_sae_16k_l0_408_softmax_L20_resid_post_topk3584_state.npz
+  🤔 [BATCH] Evaluating on 2 datasets…
+    [BATCH] Evaluating on 94_better_spam validation set
+  - 😋 Using cached evaluation result 
+    [BATCH] Evaluating on 94_better_spam test set
+  - 😋 Using cached evaluation result 
+  - 😋 Using cached evaluation result 
+  🚀 [BATCH] Training probe: sae_262k_l0_259_mean
+  - [SKIP] Probe already trained: train_on_94_better_spam_sae_262k_l0_259_mean_L20_resid_post_topk3584_state.npz
+  🤔 [BATCH] Evaluating on 2 datasets…
+    [BATCH] Evaluating on 94_better_spam validation set
+  - 😋 Using cached evaluation result 
+    [BATCH] Evaluating on 94_better_spam test set
+  - 😋 Using cached evaluation result 
+  - 😋 Using cached evaluation result 
+  🚀 [BATCH] Training probe: sae_262k_l0_259_max
+  - Training new probe …
+  [DEBUG] Starting dataset preparation...
+  [DEBUG] Using activation_type: sae_max
+
+=== Group 4/700 — ('94_better_spam', 20, 'resid_post', 45, '__none__', False, 0.75, 0.1, 0.15) ===
+Initializing ActivationManager with model: google/gemma-2-9b, device: cuda:0, cache_dir: activation_cache/google/gemma-2-9b/94_better_spam
+[DEBUG] model_name parameter: google/gemma-2-9b
+[DEBUG] self.model_name: google/gemma-2-9b
+[DEBUG] model parameter: None
+[DEBUG] model type: <class 'NoneType'>
+[DEBUG] Creating read-only activation manager for model_name=google/gemma-2-9b
+[INFO] Created read-only ActivationManager for google/gemma-2-9b (no tokenizer needed)
+[DEBUG] Successfully created read-only activation manager
+Successfully initialized ActivationManager
+Filtered dataset 94_better_spam: 3577 examples passed the filter
+[DEBUG] Class distribution after filter: {0: 2863, 1: 714}
+Split data: 2682 train, 358 val, 537 test
+[DEBUG] Class distribution — train: {0: 2146, 1: 536}, val: {0: 287, 1: 71}, test: {0: 430, 1: 107}
+Initializing ActivationManager with model: google/gemma-2-9b, device: cuda:0, cache_dir: activation_cache/google/gemma-2-9b/87_is_spam
+[DEBUG] model_name parameter: google/gemma-2-9b
+[DEBUG] self.model_name: google/gemma-2-9b
+[DEBUG] model parameter: None
+[DEBUG] model type: <class 'NoneType'>
+[DEBUG] Creating read-only activation manager for model_name=google/gemma-2-9b
+[INFO] Created read-only ActivationManager for google/gemma-2-9b (no tokenizer needed)
+[DEBUG] Successfully created read-only activation manager
+Successfully initialized ActivationManager
+Split data (only_test): 0 train, 0 val, 5157 test (non-balanced)
+  🚀 [BATCH] Training probe: sae_16k_l0_408_mean
+  - [SKIP] Probe already trained: train_on_94_better_spam_sae_16k_l0_408_mean_L20_resid_post_topk3584_state.npz
+  🤔 [BATCH] Evaluating on 2 datasets…
+    [BATCH] Evaluating on 94_better_spam validation set
+  - 😋 Using cached evaluation result 
+    [BATCH] Evaluating on 94_better_spam test set
+  - 😋 Using cached evaluation result 
+  - 😋 Using cached evaluation result 
+  🚀 [BATCH] Training probe: sae_16k_l0_408_max
+  - [SKIP] Probe already trained: train_on_94_better_spam_sae_16k_l0_408_max_L20_resid_post_topk3584_state.npz
+  🤔 [BATCH] Evaluating on 2 datasets…
+    [BATCH] Evaluating on 94_better_spam validation set
+  - 😋 Using cached evaluation result 
+    [BATCH] Evaluating on 94_better_spam test set
+  - 😋 Using cached evaluation result 
+  - 😋 Using cached evaluation result 
+  🚀 [BATCH] Training probe: sae_16k_l0_408_last
+  - [SKIP] Probe already trained: train_on_94_better_spam_sae_16k_l0_408_last_L20_resid_post_topk3584_state.npz
+  🤔 [BATCH] Evaluating on 2 datasets…
+    [BATCH] Evaluating on 94_better_spam validation set
+  - 😋 Using cached evaluation result 
+    [BATCH] Evaluating on 94_better_spam test set
+  - 😋 Using cached evaluation result 
+  - 😋 Using cached evaluation result 
+  🚀 [BATCH] Training probe: sae_16k_l0_408_softmax
+  - [SKIP] Probe already trained: train_on_94_better_spam_sae_16k_l0_408_softmax_L20_resid_post_topk3584_state.npz
+  🤔 [BATCH] Evaluating on 2 datasets…
+    [BATCH] Evaluating on 94_better_spam validation set
+  - 😋 Using cached evaluation result 
+    [BATCH] Evaluating on 94_better_spam test set
+  - 😋 Using cached evaluation result 
+  - 😋 Using cached evaluation result 
+  🚀 [BATCH] Training probe: sae_262k_l0_259_mean
+  - [SKIP] Probe already trained: train_on_94_better_spam_sae_262k_l0_259_mean_L20_resid_post_topk3584_state.npz
+  🤔 [BATCH] Evaluating on 2 datasets…
+    [BATCH] Evaluating on 94_better_spam validation set
+  - 😋 Using cached evaluation result 
+    [BATCH] Evaluating on 94_better_spam test set
+  - 😋 Using cached evaluation result 
+  - 😋 Using cached evaluation result 
+  🚀 [BATCH] Training probe: sae_262k_l0_259_max
+  - Training new probe …
+  [DEBUG] Starting dataset preparation...
+  [DEBUG] Using activation_type: sae_max
+
+=== Group 7/700 — ('94_better_spam', 20, 'resid_post', 48, '__none__', False, 0.75, 0.1, 0.15) ===
+Initializing ActivationManager with model: google/gemma-2-9b, device: cuda:0, cache_dir: activation_cache/google/gemma-2-9b/94_better_spam
+[DEBUG] model_name parameter: google/gemma-2-9b
+[DEBUG] self.model_name: google/gemma-2-9b
+[DEBUG] model parameter: None
+[DEBUG] model type: <class 'NoneType'>
+[DEBUG] Creating read-only activation manager for model_name=google/gemma-2-9b
+[INFO] Created read-only ActivationManager for google/gemma-2-9b (no tokenizer needed)
+[DEBUG] Successfully created read-only activation manager
+Successfully initialized ActivationManager
+Filtered dataset 94_better_spam: 3577 examples passed the filter
+[DEBUG] Class distribution after filter: {0: 2863, 1: 714}
+Split data: 2682 train, 358 val, 537 test
+[DEBUG] Class distribution — train: {0: 2146, 1: 536}, val: {0: 287, 1: 71}, test: {0: 430, 1: 107}
+Initializing ActivationManager with model: google/gemma-2-9b, device: cuda:0, cache_dir: activation_cache/google/gemma-2-9b/87_is_spam
+[DEBUG] model_name parameter: google/gemma-2-9b
+[DEBUG] self.model_name: google/gemma-2-9b
+[DEBUG] model parameter: None
+[DEBUG] model type: <class 'NoneType'>
+[DEBUG] Creating read-only activation manager for model_name=google/gemma-2-9b
+[INFO] Created read-only ActivationManager for google/gemma-2-9b (no tokenizer needed)
+[DEBUG] Successfully created read-only activation manager
+Successfully initialized ActivationManager
+Split data (only_test): 0 train, 0 val, 5157 test (non-balanced)
+  🚀 [BATCH] Training probe: sae_16k_l0_408_mean
+  - [SKIP] Probe already trained: train_on_94_better_spam_sae_16k_l0_408_mean_L20_resid_post_topk3584_state.npz
+  🤔 [BATCH] Evaluating on 2 datasets…
+    [BATCH] Evaluating on 94_better_spam validation set
+  - 😋 Using cached evaluation result 
+    [BATCH] Evaluating on 94_better_spam test set
+  - 😋 Using cached evaluation result 
+  - 😋 Using cached evaluation result 
+  🚀 [BATCH] Training probe: sae_16k_l0_408_max
+  - [SKIP] Probe already trained: train_on_94_better_spam_sae_16k_l0_408_max_L20_resid_post_topk3584_state.npz
+  🤔 [BATCH] Evaluating on 2 datasets…
+    [BATCH] Evaluating on 94_better_spam validation set
+  - 😋 Using cached evaluation result 
+    [BATCH] Evaluating on 94_better_spam test set
+  - 😋 Using cached evaluation result 
+  - 😋 Using cached evaluation result 
+
+=== Group 9/700 — ('94_better_spam', 20, 'resid_post', 50, '__none__', False, 0.75, 0.1, 0.15) ===
+Initializing ActivationManager with model: google/gemma-2-9b, device: cuda:0, cache_dir: activation_cache/google/gemma-2-9b/94_better_spam
+[DEBUG] model_name parameter: google/gemma-2-9b
+[DEBUG] self.model_name: google/gemma-2-9b
+[DEBUG] model parameter: None
+[DEBUG] model type: <class 'NoneType'>
+[DEBUG] Creating read-only activation manager for model_name=google/gemma-2-9b
+[INFO] Created read-only ActivationManager for google/gemma-2-9b (no tokenizer needed)
+[DEBUG] Successfully created read-only activation manager
+Successfully initialized ActivationManager
+Filtered dataset 94_better_spam: 3577 examples passed the filter
+[DEBUG] Class distribution after filter: {0: 2863, 1: 714}
+Split data: 2682 train, 358 val, 537 test
+[DEBUG] Class distribution — train: {0: 2146, 1: 536}, val: {0: 287, 1: 71}, test: {0: 430, 1: 107}
+Initializing ActivationManager with model: google/gemma-2-9b, device: cuda:0, cache_dir: activation_cache/google/gemma-2-9b/87_is_spam
+[DEBUG] model_name parameter: google/gemma-2-9b
+[DEBUG] self.model_name: google/gemma-2-9b
+[DEBUG] model parameter: None
+[DEBUG] model type: <class 'NoneType'>
+[DEBUG] Creating read-only activation manager for model_name=google/gemma-2-9b
+[INFO] Created read-only ActivationManager for google/gemma-2-9b (no tokenizer needed)
+[DEBUG] Successfully created read-only activation manager
+Successfully initialized ActivationManager
+Split data (only_test): 0 train, 0 val, 5157 test (non-balanced)
+  🚀 [BATCH] Training probe: sae_16k_l0_408_mean
+  - [SKIP] Probe already trained: train_on_94_better_spam_sae_16k_l0_408_mean_L20_resid_post_topk3584_state.npz
+  🤔 [BATCH] Evaluating on 2 datasets…
+    [BATCH] Evaluating on 94_better_spam validation set
+  - 😋 Using cached evaluation result 
+  🚀 [BATCH] Training probe: sae_16k_l0_408_last
+  - [SKIP] Probe already trained: train_on_94_better_spam_sae_16k_l0_408_last_L20_resid_post_topk3584_state.npz
+  🤔 [BATCH] Evaluating on 2 datasets…
+    [BATCH] Evaluating on 94_better_spam validation set
+    [BATCH] Evaluating on 94_better_spam test set
+  - 😋 Using cached evaluation result 
+  - 😋 Using cached evaluation result 
+    [BATCH] Evaluating on 94_better_spam test set
+  - 😋 Using cached evaluation result 
+  - 😋 Using cached evaluation result 
+  - 😋 Using cached evaluation result 
+  🚀 [BATCH] Training probe: sae_16k_l0_408_max
+  - [SKIP] Probe already trained: train_on_94_better_spam_sae_16k_l0_408_max_L20_resid_post_topk3584_state.npz
+  🤔 [BATCH] Evaluating on 2 datasets…
+    [BATCH] Evaluating on 94_better_spam validation set
+  - 😋 Using cached evaluation result 
+  🚀 [BATCH] Training probe: sae_16k_l0_408_softmax
+  - [SKIP] Probe already trained: train_on_94_better_spam_sae_16k_l0_408_softmax_L20_resid_post_topk3584_state.npz
+  🤔 [BATCH] Evaluating on 2 datasets…
+    [BATCH] Evaluating on 94_better_spam validation set
+  - 😋 Using cached evaluation result 
+    [BATCH] Evaluating on 94_better_spam test set
+  - 😋 Using cached evaluation result 
+    [BATCH] Evaluating on 94_better_spam test set
+  - 😋 Using cached evaluation result 
+  - 😋 Using cached evaluation result 
+  - 😋 Using cached evaluation result 
+  🚀 [BATCH] Training probe: sae_262k_l0_259_mean
+  - [SKIP] Probe already trained: train_on_94_better_spam_sae_262k_l0_259_mean_L20_resid_post_topk3584_state.npz
+  🤔 [BATCH] Evaluating on 2 datasets…
+    [BATCH] Evaluating on 94_better_spam validation set
+  - 😋 Using cached evaluation result 
+  🚀 [BATCH] Training probe: sae_16k_l0_408_last
+  - [SKIP] Probe already trained: train_on_94_better_spam_sae_16k_l0_408_last_L20_resid_post_topk3584_state.npz
+  🤔 [BATCH] Evaluating on 2 datasets…
+    [BATCH] Evaluating on 94_better_spam validation set
+  - 😋 Using cached evaluation result 
+    [BATCH] Evaluating on 94_better_spam test set
+  - 😋 Using cached evaluation result 
+    [BATCH] Evaluating on 94_better_spam test set
+  - 😋 Using cached evaluation result 
+  - 😋 Using cached evaluation result 
+  - 😋 Using cached evaluation result 
+  🚀 [BATCH] Training probe: sae_16k_l0_408_softmax
+  - [SKIP] Probe already trained: train_on_94_better_spam_sae_16k_l0_408_softmax_L20_resid_post_topk3584_state.npz
+  🤔 [BATCH] Evaluating on 2 datasets…
+    [BATCH] Evaluating on 94_better_spam validation set
+  - 😋 Using cached evaluation result 
+  🚀 [BATCH] Training probe: sae_262k_l0_259_max
+  - [SKIP] Probe already trained: train_on_94_better_spam_sae_262k_l0_259_max_L20_resid_post_topk3584_state.npz
+  🤔 [BATCH] Evaluating on 2 datasets…
+    [BATCH] Evaluating on 94_better_spam validation set
+  - 😋 Using cached evaluation result 
+    [BATCH] Evaluating on 94_better_spam test set
+  - 😋 Using cached evaluation result 
+    [BATCH] Evaluating on 94_better_spam test set
+  - 😋 Using cached evaluation result 
+  🚀 [BATCH] Training probe: sae_262k_l0_259_mean
+  - [SKIP] Probe already trained: train_on_94_better_spam_sae_262k_l0_259_mean_L20_resid_post_topk3584_state.npz
+  🤔 [BATCH] Evaluating on 2 datasets…
+    [BATCH] Evaluating on 94_better_spam validation set
+  - 😋 Using cached evaluation result 
+    [BATCH] Evaluating on 94_better_spam test set
+
+=== Group 8/700 — ('94_better_spam', 20, 'resid_post', 49, '__none__', False, 0.75, 0.1, 0.15) ===
+Initializing ActivationManager with model: google/gemma-2-9b, device: cuda:0, cache_dir: activation_cache/google/gemma-2-9b/94_better_spam
+[DEBUG] model_name parameter: google/gemma-2-9b
+[DEBUG] self.model_name: google/gemma-2-9b
+[DEBUG] model parameter: None
+[DEBUG] model type: <class 'NoneType'>
+[DEBUG] Creating read-only activation manager for model_name=google/gemma-2-9b
+[INFO] Created read-only ActivationManager for google/gemma-2-9b (no tokenizer needed)
+[DEBUG] Successfully created read-only activation manager
+Successfully initialized ActivationManager
+Filtered dataset 94_better_spam: 3577 examples passed the filter
+[DEBUG] Class distribution after filter: {0: 2863, 1: 714}
+Split data: 2682 train, 358 val, 537 test
+[DEBUG] Class distribution — train: {0: 2146, 1: 536}, val: {0: 287, 1: 71}, test: {0: 430, 1: 107}
+Initializing ActivationManager with model: google/gemma-2-9b, device: cuda:0, cache_dir: activation_cache/google/gemma-2-9b/87_is_spam
+[DEBUG] model_name parameter: google/gemma-2-9b
+[DEBUG] self.model_name: google/gemma-2-9b
+[DEBUG] model parameter: None
+[DEBUG] model type: <class 'NoneType'>
+[DEBUG] Creating read-only activation manager for model_name=google/gemma-2-9b
+[INFO] Created read-only ActivationManager for google/gemma-2-9b (no tokenizer needed)
+[DEBUG] Successfully created read-only activation manager
+Successfully initialized ActivationManager
+Split data (only_test): 0 train, 0 val, 5157 test (non-balanced)
+  🚀 [BATCH] Training probe: sae_16k_l0_408_mean
+  - [SKIP] Probe already trained: train_on_94_better_spam_sae_16k_l0_408_mean_L20_resid_post_topk3584_state.npz
+  🤔 [BATCH] Evaluating on 2 datasets…
+    [BATCH] Evaluating on 94_better_spam validation set
+  - 😋 Using cached evaluation result 
+    [BATCH] Evaluating on 94_better_spam test set
+  - 😋 Using cached evaluation result 
+  - 😋 Using cached evaluation result 
+  🚀 [BATCH] Training probe: sae_16k_l0_408_max
+  - [SKIP] Probe already trained: train_on_94_better_spam_sae_16k_l0_408_max_L20_resid_post_topk3584_state.npz
+  🤔 [BATCH] Evaluating on 2 datasets…
+    [BATCH] Evaluating on 94_better_spam validation set
+  - 😋 Using cached evaluation result 
+    [BATCH] Evaluating on 94_better_spam test set
+  - 😋 Using cached evaluation result 
+  - 😋 Using cached evaluation result 
+  🚀 [BATCH] Training probe: sae_16k_l0_408_last
+  - [SKIP] Probe already trained: train_on_94_better_spam_sae_16k_l0_408_last_L20_resid_post_topk3584_state.npz
+  🤔 [BATCH] Evaluating on 2 datasets…
+    [BATCH] Evaluating on 94_better_spam validation set
+  - 😋 Using cached evaluation result 
+    [BATCH] Evaluating on 94_better_spam test set
+  - 😋 Using cached evaluation result 
+  - 😋 Using cached evaluation result 
+[DEBUG] Newly added count: 0
+[DEBUG] Loading sae_max aggregated activations from activation_cache/google/gemma-2-9b/94_better_spam/blocks‑20‑hook_resid_post_aggregated_max.npz
+[DEBUG] Loaded sae_max aggregated activations: (2682, 3584)
+[DEBUG] Returning (2682, 3584) activations
+[DEBUG] train activations shape: (2682, 3584), dtype: float16
+[DEBUG] train activations range: [-1377.000000, 237.500000]
+Train activations: (2682, 3584)
+[DEBUG] Pre-fit sample counts — X: 2682, y: 2682
+[DEBUG] y_train class distribution: {0: 2146, 1: 536}
+  [DEBUG] Creating probe for architecture: sae_262k_l0_259_max
+  🚀 [BATCH] Training probe: sae_16k_l0_408_softmax
+  - [SKIP] Probe already trained: train_on_94_better_spam_sae_16k_l0_408_softmax_L20_resid_post_topk3584_state.npz
+  🤔 [BATCH] Evaluating on 2 datasets…
+    [BATCH] Evaluating on 94_better_spam validation set
+  - 😋 Using cached evaluation result 
+    [BATCH] Evaluating on 94_better_spam test set
+  - 😋 Using cached evaluation result 
+  - 😋 Using cached evaluation result 
+  🚀 [BATCH] Training probe: sae_262k_l0_259_mean
+  - [SKIP] Probe already trained: train_on_94_better_spam_sae_262k_l0_259_mean_L20_resid_post_topk3584_state.npz
+  🤔 [BATCH] Evaluating on 2 datasets…
+    [BATCH] Evaluating on 94_better_spam validation set
+
+=== Group 10/700 — ('94_better_spam', 20, 'resid_post', 51, '__none__', False, 0.75, 0.1, 0.15) ===
+Initializing ActivationManager with model: google/gemma-2-9b, device: cuda:0, cache_dir: activation_cache/google/gemma-2-9b/94_better_spam
+[DEBUG] model_name parameter: google/gemma-2-9b
+[DEBUG] self.model_name: google/gemma-2-9b
+[DEBUG] model parameter: None
+[DEBUG] model type: <class 'NoneType'>
+[DEBUG] Creating read-only activation manager for model_name=google/gemma-2-9b
+[INFO] Created read-only ActivationManager for google/gemma-2-9b (no tokenizer needed)
+[DEBUG] Successfully created read-only activation manager
+Successfully initialized ActivationManager
+Filtered dataset 94_better_spam: 3577 examples passed the filter
+[DEBUG] Class distribution after filter: {0: 2863, 1: 714}
+Split data: 2682 train, 358 val, 537 test
+[DEBUG] Class distribution — train: {0: 2146, 1: 536}, val: {0: 287, 1: 71}, test: {0: 430, 1: 107}
+Initializing ActivationManager with model: google/gemma-2-9b, device: cuda:0, cache_dir: activation_cache/google/gemma-2-9b/87_is_spam
+[DEBUG] model_name parameter: google/gemma-2-9b
+[DEBUG] self.model_name: google/gemma-2-9b
+[DEBUG] model parameter: None
+[DEBUG] model type: <class 'NoneType'>
+[DEBUG] Creating read-only activation manager for model_name=google/gemma-2-9b
+[INFO] Created read-only ActivationManager for google/gemma-2-9b (no tokenizer needed)
+[DEBUG] Successfully created read-only activation manager
+Successfully initialized ActivationManager
+Split data (only_test): 0 train, 0 val, 5157 test (non-balanced)
+  🚀 [BATCH] Training probe: sae_16k_l0_408_mean
+  - [SKIP] Probe already trained: train_on_94_better_spam_sae_16k_l0_408_mean_L20_resid_post_topk3584_state.npz
+  🤔 [BATCH] Evaluating on 2 datasets…
+    [BATCH] Evaluating on 94_better_spam validation set
+  - 😋 Using cached evaluation result 
+    [BATCH] Evaluating on 94_better_spam test set
+  - 😋 Using cached evaluation result 
+  - 😋 Using cached evaluation result 
+  🚀 [BATCH] Training probe: sae_16k_l0_408_max
+  - [SKIP] Probe already trained: train_on_94_better_spam_sae_16k_l0_408_max_L20_resid_post_topk3584_state.npz
+  🤔 [BATCH] Evaluating on 2 datasets…
+    [BATCH] Evaluating on 94_better_spam validation set
+  - 😋 Using cached evaluation result 
+    [BATCH] Evaluating on 94_better_spam test set
+  - 😋 Using cached evaluation result 
+  - 😋 Using cached evaluation result 
+  🚀 [BATCH] Training probe: sae_16k_l0_408_last
+  - [SKIP] Probe already trained: train_on_94_better_spam_sae_16k_l0_408_last_L20_resid_post_topk3584_state.npz
+  🤔 [BATCH] Evaluating on 2 datasets…
+    [BATCH] Evaluating on 94_better_spam validation set
+  - 😋 Using cached evaluation result 
+    [BATCH] Evaluating on 94_better_spam test set
+  - 😋 Using cached evaluation result 
+  - 😋 Using cached evaluation result 
+  🚀 [BATCH] Training probe: sae_16k_l0_408_softmax
+  - [SKIP] Probe already trained: train_on_94_better_spam_sae_16k_l0_408_softmax_L20_resid_post_topk3584_state.npz
+  🤔 [BATCH] Evaluating on 2 datasets…
+    [BATCH] Evaluating on 94_better_spam validation set
+  - 😋 Using cached evaluation result 
+    [BATCH] Evaluating on 94_better_spam test set
+  - 😋 Using cached evaluation result 
+  - 😋 Using cached evaluation result 
+  🚀 [BATCH] Training probe: sae_262k_l0_259_mean
+  - [SKIP] Probe already trained: train_on_94_better_spam_sae_262k_l0_259_mean_L20_resid_post_topk3584_state.npz
+  🤔 [BATCH] Evaluating on 2 datasets…
+    [BATCH] Evaluating on 94_better_spam validation set
+  - 😋 Using cached evaluation result 
+    [BATCH] Evaluating on 94_better_spam test set
+  - 😋 Using cached evaluation result 
+  - 😋 Using cached evaluation result 
+  🚀 [BATCH] Training probe: sae_262k_l0_259_max
+  - [SKIP] Probe already trained: train_on_94_better_spam_sae_262k_l0_259_max_L20_resid_post_topk3584_state.npz
+  🤔 [BATCH] Evaluating on 2 datasets…
+    [BATCH] Evaluating on 94_better_spam validation set
+  - 😋 Using cached evaluation result 
+    [BATCH] Evaluating on 94_better_spam test set
+
+=== Group 6/700 — ('94_better_spam', 20, 'resid_post', 47, '__none__', False, 0.75, 0.1, 0.15) ===
+Initializing ActivationManager with model: google/gemma-2-9b, device: cuda:0, cache_dir: activation_cache/google/gemma-2-9b/94_better_spam
+[DEBUG] model_name parameter: google/gemma-2-9b
+[DEBUG] self.model_name: google/gemma-2-9b
+[DEBUG] model parameter: None
+[DEBUG] model type: <class 'NoneType'>
+[DEBUG] Creating read-only activation manager for model_name=google/gemma-2-9b
+[INFO] Created read-only ActivationManager for google/gemma-2-9b (no tokenizer needed)
+[DEBUG] Successfully created read-only activation manager
+Successfully initialized ActivationManager
+Filtered dataset 94_better_spam: 3577 examples passed the filter
+[DEBUG] Class distribution after filter: {0: 2863, 1: 714}
+Split data: 2682 train, 358 val, 537 test
+[DEBUG] Class distribution — train: {0: 2146, 1: 536}, val: {0: 287, 1: 71}, test: {0: 430, 1: 107}
+Initializing ActivationManager with model: google/gemma-2-9b, device: cuda:0, cache_dir: activation_cache/google/gemma-2-9b/87_is_spam
+[DEBUG] model_name parameter: google/gemma-2-9b
+[DEBUG] self.model_name: google/gemma-2-9b
+[DEBUG] model parameter: None
+[DEBUG] model type: <class 'NoneType'>
+[DEBUG] Creating read-only activation manager for model_name=google/gemma-2-9b
+[INFO] Created read-only ActivationManager for google/gemma-2-9b (no tokenizer needed)
+[DEBUG] Successfully created read-only activation manager
+Successfully initialized ActivationManager
+Split data (only_test): 0 train, 0 val, 5157 test (non-balanced)
+  🚀 [BATCH] Training probe: sae_16k_l0_408_mean
+  - [SKIP] Probe already trained: train_on_94_better_spam_sae_16k_l0_408_mean_L20_resid_post_topk3584_state.npz
+  🤔 [BATCH] Evaluating on 2 datasets…
+    [BATCH] Evaluating on 94_better_spam validation set
+  - 😋 Using cached evaluation result 
+    [BATCH] Evaluating on 94_better_spam test set
+  - 😋 Using cached evaluation result 
+  - 😋 Using cached evaluation result 
+  🚀 [BATCH] Training probe: sae_16k_l0_408_max
+  - [SKIP] Probe already trained: train_on_94_better_spam_sae_16k_l0_408_max_L20_resid_post_topk3584_state.npz
+  🤔 [BATCH] Evaluating on 2 datasets…
+    [BATCH] Evaluating on 94_better_spam validation set
+  - 😋 Using cached evaluation result 
+    [BATCH] Evaluating on 94_better_spam test set
+  - 😋 Using cached evaluation result 
+  - 😋 Using cached evaluation result 
+  🚀 [BATCH] Training probe: sae_16k_l0_408_last
+  - [SKIP] Probe already trained: train_on_94_better_spam_sae_16k_l0_408_last_L20_resid_post_topk3584_state.npz
+  🤔 [BATCH] Evaluating on 2 datasets…
+    [BATCH] Evaluating on 94_better_spam validation set
+  - 😋 Using cached evaluation result 
+    [BATCH] Evaluating on 94_better_spam test set
+  - 😋 Using cached evaluation result 
+  - 😋 Using cached evaluation result 
+  🚀 [BATCH] Training probe: sae_16k_l0_408_softmax
+  - [SKIP] Probe already trained: train_on_94_better_spam_sae_16k_l0_408_softmax_L20_resid_post_topk3584_state.npz
+  🤔 [BATCH] Evaluating on 2 datasets…
+    [BATCH] Evaluating on 94_better_spam validation set
+  - 😋 Using cached evaluation result 
+    [BATCH] Evaluating on 94_better_spam test set
+  - 😋 Using cached evaluation result 
+  - 😋 Using cached evaluation result 
+  🚀 [BATCH] Training probe: sae_262k_l0_259_mean
+  - [SKIP] Probe already trained: train_on_94_better_spam_sae_262k_l0_259_mean_L20_resid_post_topk3584_state.npz
+  🤔 [BATCH] Evaluating on 2 datasets…
+    [BATCH] Evaluating on 94_better_spam validation set
+  - 😋 Using cached evaluation result 
+    [BATCH] Evaluating on 94_better_spam test set
+[DEBUG] Newly added count: 0
+[DEBUG] Loading sae_max aggregated activations from activation_cache/google/gemma-2-9b/94_better_spam/blocks‑20‑hook_resid_post_aggregated_max.npz
+[DEBUG] Loaded sae_max aggregated activations: (2682, 3584)
+[DEBUG] Returning (2682, 3584) activations
+[DEBUG] train activations shape: (2682, 3584), dtype: float16
+[DEBUG] train activations range: [-1377.000000, 237.500000]
+Train activations: (2682, 3584)
+[DEBUG] Pre-fit sample counts — X: 2682, y: 2682
+[DEBUG] y_train class distribution: {0: 2146, 1: 536}
+  [DEBUG] Creating probe for architecture: sae_262k_l0_259_max
+  [DEBUG] Fitting SAE probe normally...
+  [DEBUG] Fitting SAE probe normally...
+[DEBUG] Newly added count: 0
+[DEBUG] Loading sae_max aggregated activations from activation_cache/google/gemma-2-9b/94_better_spam/blocks‑20‑hook_resid_post_aggregated_max.npz
+[DEBUG] Loaded sae_max aggregated activations: (537, 3584)
+[DEBUG] Returning (537, 3584) activations
+[DEBUG] test activations shape: (537, 3584), dtype: float16
+[DEBUG] test activations range: [-1377.000000, 237.000000]
+Test activations: (537, 3584)
+  - 🤗 Calculating metrics...
+
+=== SAE PROBE TRAINING START (sklearn) ===
+Model: google/gemma-2-9b, Layer: 20
+SAE source: sae_lens
+Aggregation: max
+Top-k features: 3584
+SAE encoding batch size: 1280
+Input X shape: (2682, 3584)
+Input y shape: (2682,)
+Encoding activations through SAE...
+[DEBUG] Before encoding. Memory: RAM: 0.73GB, GPU_allocated: 0.00GB, GPU_reserved: 0.00GB
+[DEBUG] Input activations shape: (2682, 3584)
+[DEBUG] Using pre-aggregated inputs: (2682, 3584)
+Loading SAE via sae_lens: layer_20/width_262k/average_l0_259
+Loaded SAE: layer_20/width_262k/average_l0_259
+[DEBUG] Processing 3 batches of size 1280
+Encoding activations:   0%|                               | 0/3 [00:00<?, ?it/s]Encoding activations:  33%|███████▋               | 1/3 [00:00<00:00,  6.24it/s]Encoding activations: 100%|███████████████████████| 3/3 [00:00<00:00, 13.42it/s]
+[DEBUG] Final encoded shape: (2682, 262144)
+Encoded feature matrix shape: (2682, 262144)
+[DEBUG] After encoding. Memory: RAM: 3.71GB, GPU_allocated: 7.03GB, GPU_reserved: 17.51GB
+Selecting top features...
+[DEBUG] Feature selection input shapes: X_train=(2682, 262144), y_train=(2682,)
+[DEBUG] Memory at start of feature selection: RAM: 3.71GB, GPU_allocated: 7.03GB, GPU_reserved: 17.51GB
+[DEBUG] Feature matrix for selection shape: (2682, 262144)
+[DEBUG] Memory after feature matrix build: RAM: 3.71GB, GPU_allocated: 7.03GB, GPU_reserved: 17.51GB
+[DEBUG] Difference vector shape: (262144,)
+[DEBUG] Memory after difference calculation: RAM: 3.71GB, GPU_allocated: 7.03GB, GPU_reserved: 17.51GB
+Selected top 3584 features from 262144 total features
+[DEBUG] Memory at end of feature selection: RAM: 3.71GB, GPU_allocated: 7.03GB, GPU_reserved: 17.51GB
+Selected 3584 features
+[DEBUG] X_selected shape: (2682, 3584)
+  - 🔥 Probe state saved to train_on_94_better_spam_sae_262k_l0_259_max_L20_resid_post_topk3584_state.npz
+  🤔 [BATCH] Evaluating on 2 datasets…
+    [BATCH] Evaluating on 94_better_spam validation set
+[DEBUG] Newly added count: 0
+[DEBUG] Loading sae_mean aggregated activations from activation_cache/google/gemma-2-9b/94_better_spam/blocks‑20‑hook_resid_post_aggregated_mean.npz
+[DEBUG] Loaded sae_mean aggregated activations: (537, 3584)
+[DEBUG] Returning (537, 3584) activations
+[DEBUG] test activations shape: (537, 3584), dtype: float16
+[DEBUG] test activations range: [-1025.000000, 73.875000]
+Test activations: (537, 3584)
+  - 🤗 Calculating metrics...
+
+=== Group 1/700 — ('94_better_spam', 20, 'resid_post', 42, '__none__', False, 0.75, 0.1, 0.15) ===
+Initializing ActivationManager with model: google/gemma-2-9b, device: cuda:0, cache_dir: activation_cache/google/gemma-2-9b/94_better_spam
+[DEBUG] model_name parameter: google/gemma-2-9b
+[DEBUG] self.model_name: google/gemma-2-9b
+[DEBUG] model parameter: None
+[DEBUG] model type: <class 'NoneType'>
+[DEBUG] Creating read-only activation manager for model_name=google/gemma-2-9b
+[INFO] Created read-only ActivationManager for google/gemma-2-9b (no tokenizer needed)
+[DEBUG] Successfully created read-only activation manager
+Successfully initialized ActivationManager
+Filtered dataset 94_better_spam: 3577 examples passed the filter
+[DEBUG] Class distribution after filter: {0: 2863, 1: 714}
+Split data: 2682 train, 358 val, 537 test
+[DEBUG] Class distribution — train: {0: 2146, 1: 536}, val: {0: 287, 1: 71}, test: {0: 430, 1: 107}
+Initializing ActivationManager with model: google/gemma-2-9b, device: cuda:0, cache_dir: activation_cache/google/gemma-2-9b/87_is_spam
+[DEBUG] model_name parameter: google/gemma-2-9b
+[DEBUG] self.model_name: google/gemma-2-9b
+[DEBUG] model parameter: None
+[DEBUG] model type: <class 'NoneType'>
+[DEBUG] Creating read-only activation manager for model_name=google/gemma-2-9b
+[INFO] Created read-only ActivationManager for google/gemma-2-9b (no tokenizer needed)
+[DEBUG] Successfully created read-only activation manager
+Successfully initialized ActivationManager
+Split data (only_test): 0 train, 0 val, 5157 test (non-balanced)
+  🚀 [BATCH] Training probe: sae_16k_l0_408_mean
+  - [SKIP] Probe already trained: train_on_94_better_spam_sae_16k_l0_408_mean_L20_resid_post_topk3584_state.npz
+  🤔 [BATCH] Evaluating on 2 datasets…
+    [BATCH] Evaluating on 94_better_spam validation set
+  - 😋 Using cached evaluation result 
+    [BATCH] Evaluating on 94_better_spam test set
+  - 😋 Using cached evaluation result 
+  - 😋 Using cached evaluation result 
+  🚀 [BATCH] Training probe: sae_16k_l0_408_max
+  - [SKIP] Probe already trained: train_on_94_better_spam_sae_16k_l0_408_max_L20_resid_post_topk3584_state.npz
+  🤔 [BATCH] Evaluating on 2 datasets…
+    [BATCH] Evaluating on 94_better_spam validation set
+  - 😋 Using cached evaluation result 
+    [BATCH] Evaluating on 94_better_spam test set
+  - 😋 Using cached evaluation result 
+  - 😋 Using cached evaluation result 
+  🚀 [BATCH] Training probe: sae_16k_l0_408_last
+  - [SKIP] Probe already trained: train_on_94_better_spam_sae_16k_l0_408_last_L20_resid_post_topk3584_state.npz
+  🤔 [BATCH] Evaluating on 2 datasets…
+    [BATCH] Evaluating on 94_better_spam validation set
+  - 😋 Using cached evaluation result 
+    [BATCH] Evaluating on 94_better_spam test set
+  - 😋 Using cached evaluation result 
+  - 😋 Using cached evaluation result 
+  🚀 [BATCH] Training probe: sae_16k_l0_408_softmax
+  - [SKIP] Probe already trained: train_on_94_better_spam_sae_16k_l0_408_softmax_L20_resid_post_topk3584_state.npz
+  🤔 [BATCH] Evaluating on 2 datasets…
+    [BATCH] Evaluating on 94_better_spam validation set
+  - 😋 Using cached evaluation result 
+    [BATCH] Evaluating on 94_better_spam test set
+  - 😋 Using cached evaluation result 
+  - 😋 Using cached evaluation result 
+  🚀 [BATCH] Training probe: sae_262k_l0_259_mean
+  - [SKIP] Probe already trained: train_on_94_better_spam_sae_262k_l0_259_mean_L20_resid_post_topk3584_state.npz
+  🤔 [BATCH] Evaluating on 2 datasets…
+    [BATCH] Evaluating on 94_better_spam validation set
+  - 😋 Using cached evaluation result 
+    [BATCH] Evaluating on 94_better_spam test set
+  - 😋 Using cached evaluation result 
+  - 😋 Using cached evaluation result 
+  🚀 [BATCH] Training probe: sae_262k_l0_259_max
+  - [SKIP] Probe already trained: train_on_94_better_spam_sae_262k_l0_259_max_L20_resid_post_topk3584_state.npz
+  🤔 [BATCH] Evaluating on 2 datasets…
+    [BATCH] Evaluating on 94_better_spam validation set
+  - 😋 Using cached evaluation result 
+    [BATCH] Evaluating on 94_better_spam test set
+  - 😋 Using cached evaluation result 
+  - 😋 Using cached evaluation result 
+  🚀 [BATCH] Training probe: sae_262k_l0_259_last
+  - [SKIP] Probe already trained: train_on_94_better_spam_sae_262k_l0_259_last_L20_resid_post_topk3584_state.npz
+  🤔 [BATCH] Evaluating on 2 datasets…
+    [BATCH] Evaluating on 94_better_spam validation set
+  - 😋 Using cached evaluation result 
+    [BATCH] Evaluating on 94_better_spam test set
+  - 😋 Using cached evaluation result 
+  - 😋 Using cached evaluation result 
+  🚀 [BATCH] Training probe: sae_262k_l0_259_softmax
+  - [SKIP] Probe already trained: train_on_94_better_spam_sae_262k_l0_259_softmax_L20_resid_post_topk3584_state.npz
+  🤔 [BATCH] Evaluating on 2 datasets…
+    [BATCH] Evaluating on 94_better_spam validation set
+  - 😋 Using cached evaluation result 
+    [BATCH] Evaluating on 94_better_spam test set
+  - 😋 Using cached evaluation result 
+  - 😋 Using cached evaluation result 
+  🚀 [BATCH] Training probe: attention
+  - Training new probe …
+  [DEBUG] Starting dataset preparation...
+  [DEBUG] Using activation_type: full
+
+=== SAE PROBE TRAINING START (sklearn) ===
+Model: google/gemma-2-9b, Layer: 20
+SAE source: sae_lens
+Aggregation: max
+Top-k features: 3584
+SAE encoding batch size: 1280
+Input X shape: (2682, 3584)
+Input y shape: (2682,)
+Encoding activations through SAE...
+[DEBUG] Before encoding. Memory: RAM: 0.73GB, GPU_allocated: 0.00GB, GPU_reserved: 0.00GB
+[DEBUG] Input activations shape: (2682, 3584)
+[DEBUG] Using pre-aggregated inputs: (2682, 3584)
+Loading SAE via sae_lens: layer_20/width_262k/average_l0_259
+Loaded SAE: layer_20/width_262k/average_l0_259
+[DEBUG] Processing 3 batches of size 1280
+Encoding activations:   0%|                               | 0/3 [00:00<?, ?it/s]Encoding activations:  33%|███████▋               | 1/3 [00:00<00:00,  5.95it/s]Encoding activations: 100%|███████████████████████| 3/3 [00:00<00:00, 12.96it/s]
+[DEBUG] Newly added count: 0
+[DEBUG] Loading sae_mean aggregated activations from activation_cache/google/gemma-2-9b/94_better_spam/blocks‑20‑hook_resid_post_aggregated_mean.npz
+[DEBUG] Loaded sae_mean aggregated activations: (537, 3584)
+[DEBUG] Returning (537, 3584) activations
+[DEBUG] test activations shape: (537, 3584), dtype: float16
+[DEBUG] test activations range: [-663.000000, 51.000000]
+Test activations: (537, 3584)
+  - 🤗 Calculating metrics...
+[DEBUG] Final encoded shape: (2682, 262144)
+Encoded feature matrix shape: (2682, 262144)
+[DEBUG] After encoding. Memory: RAM: 3.73GB, GPU_allocated: 7.03GB, GPU_reserved: 17.51GB
+Selecting top features...
+[DEBUG] Feature selection input shapes: X_train=(2682, 262144), y_train=(2682,)
+[DEBUG] Memory at start of feature selection: RAM: 3.73GB, GPU_allocated: 7.03GB, GPU_reserved: 17.51GB
+[DEBUG] Feature matrix for selection shape: (2682, 262144)
+[DEBUG] Memory after feature matrix build: RAM: 3.73GB, GPU_allocated: 7.03GB, GPU_reserved: 17.51GB
+[DEBUG] Difference vector shape: (262144,)
+[DEBUG] Memory after difference calculation: RAM: 3.73GB, GPU_allocated: 7.03GB, GPU_reserved: 17.51GB
+Selected top 3584 features from 262144 total features
+[DEBUG] Memory at end of feature selection: RAM: 3.73GB, GPU_allocated: 7.03GB, GPU_reserved: 17.51GB
+Selected 3584 features
+[DEBUG] X_selected shape: (2682, 3584)
+  - 🔥 Probe state saved to train_on_94_better_spam_sae_262k_l0_259_max_L20_resid_post_topk3584_state.npz
+  🤔 [BATCH] Evaluating on 2 datasets…
+    [BATCH] Evaluating on 94_better_spam validation set
+
+=== Group 2/700 — ('94_better_spam', 20, 'resid_post', 43, '__none__', False, 0.75, 0.1, 0.15) ===
+Initializing ActivationManager with model: google/gemma-2-9b, device: cuda:0, cache_dir: activation_cache/google/gemma-2-9b/94_better_spam
+[DEBUG] model_name parameter: google/gemma-2-9b
+[DEBUG] self.model_name: google/gemma-2-9b
+[DEBUG] model parameter: None
+[DEBUG] model type: <class 'NoneType'>
+[DEBUG] Creating read-only activation manager for model_name=google/gemma-2-9b
+[INFO] Created read-only ActivationManager for google/gemma-2-9b (no tokenizer needed)
+[DEBUG] Successfully created read-only activation manager
+Successfully initialized ActivationManager
+Filtered dataset 94_better_spam: 3577 examples passed the filter
+[DEBUG] Class distribution after filter: {0: 2863, 1: 714}
+Split data: 2682 train, 358 val, 537 test
+[DEBUG] Class distribution — train: {0: 2146, 1: 536}, val: {0: 287, 1: 71}, test: {0: 430, 1: 107}
+Initializing ActivationManager with model: google/gemma-2-9b, device: cuda:0, cache_dir: activation_cache/google/gemma-2-9b/87_is_spam
+[DEBUG] model_name parameter: google/gemma-2-9b
+[DEBUG] self.model_name: google/gemma-2-9b
+[DEBUG] model parameter: None
+[DEBUG] model type: <class 'NoneType'>
+[DEBUG] Creating read-only activation manager for model_name=google/gemma-2-9b
+[INFO] Created read-only ActivationManager for google/gemma-2-9b (no tokenizer needed)
+[DEBUG] Successfully created read-only activation manager
+Successfully initialized ActivationManager
+Split data (only_test): 0 train, 0 val, 5157 test (non-balanced)
+  🚀 [BATCH] Training probe: sae_16k_l0_408_mean
+  - [SKIP] Probe already trained: train_on_94_better_spam_sae_16k_l0_408_mean_L20_resid_post_topk3584_state.npz
+  🤔 [BATCH] Evaluating on 2 datasets…
+    [BATCH] Evaluating on 94_better_spam validation set
+  - 😋 Using cached evaluation result 
+    [BATCH] Evaluating on 94_better_spam test set
+  - 😋 Using cached evaluation result 
+  - 😋 Using cached evaluation result 
+  🚀 [BATCH] Training probe: sae_16k_l0_408_max
+  - [SKIP] Probe already trained: train_on_94_better_spam_sae_16k_l0_408_max_L20_resid_post_topk3584_state.npz
+  🤔 [BATCH] Evaluating on 2 datasets…
+    [BATCH] Evaluating on 94_better_spam validation set
+  - 😋 Using cached evaluation result 
+    [BATCH] Evaluating on 94_better_spam test set
+  - 😋 Using cached evaluation result 
+  - 😋 Using cached evaluation result 
+  🚀 [BATCH] Training probe: sae_16k_l0_408_last
+  - [SKIP] Probe already trained: train_on_94_better_spam_sae_16k_l0_408_last_L20_resid_post_topk3584_state.npz
+  🤔 [BATCH] Evaluating on 2 datasets…
+    [BATCH] Evaluating on 94_better_spam validation set
+  - 😋 Using cached evaluation result 
+    [BATCH] Evaluating on 94_better_spam test set
+  - 😋 Using cached evaluation result 
+  - 😋 Using cached evaluation result 
+  🚀 [BATCH] Training probe: sae_16k_l0_408_softmax
+  - [SKIP] Probe already trained: train_on_94_better_spam_sae_16k_l0_408_softmax_L20_resid_post_topk3584_state.npz
+  🤔 [BATCH] Evaluating on 2 datasets…
+    [BATCH] Evaluating on 94_better_spam validation set
+  - 😋 Using cached evaluation result 
+    [BATCH] Evaluating on 94_better_spam test set
+  - 😋 Using cached evaluation result 
+  - 😋 Using cached evaluation result 
+  🚀 [BATCH] Training probe: sae_262k_l0_259_mean
+  - [SKIP] Probe already trained: train_on_94_better_spam_sae_262k_l0_259_mean_L20_resid_post_topk3584_state.npz
+  🤔 [BATCH] Evaluating on 2 datasets…
+    [BATCH] Evaluating on 94_better_spam validation set
+  - 😋 Using cached evaluation result 
+    [BATCH] Evaluating on 94_better_spam test set
+  - 😋 Using cached evaluation result 
+  - 😋 Using cached evaluation result 
+  🚀 [BATCH] Training probe: sae_262k_l0_259_max
+  - [SKIP] Probe already trained: train_on_94_better_spam_sae_262k_l0_259_max_L20_resid_post_topk3584_state.npz
+  🤔 [BATCH] Evaluating on 2 datasets…
+    [BATCH] Evaluating on 94_better_spam validation set
+  - 😋 Using cached evaluation result 
+    [BATCH] Evaluating on 94_better_spam test set
+
+=== Group 3/700 — ('94_better_spam', 20, 'resid_post', 44, '__none__', False, 0.75, 0.1, 0.15) ===
+Initializing ActivationManager with model: google/gemma-2-9b, device: cuda:0, cache_dir: activation_cache/google/gemma-2-9b/94_better_spam
+[DEBUG] model_name parameter: google/gemma-2-9b
+[DEBUG] self.model_name: google/gemma-2-9b
+[DEBUG] model parameter: None
+[DEBUG] model type: <class 'NoneType'>
+[DEBUG] Creating read-only activation manager for model_name=google/gemma-2-9b
+[INFO] Created read-only ActivationManager for google/gemma-2-9b (no tokenizer needed)
+[DEBUG] Successfully created read-only activation manager
+Successfully initialized ActivationManager
+Filtered dataset 94_better_spam: 3577 examples passed the filter
+[DEBUG] Class distribution after filter: {0: 2863, 1: 714}
+Split data: 2682 train, 358 val, 537 test
+[DEBUG] Class distribution — train: {0: 2146, 1: 536}, val: {0: 287, 1: 71}, test: {0: 430, 1: 107}
+Initializing ActivationManager with model: google/gemma-2-9b, device: cuda:0, cache_dir: activation_cache/google/gemma-2-9b/87_is_spam
+[DEBUG] model_name parameter: google/gemma-2-9b
+[DEBUG] self.model_name: google/gemma-2-9b
+[DEBUG] model parameter: None
+[DEBUG] model type: <class 'NoneType'>
+[DEBUG] Creating read-only activation manager for model_name=google/gemma-2-9b
+[INFO] Created read-only ActivationManager for google/gemma-2-9b (no tokenizer needed)
+[DEBUG] Successfully created read-only activation manager
+Successfully initialized ActivationManager
+Split data (only_test): 0 train, 0 val, 5157 test (non-balanced)
+  🚀 [BATCH] Training probe: sae_16k_l0_408_mean
+  - [SKIP] Probe already trained: train_on_94_better_spam_sae_16k_l0_408_mean_L20_resid_post_topk3584_state.npz
+  🤔 [BATCH] Evaluating on 2 datasets…
+    [BATCH] Evaluating on 94_better_spam validation set
+  - 😋 Using cached evaluation result 
+    [BATCH] Evaluating on 94_better_spam test set
+  - 😋 Using cached evaluation result 
+  - 😋 Using cached evaluation result 
+  🚀 [BATCH] Training probe: sae_16k_l0_408_max
+  - [SKIP] Probe already trained: train_on_94_better_spam_sae_16k_l0_408_max_L20_resid_post_topk3584_state.npz
+  🤔 [BATCH] Evaluating on 2 datasets…
+    [BATCH] Evaluating on 94_better_spam validation set
+  - 😋 Using cached evaluation result 
+    [BATCH] Evaluating on 94_better_spam test set
+  - 😋 Using cached evaluation result 
+  - 😋 Using cached evaluation result 
+  🚀 [BATCH] Training probe: sae_16k_l0_408_last
+  - [SKIP] Probe already trained: train_on_94_better_spam_sae_16k_l0_408_last_L20_resid_post_topk3584_state.npz
+  🤔 [BATCH] Evaluating on 2 datasets…
+    [BATCH] Evaluating on 94_better_spam validation set
+  - 😋 Using cached evaluation result 
+    [BATCH] Evaluating on 94_better_spam test set
+  - 😋 Using cached evaluation result 
+  - 😋 Using cached evaluation result 
+  🚀 [BATCH] Training probe: sae_16k_l0_408_softmax
+  - [SKIP] Probe already trained: train_on_94_better_spam_sae_16k_l0_408_softmax_L20_resid_post_topk3584_state.npz
+  🤔 [BATCH] Evaluating on 2 datasets…
+    [BATCH] Evaluating on 94_better_spam validation set
+  - 😋 Using cached evaluation result 
+    [BATCH] Evaluating on 94_better_spam test set
+  - 😋 Using cached evaluation result 
+  - 😋 Using cached evaluation result 
+  🚀 [BATCH] Training probe: sae_262k_l0_259_mean
+  - [SKIP] Probe already trained: train_on_94_better_spam_sae_262k_l0_259_mean_L20_resid_post_topk3584_state.npz
+  🤔 [BATCH] Evaluating on 2 datasets…
+    [BATCH] Evaluating on 94_better_spam validation set
+  - 😋 Using cached evaluation result 
+    [BATCH] Evaluating on 94_better_spam test set
+  - 😋 Using cached evaluation result 
+  - 😋 Using cached evaluation result 
+  🚀 [BATCH] Training probe: sae_262k_l0_259_max
+  - [SKIP] Probe already trained: train_on_94_better_spam_sae_262k_l0_259_max_L20_resid_post_topk3584_state.npz
+  🤔 [BATCH] Evaluating on 2 datasets…
+    [BATCH] Evaluating on 94_better_spam validation set
+  - 😋 Using cached evaluation result 
+    [BATCH] Evaluating on 94_better_spam test set
+[DEBUG] Input activations shape: (537, 3584)
+[DEBUG] Using pre-aggregated inputs: (537, 3584)
+Loading SAE via sae_lens: layer_20/width_262k/average_l0_259
+Loaded SAE: layer_20/width_262k/average_l0_259
+[DEBUG] Processing 1 batches of size 1280
+Encoding activations:   0%|                               | 0/1 [00:00<?, ?it/s][DEBUG] Newly added count: 0
+[DEBUG] Loading sae_max aggregated activations from activation_cache/google/gemma-2-9b/94_better_spam/blocks‑20‑hook_resid_post_aggregated_max.npz
+[DEBUG] Loaded sae_max aggregated activations: (537, 3584)
+[DEBUG] Returning (537, 3584) activations
+[DEBUG] test activations shape: (537, 3584), dtype: float16
+[DEBUG] test activations range: [-1377.000000, 237.000000]
+Test activations: (537, 3584)
+  - 🤗 Calculating metrics...
+Encoding activations: 100%|███████████████████████| 1/1 [00:00<00:00, 10.51it/s]
+[DEBUG] Final encoded shape: (537, 262144)
+[DEBUG] Input activations shape: (537, 3584)
+[DEBUG] Using pre-aggregated inputs: (537, 3584)
+[DEBUG] Processing 1 batches of size 1280
+Encoding activations:   0%|                               | 0/1 [00:00<?, ?it/s]Encoding activations: 100%|███████████████████████| 1/1 [00:00<00:00, 37.69it/s]
+[DEBUG] Final encoded shape: (537, 262144)
+[DEBUG] Input activations shape: (537, 3584)
+[DEBUG] Using pre-aggregated inputs: (537, 3584)
+[DEBUG] Processing 1 batches of size 1280
+Encoding activations:   0%|                               | 0/1 [00:00<?, ?it/s]Encoding activations: 100%|███████████████████████| 1/1 [00:00<00:00, 37.64it/s]
+[DEBUG] Final encoded shape: (537, 262144)
+  - ❤️‍🔥 Success! Metrics: {'acc': 0.9851024208566108, 'auc': 0.9998043903499239, 'precision': 0.9304347826086956, 'recall': 1.0, 'fpr': 0.018604651162790697}
+[DEBUG] Newly added count: 0
+[DEBUG] Loading sae_mean aggregated activations from activation_cache/google/gemma-2-9b/94_better_spam/blocks‑20‑hook_resid_post_aggregated_mean.npz
+[DEBUG] Loaded sae_mean aggregated activations: (537, 3584)
+[DEBUG] Returning (537, 3584) activations
+[DEBUG] test activations shape: (537, 3584), dtype: float16
+[DEBUG] test activations range: [-1053.000000, 68.750000]
+Test activations: (537, 3584)
+  - 🤗 Calculating metrics...
+[DEBUG] Input activations shape: (537, 3584)
+[DEBUG] Using pre-aggregated inputs: (537, 3584)
+Loading SAE via sae_lens: layer_20/width_262k/average_l0_259
+Loaded SAE: layer_20/width_262k/average_l0_259
+[DEBUG] Processing 1 batches of size 1280
+Encoding activations:   0%|                               | 0/1 [00:00<?, ?it/s]Encoding activations: 100%|███████████████████████| 1/1 [00:00<00:00,  8.52it/s]Encoding activations: 100%|███████████████████████| 1/1 [00:00<00:00,  8.50it/s]
+[DEBUG] Final encoded shape: (537, 262144)
+[DEBUG] Input activations shape: (537, 3584)
+[DEBUG] Using pre-aggregated inputs: (537, 3584)
+[DEBUG] Processing 1 batches of size 1280
+Encoding activations:   0%|                               | 0/1 [00:00<?, ?it/s]Encoding activations: 100%|███████████████████████| 1/1 [00:00<00:00, 34.12it/s]
+[DEBUG] Final encoded shape: (537, 262144)
+[DEBUG] Input activations shape: (537, 3584)
+[DEBUG] Using pre-aggregated inputs: (537, 3584)
+[DEBUG] Processing 1 batches of size 1280
+Encoding activations:   0%|                               | 0/1 [00:00<?, ?it/s]Encoding activations: 100%|███████████████████████| 1/1 [00:00<00:00, 37.71it/s]
+[DEBUG] Final encoded shape: (537, 262144)
+  - ❤️‍🔥 Success! Metrics: {'acc': 0.9720670391061452, 'auc': 0.9871114975005434, 'precision': 0.9259259259259259, 'recall': 0.9345794392523364, 'fpr': 0.018604651162790697}
+[DEBUG] Newly added count: 0
+[DEBUG] Loading sae_max aggregated activations from activation_cache/google/gemma-2-9b/87_is_spam/blocks‑20‑hook_resid_post_aggregated_max.npz
+[DEBUG] Loaded sae_max aggregated activations: (5157, 3584)
+[DEBUG] Returning (5157, 3584) activations
+[DEBUG] test activations shape: (5157, 3584), dtype: float16
+[DEBUG] test activations range: [-1371.000000, 237.500000]
+Test activations: (5157, 3584)
+  - 🤗 Calculating metrics...
+[DEBUG] Newly added count: 0
+[DEBUG] Loading sae_mean aggregated activations from activation_cache/google/gemma-2-9b/87_is_spam/blocks‑20‑hook_resid_post_aggregated_mean.npz
+[DEBUG] Loaded sae_mean aggregated activations: (5157, 3584)
+[DEBUG] Returning (5157, 3584) activations
+[DEBUG] test activations shape: (5157, 3584), dtype: float16
+[DEBUG] test activations range: [-1522.000000, 113.625000]
+Test activations: (5157, 3584)
+  - 🤗 Calculating metrics...
+[DEBUG] Input activations shape: (537, 3584)
+[DEBUG] Using pre-aggregated inputs: (537, 3584)
+Loading SAE via sae_lens: layer_20/width_262k/average_l0_259
+    💀💀💀 ERROR evaluating validation on '94_better_spam': CUDA out of memory. Tried to allocate 3.50 GiB. GPU 0 has a total capacity of 94.50 GiB of which 2.38 GiB is free. Process 286646 has 638.00 MiB memory in use. Process 286744 has 18.19 GiB memory in use. Process 286739 has 18.19 GiB memory in use. Including non-PyTorch memory, this process has 14.63 GiB memory in use. Process 286745 has 18.19 GiB memory in use. Process 286736 has 4.03 GiB memory in use. Process 286741 has 16.00 MiB memory in use. Process 286743 has 18.19 GiB memory in use. Of the allocated memory 14.00 GiB is allocated by PyTorch, and 1.97 MiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)
+    [BATCH] Evaluating on 94_better_spam test set
+[DEBUG] Input activations shape: (537, 3584)
+[DEBUG] Using pre-aggregated inputs: (537, 3584)
+Loading SAE via sae_lens: layer_20/width_262k/average_l0_259
+    💀💀💀 ERROR evaluating test on '94_better_spam': CUDA out of memory. Tried to allocate 3.50 GiB. GPU 0 has a total capacity of 94.50 GiB of which 1.86 GiB is free. Process 286646 has 638.00 MiB memory in use. Process 286744 has 18.19 GiB memory in use. Process 286739 has 18.19 GiB memory in use. Process 286738 has 14.63 GiB memory in use. Process 286745 has 18.19 GiB memory in use. Process 286736 has 4.03 GiB memory in use. Including non-PyTorch memory, this process has 546.00 MiB memory in use. Process 286743 has 18.19 GiB memory in use. Of the allocated memory 0 bytes is allocated by PyTorch, and 0 bytes is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)
+[DEBUG] Newly added count: 0
+[DEBUG] Loading sae_max aggregated activations from activation_cache/google/gemma-2-9b/94_better_spam/blocks‑20‑hook_resid_post_aggregated_max.npz
+[DEBUG] Loaded sae_max aggregated activations: (537, 3584)
+[DEBUG] Returning (537, 3584) activations
+[DEBUG] test activations shape: (537, 3584), dtype: float16
+[DEBUG] test activations range: [-115.000000, 237.000000]
+Test activations: (537, 3584)
+  - 🤗 Calculating metrics...
+[DEBUG] Input activations shape: (537, 3584)
+[DEBUG] Using pre-aggregated inputs: (537, 3584)
+Loading SAE via sae_lens: layer_20/width_262k/average_l0_259
+    💀💀💀 ERROR evaluating test on '94_better_spam': CUDA out of memory. Tried to allocate 3.50 GiB. GPU 0 has a total capacity of 94.50 GiB of which 1.86 GiB is free. Process 286646 has 638.00 MiB memory in use. Process 286744 has 18.19 GiB memory in use. Process 286739 has 18.19 GiB memory in use. Process 286738 has 14.63 GiB memory in use. Process 286745 has 18.19 GiB memory in use. Including non-PyTorch memory, this process has 4.03 GiB memory in use. Process 286741 has 546.00 MiB memory in use. Process 286743 has 18.19 GiB memory in use. Of the allocated memory 3.50 GiB is allocated by PyTorch, and 0 bytes is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)
+[DEBUG] Input activations shape: (5157, 3584)
+[DEBUG] Using pre-aggregated inputs: (5157, 3584)
+Loading SAE via sae_lens: layer_20/width_262k/average_l0_259
+    💀💀💀 ERROR evaluating on '87_is_spam': CUDA out of memory. Tried to allocate 3.50 GiB. GPU 0 has a total capacity of 94.50 GiB of which 1.86 GiB is free. Process 286646 has 638.00 MiB memory in use. Including non-PyTorch memory, this process has 18.19 GiB memory in use. Process 286739 has 18.19 GiB memory in use. Process 286738 has 14.63 GiB memory in use. Process 286745 has 18.19 GiB memory in use. Process 286736 has 4.03 GiB memory in use. Process 286741 has 546.00 MiB memory in use. Process 286743 has 18.19 GiB memory in use. Of the allocated memory 14.04 GiB is allocated by PyTorch, and 3.47 GiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)
+  🚀 [BATCH] Training probe: sae_262k_l0_259_last
+  - Training new probe …
+  [DEBUG] Starting dataset preparation...
+  [DEBUG] Using activation_type: sae_last
+[DEBUG] Newly added count: 0
+[DEBUG] Loading sae_mean aggregated activations from activation_cache/google/gemma-2-9b/87_is_spam/blocks‑20‑hook_resid_post_aggregated_mean.npz
+[DEBUG] Loaded sae_mean aggregated activations: (5157, 3584)
+[DEBUG] Returning (5157, 3584) activations
+[DEBUG] test activations shape: (5157, 3584), dtype: float16
+[DEBUG] test activations range: [-1522.000000, 113.625000]
+Test activations: (5157, 3584)
+  - 🤗 Calculating metrics...
+[DEBUG] Newly added count: 0
+[DEBUG] Loading sae_max aggregated activations from activation_cache/google/gemma-2-9b/87_is_spam/blocks‑20‑hook_resid_post_aggregated_max.npz
+[DEBUG] Loaded sae_max aggregated activations: (5157, 3584)
+[DEBUG] Returning (5157, 3584) activations
+[DEBUG] test activations shape: (5157, 3584), dtype: float16
+[DEBUG] test activations range: [-1371.000000, 237.500000]
+Test activations: (5157, 3584)
+  - 🤗 Calculating metrics...
+[DEBUG] Input activations shape: (5157, 3584)
+[DEBUG] Using pre-aggregated inputs: (5157, 3584)
+Loading SAE via sae_lens: layer_20/width_262k/average_l0_259
+    💀💀💀 ERROR evaluating on '87_is_spam': CUDA out of memory. Tried to allocate 3.50 GiB. GPU 0 has a total capacity of 94.50 GiB of which 1.86 GiB is free. Process 286646 has 638.00 MiB memory in use. Process 286744 has 18.19 GiB memory in use. Including non-PyTorch memory, this process has 18.19 GiB memory in use. Process 286738 has 14.63 GiB memory in use. Process 286745 has 18.19 GiB memory in use. Process 286736 has 4.03 GiB memory in use. Process 286741 has 546.00 MiB memory in use. Process 286743 has 18.19 GiB memory in use. Of the allocated memory 14.04 GiB is allocated by PyTorch, and 3.47 GiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)
+  🚀 [BATCH] Training probe: sae_262k_l0_259_max
+  - Training new probe …
+  [DEBUG] Starting dataset preparation...
+  [DEBUG] Using activation_type: sae_max
+[DEBUG] Newly added count: 0
+[DEBUG] Loading sae_max aggregated activations from activation_cache/google/gemma-2-9b/94_better_spam/blocks‑20‑hook_resid_post_aggregated_max.npz
+[DEBUG] Loaded sae_max aggregated activations: (537, 3584)
+[DEBUG] Returning (537, 3584) activations
+[DEBUG] test activations shape: (537, 3584), dtype: float16
+[DEBUG] test activations range: [-124.375000, 235.875000]
+Test activations: (537, 3584)
+  - 🤗 Calculating metrics...
+[DEBUG] Input activations shape: (5157, 3584)
+[DEBUG] Using pre-aggregated inputs: (5157, 3584)
+Loading SAE via sae_lens: layer_20/width_262k/average_l0_259
+    💀💀💀 ERROR evaluating on '87_is_spam': CUDA out of memory. Tried to allocate 3.50 GiB. GPU 0 has a total capacity of 94.50 GiB of which 1.86 GiB is free. Process 286646 has 638.00 MiB memory in use. Process 286744 has 18.19 GiB memory in use. Process 286739 has 18.19 GiB memory in use. Process 286738 has 14.63 GiB memory in use. Process 286745 has 18.19 GiB memory in use. Process 286736 has 4.03 GiB memory in use. Including non-PyTorch memory, this process has 546.00 MiB memory in use. Process 286743 has 18.19 GiB memory in use. Of the allocated memory 0 bytes is allocated by PyTorch, and 0 bytes is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)
+  🚀 [BATCH] Training probe: sae_262k_l0_259_max
+  - Training new probe …
+  [DEBUG] Starting dataset preparation...
+  [DEBUG] Using activation_type: sae_max
+[DEBUG] Input activations shape: (537, 3584)
+[DEBUG] Using pre-aggregated inputs: (537, 3584)
+Loading SAE via sae_lens: layer_20/width_262k/average_l0_259
+    💀💀💀 ERROR evaluating validation on '94_better_spam': CUDA out of memory. Tried to allocate 3.50 GiB. GPU 0 has a total capacity of 94.50 GiB of which 1.86 GiB is free. Process 286646 has 638.00 MiB memory in use. Process 286744 has 18.19 GiB memory in use. Process 286739 has 18.19 GiB memory in use. Process 286738 has 14.63 GiB memory in use. Including non-PyTorch memory, this process has 18.19 GiB memory in use. Process 286736 has 4.03 GiB memory in use. Process 286741 has 546.00 MiB memory in use. Process 286743 has 18.19 GiB memory in use. Of the allocated memory 14.04 GiB is allocated by PyTorch, and 3.47 GiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)
+    [BATCH] Evaluating on 94_better_spam test set
+[DEBUG] Input activations shape: (5157, 3584)
+[DEBUG] Using pre-aggregated inputs: (5157, 3584)
+Loading SAE via sae_lens: layer_20/width_262k/average_l0_259
+    💀💀💀 ERROR evaluating on '87_is_spam': CUDA out of memory. Tried to allocate 3.50 GiB. GPU 0 has a total capacity of 94.50 GiB of which 1.86 GiB is free. Process 286646 has 638.00 MiB memory in use. Process 286744 has 18.19 GiB memory in use. Process 286739 has 18.19 GiB memory in use. Process 286738 has 14.63 GiB memory in use. Process 286745 has 18.19 GiB memory in use. Including non-PyTorch memory, this process has 4.03 GiB memory in use. Process 286741 has 546.00 MiB memory in use. Process 286743 has 18.19 GiB memory in use. Of the allocated memory 3.50 GiB is allocated by PyTorch, and 0 bytes is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)
+  🚀 [BATCH] Training probe: sae_262k_l0_259_last
+  - Training new probe …
+  [DEBUG] Starting dataset preparation...
+  [DEBUG] Using activation_type: sae_last
+[DEBUG] Input activations shape: (537, 3584)
+[DEBUG] Using pre-aggregated inputs: (537, 3584)
+Loading SAE via sae_lens: layer_20/width_262k/average_l0_259
+    💀💀💀 ERROR evaluating validation on '94_better_spam': CUDA out of memory. Tried to allocate 3.50 GiB. GPU 0 has a total capacity of 94.50 GiB of which 1.86 GiB is free. Process 286646 has 638.00 MiB memory in use. Process 286744 has 18.19 GiB memory in use. Process 286739 has 18.19 GiB memory in use. Process 286738 has 14.63 GiB memory in use. Process 286745 has 18.19 GiB memory in use. Process 286736 has 4.03 GiB memory in use. Process 286741 has 546.00 MiB memory in use. Including non-PyTorch memory, this process has 18.19 GiB memory in use. Of the allocated memory 14.04 GiB is allocated by PyTorch, and 3.47 GiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)
+    [BATCH] Evaluating on 94_better_spam test set
+[DEBUG] Newly added count: 0
+[DEBUG] Loading sae_max aggregated activations from activation_cache/google/gemma-2-9b/94_better_spam/blocks‑20‑hook_resid_post_aggregated_max.npz
+[DEBUG] Loaded sae_max aggregated activations: (537, 3584)
+[DEBUG] Returning (537, 3584) activations
+[DEBUG] test activations shape: (537, 3584), dtype: float16
+[DEBUG] test activations range: [-1377.000000, 237.000000]
+Test activations: (537, 3584)
+  - 🤗 Calculating metrics...
+Test activations: (537, 3584)
+  - 🤗 Calculating metrics...
+[DEBUG] Newly added count: 0
+[DEBUG] Loading sae_last aggregated activations from activation_cache/google/gemma-2-9b/94_better_spam/blocks‑20‑hook_resid_post_aggregated_last.npz
+[DEBUG] Loaded sae_last aggregated activations: (2682, 3584)
+[DEBUG] Returning (2682, 3584) activations
+[DEBUG] train activations shape: (2682, 3584), dtype: float16
+[DEBUG] train activations range: [-1337.000000, 219.750000]
+Train activations: (2682, 3584)
+[DEBUG] Pre-fit sample counts — X: 2682, y: 2682
+[DEBUG] y_train class distribution: {0: 2146, 1: 536}
+  [DEBUG] Creating probe for architecture: sae_262k_l0_259_last
+  [DEBUG] Fitting SAE probe normally...
+[DEBUG] Newly added count: 0
+[DEBUG] Loading sae_max aggregated activations from activation_cache/google/gemma-2-9b/94_better_spam/blocks‑20‑hook_resid_post_aggregated_max.npz
+[DEBUG] Loaded sae_max aggregated activations: (537, 3584)
+[DEBUG] Returning (537, 3584) activations
+[DEBUG] test activations shape: (537, 3584), dtype: float16
+[DEBUG] test activations range: [-122.625000, 237.000000]
+Test activations: (537, 3584)
+  - 🤗 Calculating metrics...
+[DEBUG] Input activations shape: (537, 3584)
+[DEBUG] Using pre-aggregated inputs: (537, 3584)
+Loading SAE via sae_lens: layer_20/width_262k/average_l0_259
+    💀💀💀 ERROR evaluating test on '94_better_spam': CUDA out of memory. Tried to allocate 3.50 GiB. GPU 0 has a total capacity of 94.50 GiB of which 1.33 GiB is free. Process 286646 has 638.00 MiB memory in use. Process 286744 has 18.19 GiB memory in use. Process 286739 has 18.19 GiB memory in use. Process 286738 has 14.63 GiB memory in use. Process 286745 has 18.19 GiB memory in use. Process 286736 has 4.03 GiB memory in use. Process 286741 has 546.00 MiB memory in use. Process 286743 has 18.19 GiB memory in use. Including non-PyTorch memory, this process has 546.00 MiB memory in use. Of the allocated memory 0 bytes is allocated by PyTorch, and 0 bytes is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)
+[DEBUG] Newly added count: 0
+[DEBUG] Loading sae_max aggregated activations from activation_cache/google/gemma-2-9b/94_better_spam/blocks‑20‑hook_resid_post_aggregated_max.npz
+[DEBUG] Loaded sae_max aggregated activations: (2682, 3584)
+[DEBUG] Returning (2682, 3584) activations
+[DEBUG] train activations shape: (2682, 3584), dtype: float16
+[DEBUG] train activations range: [-1377.000000, 237.500000]
+Train activations: (2682, 3584)
+[DEBUG] Pre-fit sample counts — X: 2682, y: 2682
+[DEBUG] y_train class distribution: {0: 2146, 1: 536}
+  [DEBUG] Creating probe for architecture: sae_262k_l0_259_max
+  [DEBUG] Fitting SAE probe normally...
+[DEBUG] Newly added count: 0
+[DEBUG] Loading sae_max aggregated activations from activation_cache/google/gemma-2-9b/87_is_spam/blocks‑20‑hook_resid_post_aggregated_max.npz
+[DEBUG] Loaded sae_max aggregated activations: (5157, 3584)
+[DEBUG] Returning (5157, 3584) activations
+[DEBUG] test activations shape: (5157, 3584), dtype: float16
+[DEBUG] test activations range: [-1371.000000, 237.500000]
+Test activations: (5157, 3584)
+  - 🤗 Calculating metrics...
+[DEBUG] Input activations shape: (537, 3584)
+[DEBUG] Using pre-aggregated inputs: (537, 3584)
+Loading SAE via sae_lens: layer_20/width_262k/average_l0_259
+    💀💀💀 ERROR evaluating test on '94_better_spam': CUDA out of memory. Tried to allocate 3.50 GiB. GPU 0 has a total capacity of 94.50 GiB of which 1.33 GiB is free. Process 286646 has 638.00 MiB memory in use. Process 286744 has 18.19 GiB memory in use. Process 286739 has 18.19 GiB memory in use. Including non-PyTorch memory, this process has 14.63 GiB memory in use. Process 286745 has 18.19 GiB memory in use. Process 286736 has 4.03 GiB memory in use. Process 286741 has 546.00 MiB memory in use. Process 286743 has 18.19 GiB memory in use. Process 286742 has 546.00 MiB memory in use. Of the allocated memory 14.00 GiB is allocated by PyTorch, and 1.97 MiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)
+[DEBUG] Newly added count: 0
+[DEBUG] Loading sae_max aggregated activations from activation_cache/google/gemma-2-9b/94_better_spam/blocks‑20‑hook_resid_post_aggregated_max.npz
+[DEBUG] Loaded sae_max aggregated activations: (2682, 3584)
+[DEBUG] Returning (2682, 3584) activations
+[DEBUG] train activations shape: (2682, 3584), dtype: float16
+[DEBUG] train activations range: [-1377.000000, 237.500000]
+Train activations: (2682, 3584)
+[DEBUG] Pre-fit sample counts — X: 2682, y: 2682
+[DEBUG] y_train class distribution: {0: 2146, 1: 536}
+  [DEBUG] Creating probe for architecture: sae_262k_l0_259_max
+  [DEBUG] Fitting SAE probe normally...
+[DEBUG] Input activations shape: (537, 3584)
+[DEBUG] Using pre-aggregated inputs: (537, 3584)
+Loading SAE via sae_lens: layer_20/width_262k/average_l0_259
+    💀💀💀 ERROR evaluating test on '94_better_spam': CUDA out of memory. Tried to allocate 3.50 GiB. GPU 0 has a total capacity of 94.50 GiB of which 805.44 MiB is free. Process 286646 has 638.00 MiB memory in use. Process 286744 has 18.19 GiB memory in use. Process 286739 has 18.19 GiB memory in use. Process 286738 has 14.63 GiB memory in use. Process 286745 has 18.19 GiB memory in use. Process 286736 has 4.03 GiB memory in use. Process 286741 has 546.00 MiB memory in use. Process 286743 has 18.19 GiB memory in use. Including non-PyTorch memory, this process has 546.00 MiB memory in use. Process 286742 has 546.00 MiB memory in use. Of the allocated memory 0 bytes is allocated by PyTorch, and 0 bytes is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)
+Test activations: (537, 3584)
+  - 🤗 Calculating metrics...
+[DEBUG] Newly added count: 0
+[DEBUG] Loading sae_mean aggregated activations from activation_cache/google/gemma-2-9b/87_is_spam/blocks‑20‑hook_resid_post_aggregated_mean.npz
+[DEBUG] Loaded sae_mean aggregated activations: (5157, 3584)
+[DEBUG] Returning (5157, 3584) activations
+[DEBUG] test activations shape: (5157, 3584), dtype: float16
+[DEBUG] test activations range: [-1522.000000, 113.625000]
+Test activations: (5157, 3584)
+  - 🤗 Calculating metrics...
+[DEBUG] Input activations shape: (5157, 3584)
+[DEBUG] Using pre-aggregated inputs: (5157, 3584)
+Loading SAE via sae_lens: layer_20/width_262k/average_l0_259
+    💀💀💀 ERROR evaluating on '87_is_spam': CUDA out of memory. Tried to allocate 3.50 GiB. GPU 0 has a total capacity of 94.50 GiB of which 805.44 MiB is free. Process 286646 has 638.00 MiB memory in use. Process 286744 has 18.19 GiB memory in use. Process 286739 has 18.19 GiB memory in use. Process 286738 has 14.63 GiB memory in use. Process 286745 has 18.19 GiB memory in use. Process 286736 has 4.03 GiB memory in use. Process 286741 has 546.00 MiB memory in use. Process 286743 has 18.19 GiB memory in use. Process 286737 has 546.00 MiB memory in use. Including non-PyTorch memory, this process has 546.00 MiB memory in use. Of the allocated memory 0 bytes is allocated by PyTorch, and 0 bytes is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)
+  🚀 [BATCH] Training probe: sae_262k_l0_259_last
+  - Training new probe …
+  [DEBUG] Starting dataset preparation...
+  [DEBUG] Using activation_type: sae_last
+Completed 0/700 groups successfully
+================================================================================
+😜 Run finished. Closing log file.
+joblib.externals.loky.process_executor._RemoteTraceback: 
+"""
+Traceback (most recent call last):
+  File "/lambda/nfs/riya-probing/pivotal-research/pivotal_env/lib/python3.10/site-packages/joblib/externals/loky/process_executor.py", line 490, in _process_worker
+    r = call_item()
+  File "/lambda/nfs/riya-probing/pivotal-research/pivotal_env/lib/python3.10/site-packages/joblib/externals/loky/process_executor.py", line 291, in __call__
+    return self.fn(*self.args, **self.kwargs)
+  File "/lambda/nfs/riya-probing/pivotal-research/pivotal_env/lib/python3.10/site-packages/joblib/parallel.py", line 607, in __call__
+    return [func(*args, **kwargs) for func, args, kwargs in self.items]
+  File "/lambda/nfs/riya-probing/pivotal-research/pivotal_env/lib/python3.10/site-packages/joblib/parallel.py", line 607, in <listcomp>
+    return [func(*args, **kwargs) for func, args, kwargs in self.items]
+  File "/lambda/nfs/riya-probing/pivotal-research/evaluating-probes/src/main.py", line 671, in _process_group
+    train_single_probe(
+  File "/lambda/nfs/riya-probing/pivotal-research/evaluating-probes/src/utils_training.py", line 446, in train_single_probe
+    probe.fit(train_acts, y_train, train_masks)
+  File "/lambda/nfs/riya-probing/pivotal-research/evaluating-probes/src/probes/sae_probe.py", line 389, in fit
+    X_encoded = self._encode_activations(X)
+  File "/lambda/nfs/riya-probing/pivotal-research/evaluating-probes/src/probes/sae_probe.py", line 302, in _encode_activations
+    sae = self._load_sae()
+  File "/lambda/nfs/riya-probing/pivotal-research/evaluating-probes/src/probes/sae_probe.py", line 254, in _load_sae
+    self.sae, _, _ = SAE.from_pretrained(
+  File "/lambda/nfs/riya-probing/pivotal-research/pivotal_env/lib/python3.10/site-packages/sae_lens/saes/sae.py", line 582, in from_pretrained
+    return cls.from_pretrained_with_cfg_and_sparsity(
+  File "/lambda/nfs/riya-probing/pivotal-research/pivotal_env/lib/python3.10/site-packages/sae_lens/saes/sae.py", line 669, in from_pretrained_with_cfg_and_sparsity
+    sae = sae_cls(sae_cfg)
+  File "/lambda/nfs/riya-probing/pivotal-research/pivotal_env/lib/python3.10/site-packages/sae_lens/saes/jumprelu_sae.py", line 121, in __init__
+    super().__init__(cfg, use_error_term)
+  File "/lambda/nfs/riya-probing/pivotal-research/pivotal_env/lib/python3.10/site-packages/sae_lens/saes/sae.py", line 265, in __init__
+    self.initialize_weights()
+  File "/lambda/nfs/riya-probing/pivotal-research/pivotal_env/lib/python3.10/site-packages/sae_lens/saes/jumprelu_sae.py", line 125, in initialize_weights
+    super().initialize_weights()
+  File "/lambda/nfs/riya-probing/pivotal-research/pivotal_env/lib/python3.10/site-packages/sae_lens/saes/sae.py", line 343, in initialize_weights
+    w_dec_data = torch.empty(
+torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 3.50 GiB. GPU 0 has a total capacity of 94.50 GiB of which 805.44 MiB is free. Process 286646 has 638.00 MiB memory in use. Including non-PyTorch memory, this process has 18.19 GiB memory in use. Process 286739 has 18.19 GiB memory in use. Process 286738 has 14.63 GiB memory in use. Process 286745 has 18.19 GiB memory in use. Process 286736 has 4.03 GiB memory in use. Process 286741 has 546.00 MiB memory in use. Process 286743 has 18.19 GiB memory in use. Process 286737 has 546.00 MiB memory in use. Process 286742 has 546.00 MiB memory in use. Of the allocated memory 14.04 GiB is allocated by PyTorch, and 3.47 GiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)
+"""
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/usr/lib/python3.10/runpy.py", line 196, in _run_module_as_main
+    return _run_code(code, main_globals, None,
+  File "/usr/lib/python3.10/runpy.py", line 86, in _run_code
+    exec(code, run_globals)
+  File "/lambda/nfs/riya-probing/pivotal-research/evaluating-probes/src/main.py", line 988, in <module>
+    main()
+  File "/lambda/nfs/riya-probing/pivotal-research/evaluating-probes/src/main.py", line 969, in main
+    run_batched_jobs(
+  File "/lambda/nfs/riya-probing/pivotal-research/evaluating-probes/src/main.py", line 746, in run_batched_jobs
+    results = Parallel(
+  File "/lambda/nfs/riya-probing/pivotal-research/pivotal_env/lib/python3.10/site-packages/joblib/parallel.py", line 2072, in __call__
+    return output if self.return_generator else list(output)
+  File "/lambda/nfs/riya-probing/pivotal-research/pivotal_env/lib/python3.10/site-packages/joblib/parallel.py", line 1682, in _get_outputs
+    yield from self._retrieve()
+  File "/lambda/nfs/riya-probing/pivotal-research/pivotal_env/lib/python3.10/site-packages/joblib/parallel.py", line 1784, in _retrieve
+    self._raise_error_fast()
+  File "/lambda/nfs/riya-probing/pivotal-research/pivotal_env/lib/python3.10/site-packages/joblib/parallel.py", line 1859, in _raise_error_fast
+    error_job.get_result(self.timeout)
+  File "/lambda/nfs/riya-probing/pivotal-research/pivotal_env/lib/python3.10/site-packages/joblib/parallel.py", line 758, in get_result
+    return self._return_or_raise()
+  File "/lambda/nfs/riya-probing/pivotal-research/pivotal_env/lib/python3.10/site-packages/joblib/parallel.py", line 773, in _return_or_raise
+    raise self._result
+torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 3.50 GiB. GPU 0 has a total capacity of 94.50 GiB of which 805.44 MiB is free. Process 286646 has 638.00 MiB memory in use. Including non-PyTorch memory, this process has 18.19 GiB memory in use. Process 286739 has 18.19 GiB memory in use. Process 286738 has 14.63 GiB memory in use. Process 286745 has 18.19 GiB memory in use. Process 286736 has 4.03 GiB memory in use. Process 286741 has 546.00 MiB memory in use. Process 286743 has 18.19 GiB memory in use. Process 286737 has 546.00 MiB memory in use. Process 286742 has 546.00 MiB memory in use. Of the allocated memory 14.04 GiB is allocated by PyTorch, and 3.47 GiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)
+/usr/lib/python3.10/multiprocessing/resource_tracker.py:224: UserWarning: resource_tracker: There appear to be 4 leaked semaphore objects to clean up at shutdown
+  warnings.warn('resource_tracker: There appear to be %d '
+2025-08-17 15:40:40 Command exited with status 1. Will restart.

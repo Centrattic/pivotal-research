@@ -253,6 +253,9 @@ class ActivationManager:
 
                     # Find response token positions in full sequence
                     full_ids = input_ids[0]
+                    # Align devices to avoid cuda/cpu mismatch during comparison
+                    if response_ids.device != full_ids.device:
+                        response_ids = response_ids.to(full_ids.device)
                     response_start = None
                     for j in range(len(full_ids) - len(response_ids) + 1):
                         if torch.equal(
