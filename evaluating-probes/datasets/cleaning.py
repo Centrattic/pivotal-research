@@ -51,6 +51,8 @@ def run_extraction(
                 out_df = handler_mod.process(row, source_folder)
             elif handler_name == "llama_combined_handler":
                 out_df = handler_mod.process(row, source_folder)
+            elif handler_name == "mask_metrics_handler":
+                out_df = handler_mod.process(row, source_folder)
             else:
                 out_df = handler_mod.process(row, source_file)
             out_df.to_csv(out_file, index=False)

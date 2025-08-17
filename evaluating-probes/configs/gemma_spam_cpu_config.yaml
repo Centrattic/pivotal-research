@@ -1,6 +1,6 @@
 run_name: "spam_gemma_9b"
 model_name: "google/gemma-2-9b"
-device: "cuda:0" # will use these for extracting activations, but not for sklearn probes
+device: "cuda:1" # will use these for extracting activations, but not for sklearn probes
 cache_activations: True
 log_file: "logs/spam_exp_cpu.log"  # Custom log file path
 seeds: [42, 43, 44, 45, 46, 47, 48, 49, 50, 51] 

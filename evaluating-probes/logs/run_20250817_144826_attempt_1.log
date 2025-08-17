@@ -1,0 +1,14 @@
+2025-08-17 14:48:26 Logging attempt 1 to ./logs/run_20250817_144826_attempt_1.log
+2025-08-17 14:48:26 Starting (attempt 1) → python -m src.main -c gemma_spam_cpu --log test_log --rotatelog --rotate-per-restart
+usage: main.py [-h] [-c CONFIG] [--rerun]
+main.py: error: unrecognized arguments: --log test_log --rotatelog --rotate-per-restart
+Loaded environment variables from /home/riya/pivotal/pivotal-research/evaluating-probes/.env
+
+=== DEBUG: Environment Variables ===
+OPENAI_API_KEY=sk**************************************************************************************************************************************************************VwIA
+OMP_NUM_THREADS=1
+CUDA_VISIBLE_DEVICES=None
+EP_BATCHED_NJOBS=32
+====================================
+
+2025-08-17 14:48:28 Command exited with status 2. Will restart.

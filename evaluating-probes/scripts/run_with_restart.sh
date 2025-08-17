@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -uo pipefail
 
 # Simple restarter: runs the given command, and if it exits non-zero,
 # waits a bit and restarts. Useful for transient OOMs or flaky I/O.
@@ -18,7 +18,6 @@ BACKOFF_CAP_SECONDS=10     # Max sleep when backoff is enabled
 LOG_FILE=""                # If set, tee all output to this file as well as terminal
 LOG_DIR=""                 # If set (and LOG_FILE not set), create timestamped log file in this dir
 ROTATE_PER_RESTART=false   # If true and using --log-dir, create a new log file per restart attempt
-GLOBAL_TEE_ACTIVE=false    # Internal: whether we've exec'd into a global tee
 LOG_CURRENT_FILE=""        # Internal: current attempt's log file when rotating
 
 print_usage() {
@@ -42,17 +41,13 @@ USAGE
 
 ts() { date '+%Y-%m-%d %H:%M:%S'; }
 
-# Log helper: prints to terminal and, if rotating, also appends to the current log file
+# Log helper: echo to terminal and append to current attempt file if set
 log_line() {
     local message="$*"
-    if [[ "$GLOBAL_TEE_ACTIVE" == true ]]; then
-        echo "$(ts) ${message}"
+    if [[ -n "${LOG_CURRENT_FILE}" ]]; then
+        echo "$(ts) ${message}" | tee -a "${LOG_CURRENT_FILE}"
     else
-        if [[ -n "${LOG_CURRENT_FILE}" ]]; then
-            echo "$(ts) ${message}" | tee -a "${LOG_CURRENT_FILE}"
-        else
-            echo "$(ts) ${message}"
-        fi
+        echo "$(ts) ${message}"
     fi
 }
 
@@ -99,6 +94,12 @@ fi
 
 CMD=("$@")
 
+# If user didn't specify any logging option, default to rotating logs under ./logs
+if [[ -z "$LOG_FILE" && -z "$LOG_DIR" ]]; then
+    ROTATE_PER_RESTART=true
+    LOG_DIR="./logs"
+fi
+
 # Configure logging
 if [[ "$ROTATE_PER_RESTART" == true ]]; then
     # If rotating but no dir specified, default to ./logs
@@ -121,7 +122,6 @@ else
         mkdir -p "$(dirname "$LOG_FILE")" || true
         echo "$(ts) Logging enabled. Appending to $LOG_FILE" >> "$LOG_FILE"
         exec > >(stdbuf -oL -eL tee -a "$LOG_FILE") 2>&1
-        GLOBAL_TEE_ACTIVE=true
     fi
 fi
 
@@ -130,32 +130,29 @@ restarts=0
 trap 'on_term' INT TERM
 
 while :; do
-    # Set up per-restart log file if rotating
+    # Set up per-restart log file if rotating; always append a fresh file per attempt
+    LOG_CURRENT_FILE=""
     if [[ "$ROTATE_PER_RESTART" == true && -z "$LOG_FILE" ]]; then
         ts_attempt=$(date +%Y%m%d_%H%M%S)
         LOG_CURRENT_FILE="${LOG_DIR%/}/run_${ts_attempt}_attempt_$((restarts+1)).log"
         mkdir -p "$(dirname "$LOG_CURRENT_FILE")"
         echo "$(ts) Logging attempt $((restarts+1)) to $LOG_CURRENT_FILE" >> "$LOG_CURRENT_FILE"
-    else
-        LOG_CURRENT_FILE=""
     fi
 
     log_line "Starting (attempt $((restarts+1))) → ${CMD[*]}"
-    # Temporarily disable 'errexit' so we can capture non-zero status without exiting
-    set +e
-    if [[ "$ROTATE_PER_RESTART" == true && -z "$LOG_FILE" ]]; then
-        # Pipe command output to the per-attempt log file
+
+    # Run the command and capture status; never exit the loop here
+    if [[ -n "$LOG_CURRENT_FILE" ]]; then
         stdbuf -oL -eL "${CMD[@]}" 2>&1 | tee -a "$LOG_CURRENT_FILE"
         status=${PIPESTATUS[0]}
     else
         "${CMD[@]}"
         status=$?
     fi
-    set -e
 
-    # Diagnose common OOM kill exit code (137) and log status
-    if [[ $status -eq 137 ]]; then
-        log_line "Command exited with 137 (SIGKILL). Likely OOM-killed. Will restart."
+    # Diagnose common OOM kill exit code (137) and SIGKILL (-9)
+    if [[ $status -eq 137 || $status -eq 9 ]]; then
+        log_line "Command was SIGKILLed ($status). Likely OOM or external kill. Will restart."
     elif [[ $status -eq 0 ]]; then
         log_line "Command exited successfully. Will restart."
     else
@@ -170,9 +167,7 @@ while :; do
 
     sleep_seconds="$DELAY_SECONDS"
     if [[ "$USE_EXP_BACKOFF" == true ]]; then
-        # Exponential backoff: delay * 2^(restarts-1), capped
         pow=$((restarts - 1))
-        # Avoid overflow by capping at ~30 doublings
         if (( pow > 30 )); then pow=30; fi
         sleep_seconds=$(( DELAY_SECONDS * (1 << pow) ))
         if (( sleep_seconds > BACKOFF_CAP_SECONDS )); then

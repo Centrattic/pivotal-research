@@ -5,6 +5,7 @@ import numpy as np
 import torch
 import json
 import copy
+import gc
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Union, Tuple
 from collections import defaultdict
@@ -732,6 +733,19 @@ def run_batched_jobs(
                             logger.log(f"    💀💀💀 ERROR evaluating on '{eval_dataset}': {e}")
             finally:
                 logger.close()
+
+        # Proactively free memory held by datasets and caches for this group
+        try:
+            del shared_train_ds
+            # Drop references to eval datasets
+            for _ds in list(eval_ds_cache.values()):
+                del _ds
+            del eval_ds_cache
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            gc.collect()
+        except Exception as e:
+            logger.log(f"Warning: group-level cleanup failed: {e}")
 
         return True
 

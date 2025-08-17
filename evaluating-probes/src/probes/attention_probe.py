@@ -30,12 +30,18 @@ class AttentionProbeNet(nn.Module):
         # x: (batch, seq, d_model) - all positions are valid, let attention learn importance
         attn_scores = self.context_query(x).squeeze(-1) / self.scale
         # No masking - let attention learn which positions are important
-        attn_weights = torch.softmax(attn_scores, dim=-1)
+        if x.device.type == 'cpu':
+            attn_weights = torch.softmax(attn_scores.float(), dim=-1).to(attn_scores.dtype)
+        else:
+            attn_weights = torch.softmax(attn_scores, dim=-1)
         token_logits = self.classifier(x).squeeze(-1)
         # No masking of token logits - let the model learn
 
-        # Compute weighted context
-        context = torch.einsum("bs,bse->be", attn_weights, x)
+        # Compute weighted context (promote to float32 on CPU for op support)
+        if x.device.type == 'cpu':
+            context = torch.einsum("bs,bse->be", attn_weights.float(), x.float()).to(x.dtype)
+        else:
+            context = torch.einsum("bs,bse->be", attn_weights, x)
         sequence_logits = self.classifier(context).squeeze(-1)
 
         return sequence_logits
@@ -260,15 +266,15 @@ class AttentionProbe(BaseProbe):
 
                 # Save the best probe for this weight decay
                 # Convert to float32 for saving to avoid bfloat16 compatibility issues
-                original_dtype = next(probes[best_idx].model.parameters()).dtype
-                if original_dtype != torch.float32:
-                    probes[best_idx].model = probes[best_idx].model.to(torch.float32)
-                    probes[best_idx].save_state(probe_path)
-                    # Convert back to original dtype
-                    probes[best_idx].model = probes[best_idx].model.to(original_dtype)
-                else:
-                    # Already float32, save directly
-                    probes[best_idx].save_state(probe_path)
+                # original_dtype = next(probes[best_idx].model.parameters()).dtype
+                # if original_dtype != torch.float32:
+                #     probes[best_idx].model = probes[best_idx].model.to(torch.float32)
+                #     probes[best_idx].save_state(probe_path)
+                #     # Convert back to original dtype
+                #     probes[best_idx].model = probes[best_idx].model.to(original_dtype)
+                # else:
+                #     # Already float32, save directly
+                probes[best_idx].save_state(probe_path)
 
                 if verbose:
                     print(f"  Saved best probe for wd={weight_decay:.2e}: lr={best_lr:.2e}, loss={best_loss:.6f}")
@@ -338,7 +344,7 @@ class AttentionProbe(BaseProbe):
         """
         # Convert to torch tensors - match model dtype (bfloat16)
         X_tensor = torch.tensor(X, dtype=torch.bfloat16, device=self.device)
-        y_tensor = torch.tensor(y, dtype=torch.float32, device=self.device)  # Keep labels as float32 for loss
+        y_tensor = torch.tensor(y, dtype=torch.bfloat16, device=self.device)  # Keep labels as float32 for loss
 
         # Create dataset and dataloader (no masks needed for attention probe)
         dataset = torch.utils.data.TensorDataset(X_tensor, y_tensor)
@@ -417,7 +423,7 @@ class AttentionProbe(BaseProbe):
         """Predict logits."""
         # Convert to torch tensor - match model dtype (bfloat16)
         # First convert to float32, then to bfloat16 to handle any potential issues
-        X_tensor = torch.tensor(X, dtype=torch.float32, device=self.device).to(torch.bfloat16)
+        X_tensor = torch.tensor(X, dtype=torch.bfloat16, device=self.device) # to(torch.bfloat16)
 
         # Predict
         self.model.eval()

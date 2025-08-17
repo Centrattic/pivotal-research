@@ -96,3 +96,10 @@ number,source,name,tag,save_name,Probe from,Probe to,Data type,probe from extrac
 95,art.csv,is_book, Art,is_book.csv,title,entity_type,Binary Classification,title,entity_type == 'book',simple
 96,art.csv,is_movie, Art,is_movie.csv,title,entity_type,Binary Classification,title,entity_type == 'movie',simple
 97,"doubling_down_known_facts_llama-3.3-70b-instruct.csv,provided_facts_llama-3.3-70b-instruct.csv,statistics_llama-3.3-70b-instruct.csv",llama_combined_honesty,Llama Combined Honesty,llama_combined_honesty.csv,"generation(System Prompt + User Prompt)_run1","eval_honesty_1",Binary Classification,"generation(System Prompt + User Prompt)_run1","eval_honesty_1",llama_combined_handler
+98,"continuations_llama-3.3-70b-instruct.csv,disinformation_llama-3.3-70b-instruct.csv,doubling_down_known_facts_llama-3.3-70b-instruct.csv,known_facts_llama-3.3-70b-instruct.csv,provided_facts_llama-3.3-70b-instruct.csv,statistics_llama-3.3-70b-instruct.csv",mask_all_honesty,MASK All Honesty,mask_all_honesty.csv,,,Binary Classification,,,mask_metrics_handler
+99,continuations_llama-3.3-70b-instruct.csv,mask_continuations_honesty,MASK Continuations Honesty,mask_continuations_honesty.csv,,,Binary Classification,,,mask_metrics_handler
+100,disinformation_llama-3.3-70b-instruct.csv,mask_disinformation_honesty,MASK Disinformation Honesty,mask_disinformation_honesty.csv,,,Binary Classification,,,mask_metrics_handler
+101,doubling_down_known_facts_llama-3.3-70b-instruct.csv,mask_doubling_down_honesty,MASK Doubling-Down Known Facts Honesty,mask_doubling_down_honesty.csv,,,Binary Classification,,,mask_metrics_handler
+102,known_facts_llama-3.3-70b-instruct.csv,mask_known_facts_honesty,MASK Known Facts Honesty,mask_known_facts_honesty.csv,,,Binary Classification,,,mask_metrics_handler
+103,provided_facts_llama-3.3-70b-instruct.csv,mask_provided_facts_honesty,MASK Provided Facts Honesty,mask_provided_facts_honesty.csv,,,Binary Classification,,,mask_metrics_handler
+104,statistics_llama-3.3-70b-instruct.csv,mask_statistics_honesty,MASK Statistics Honesty,mask_statistics_honesty.csv,,,Binary Classification,,,mask_metrics_handler
