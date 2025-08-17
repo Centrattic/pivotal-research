@@ -411,7 +411,8 @@ class SAEProbe(BaseProbe):
 
         X_encoded = self._encode_activations(X)  # (N, F)
         X_selected = X_encoded[:, self.feature_indices]
-        X_scaled = self.scaler.transform(X_selected)
+        # Upcast to float32 before scaling to avoid float16 overflow during in-place operations
+        X_scaled = self.scaler.transform(X_selected.astype(np.float32, copy=False))
         return self.sklearn_model.predict(X_scaled)
 
     def predict_proba(self, X: np.ndarray, masks: Optional[np.ndarray] = None, batch_size: int = None) -> np.ndarray:
@@ -421,7 +422,8 @@ class SAEProbe(BaseProbe):
 
         X_encoded = self._encode_activations(X)
         X_selected = X_encoded[:, self.feature_indices]
-        X_scaled = self.scaler.transform(X_selected)
+        # Upcast to float32 before scaling to avoid float16 overflow during in-place operations
+        X_scaled = self.scaler.transform(X_selected.astype(np.float32, copy=False))
         probas = self.sklearn_model.predict_proba(X_scaled)
         return probas[:, 1]
 
@@ -432,7 +434,8 @@ class SAEProbe(BaseProbe):
 
         X_encoded = self._encode_activations(X)
         X_selected = X_encoded[:, self.feature_indices]
-        X_scaled = self.scaler.transform(X_selected)
+        # Upcast to float32 before scaling to avoid float16 overflow during in-place operations
+        X_scaled = self.scaler.transform(X_selected.astype(np.float32, copy=False))
         return self.sklearn_model.decision_function(X_scaled)
 
     def score(self, X: np.ndarray, y: np.ndarray, masks: Optional[np.ndarray] = None) -> Dict[str, float]:
