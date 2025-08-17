@@ -26,6 +26,8 @@ architectures:
     config_name: "sae_qwen3_8b_last"
   - name: "sae"
     config_name: "sae_qwen3_8b_softmax"
+  - name: "attention"
+    config_name: "attention"
 
 # List of experiments to run
 experiments:
@@ -42,21 +44,21 @@ experiments:
       - 94_better_spam
       - 87_is_spam
     rebuild_config:
-      increasing_spam_fixed_total:
-        - {class_counts: {0: 1500, 1: 1}} # we should use all of our examples
-        - {class_counts: {0: 1500, 1: 2}}
-        - {class_counts: {0: 1500, 1: 5}}
-        - {class_counts: {0: 1500, 1: 10}}
-        - {class_counts: {0: 1500, 1: 15}}
-        - {class_counts: {0: 1500, 1: 20}}
-        - {class_counts: {0: 1500, 1: 25}}
-        - {class_counts: {0: 1500, 1: 35}}
-        - {class_counts: {0: 1500, 1: 45}}
-        - {class_counts: {0: 1500, 1: 50}}
-        - {class_counts: {0: 1500, 1: 100}}
-        - {class_counts: {0: 1500, 1: 150}}
-        - {class_counts: {0: 1500, 1: 250}}
-        - {class_counts: {0: 1500, 1: 500}}
+      increasing_spam_fixed_total: # The number of examples qwen 8b knows in the positive class is a lot smaller 😭
+        - {class_counts: {0: 890, 1: 1}} # we should use all of our examples
+        - {class_counts: {0: 890, 1: 2}}
+        - {class_counts: {0: 890, 1: 5}}
+        - {class_counts: {0: 890, 1: 10}}
+        - {class_counts: {0: 890, 1: 15}}
+        - {class_counts: {0: 890, 1: 20}}
+        - {class_counts: {0: 890, 1: 25}}
+        - {class_counts: {0: 890, 1: 35}}
+        - {class_counts: {0: 890, 1: 45}}
+        - {class_counts: {0: 890, 1: 50}}
+        - {class_counts: {0: 890, 1: 100}}
+        - {class_counts: {0: 890, 1: 150}}
+        - {class_counts: {0: 890, 1: 250}}
+        - {class_counts: {0: 890, 1: 500}}
         
 model_check:
   - name: spam-pred

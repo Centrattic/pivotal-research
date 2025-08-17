@@ -61,7 +61,7 @@ experiments:
         - {class_counts: {0: 1750, 1: 100}}
         - {class_counts: {0: 1750, 1: 150}}
         - {class_counts: {0: 1750, 1: 250}}
-        - {class_counts: {0: 1750, 1: 500}}
+        # - {class_counts: {0: 1750, 1: 500}}
   - name: 3-spam-pred-auc-llm-upsampling
     class_names: {0: "Ham", 1: "Spam"}
     train_on: 94_better_spam
@@ -75,7 +75,7 @@ experiments:
         - {llm_upsampling: True, n_real_neg: 1750, n_real_pos: 10, upsampling_factor: 5}
         - {llm_upsampling: True, n_real_neg: 1750, n_real_pos: 10, upsampling_factor: 1}
         - {llm_upsampling: True, n_real_neg: 1750, n_real_pos: 10, upsampling_factor: 2}
-        - {llm_upsampling: True, n_real_neg: 3000, n_real_pos: 10, upsampling_factor: 3}
+        - {llm_upsampling: True, n_real_neg: 1750, n_real_pos: 10, upsampling_factor: 3}
         - {llm_upsampling: True, n_real_neg: 1750, n_real_pos: 10, upsampling_factor: 4}
 
         - {llm_upsampling: True, n_real_neg: 1750, n_real_pos: 1, upsampling_factor: 20}

@@ -185,12 +185,19 @@ def generate_hyperparameter_sweep(
 ) -> List[Union[SklearnLinearProbeConfig, PytorchAttentionProbeConfig, SAEProbeConfig, MassMeanProbeConfig,
                 ActivationSimilarityProbeConfig]]:
     """Generate hyperparameter sweep configurations for a given architecture."""
-    # Define sweep arrays at the top for easy editing
-    # C sweep: decades from 1e-5 to 1e5
-    C_VALUES = [1e-5, 1e-4, 1e-3, 1e-2, 1e-1, 1e0, 1e1, 1e2, 1e3, 1e4, 1e5]
-    LR_VALUES = [1e-5, 2e-5, 5e-5, 1e-4, 2e-4, 5e-4, 1e-3, 2e-3, 5e-3]
-    WEIGHT_DECAY_VALUES = [0.0, 1e-6, 5e-6, 1e-5, 5e-5, 1e-4, 5e-4, 1e-3, 5e-3]
-    TOP_K_VALUES = [128, 256, 512, 1024, 2048, 3584, 4096, 8192]
+    # there is a default filename omission rule: C=1, lr=5e-4, weight_decay=0.0
+    # top_k=3584 always included in the filename as a default
+
+    # Defaults
+    C_VALUES = [1.0]
+    LR_VALUES = [5e-4]
+    WEIGHT_DECAY_VALUES = [0.0]
+    TOP_K_VALUES = [3584]
+
+    # C_VALUES = [1e-5, 1e-4, 1e-3, 1e-2, 1e-1, 1e0, 1e1, 1e2, 1e3, 1e4, 1e5]
+    # LR_VALUES = [1e-5, 2e-5, 5e-5, 1e-4, 2e-4, 5e-4, 1e-3, 2e-3, 5e-3]
+    # WEIGHT_DECAY_VALUES = [0.0, 1e-6, 5e-6, 1e-5, 5e-5, 1e-4, 5e-4, 1e-3, 5e-3]
+    # TOP_K_VALUES = [128, 256, 512, 1024, 2048, 3584, 4096, 8192]
 
     sweep_configs = []
 
@@ -492,7 +499,13 @@ def _build_group_dataset(job: ProbeJob, config: Dict) -> Dataset:
 
             results_path = Path(config.get('results_dir', '.'))
             run_name = config.get('run_name', results_path.name)
-            llm_csv_base_path = job.rebuild_config.get('llm_csv_base_path', f'results/{run_name}')
+            # Base path to results; Dataset helper will append seed and dataset
+            llm_csv_base_path = Path(
+                job.rebuild_config.get(
+                    'llm_csv_base_path',
+                    results_path
+                )
+            )
 
             ds = Dataset.build_llm_upsampled_dataset(
                 orig_ds,
@@ -503,6 +516,7 @@ def _build_group_dataset(job: ProbeJob, config: Dict) -> Dataset:
                 val_size=job.val_size,
                 test_size=job.test_size,
                 only_test=False,
+                llm_csv_base_path=str(llm_csv_base_path),
             )
         else:
             train_class_counts = job.rebuild_config.get('class_counts')
@@ -588,9 +602,15 @@ def run_batched_jobs(
                         n_real_neg = j0.rebuild_config.get('n_real_neg')
                         n_real_pos = j0.rebuild_config.get('n_real_pos')
                         upsampling_factor = j0.rebuild_config.get('upsampling_factor')
-                        results_path = results_dir
-                        run_name = results_path.name
-                        llm_csv_base_path = j0.rebuild_config.get('llm_csv_base_path', f'results/{run_name}')
+                        results_path = Path(config.get('results_dir', '.'))
+                        run_name = config.get('run_name', results_path.name)
+                        # Base path to results; Dataset helper will append seed and dataset
+                        llm_csv_base_path = Path(
+                            j0.rebuild_config.get(
+                                'llm_csv_base_path',
+                                results_path
+                            )
+                        )
                         eval_ds = Dataset.build_llm_upsampled_dataset(
                             orig_ds,
                             seed=j0.seed,
@@ -600,6 +620,7 @@ def run_batched_jobs(
                             val_size=j0.val_size,
                             test_size=j0.test_size,
                             only_test=True,
+                            llm_csv_base_path=str(llm_csv_base_path),
                         )
                     else:
                         train_class_counts = j0.rebuild_config.get('class_counts')
@@ -720,6 +741,7 @@ def run_batched_jobs(
     # Allow overrides via env vars
     env_n = int(os.environ.get("EP_BATCHED_NJOBS"))
     backend = os.environ.get("EP_BATCHED_BACKEND", "loky")
+    results = []
     try: 
         results = Parallel(
             n_jobs=env_n, backend=backend, verbose=0

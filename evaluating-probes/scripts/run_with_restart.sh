@@ -70,17 +70,17 @@ trap 'echo "$(ts) Caught termination signal. Exiting." >&2; exit 130' INT TERM
 
 while :; do
     echo "$(ts) Starting (attempt $((restarts+1))) → ${CMD[*]}"
+    # Temporarily disable 'errexit' so we can capture non-zero status without exiting
+    set +e
     "${CMD[@]}"
     status=$?
+    set -e
 
-    if [[ $status -eq 0 ]]; then
-        echo "$(ts) Command exited successfully. Done."
-        exit 0
-    fi
-
-    # Diagnose common OOM kill exit code (137)
+    # Diagnose common OOM kill exit code (137) and log status
     if [[ $status -eq 137 ]]; then
         echo "$(ts) Command exited with 137 (SIGKILL). Likely OOM-killed. Will restart." >&2
+    elif [[ $status -eq 0 ]]; then
+        echo "$(ts) Command exited successfully. Will restart." >&2
     else
         echo "$(ts) Command exited with status $status. Will restart." >&2
     fi

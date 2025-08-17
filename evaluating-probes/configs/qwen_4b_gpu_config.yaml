@@ -26,6 +26,8 @@ architectures:
     config_name: "sae_qwen3_4b_last"
   - name: "sae"
     config_name: "sae_qwen3_4b_softmax"
+  - name: "attention"
+    config_name: "attention"
 
 # List of experiments to run
 experiments:
