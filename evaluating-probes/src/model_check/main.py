@@ -173,7 +173,7 @@ def run_single_model_check(
     error_count = 0
     batch_size = check.get(
         'batch_size',
-        8,
+        2,
     )  # Default batch size for processing
 
     logger.log(f"Running model over all {len(messages_list)} prompts...")
