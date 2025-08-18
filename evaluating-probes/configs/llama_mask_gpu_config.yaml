@@ -19,8 +19,6 @@ activation_extraction:
 architectures:
   - name: "attention"
     config_name: "attention"
-  - name: "sae"
-    config_name: "sae_llama33b_mean"
 
 # List of experiments to run (Experiment 2 variants only)
 experiments:

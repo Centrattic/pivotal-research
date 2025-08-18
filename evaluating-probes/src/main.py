@@ -265,7 +265,7 @@ def generate_hyperparameter_sweep(
     architecture_name: str,
     config_name: str,
 ) -> List[Union[SklearnLinearProbeConfig, PytorchAttentionProbeConfig, SAEProbeConfig, MassMeanProbeConfig,
-                ActivationSimilarityProbeConfig]]:
+                ActivationSimilarityProbeConfig,]]:
     """Generate hyperparameter sweep configurations for a given architecture."""
     # there is a default filename omission rule: C=1, lr=5e-4, weight_decay=0.0
     # top_k=3584 always included in the filename as a default

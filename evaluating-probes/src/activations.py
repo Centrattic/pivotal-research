@@ -263,6 +263,7 @@ class ActivationManager:
                 'cuda:0',
             )
             if model_name == "meta-llama/Llama-3.3-70B-Instruct":
+                # Oops should have done 8 bit, too late
                 bnb_config = BitsAndBytesConfig(
                     load_in_4bit=True,
                     bnb_4bit_quant_type="nf4",

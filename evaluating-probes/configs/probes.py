@@ -158,9 +158,18 @@ PROBE_CONFIGS = {
     "sae_llama33b_mean": SAEProbeConfig(
         aggregation="mean",
         model_name="meta-llama/Llama-3.3-70B-Instruct",
-        top_k_features=128,
-        encoding_batch_size=1280,
-        training_batch_size=2560,
+    ),
+    "sae_llama33b_max": SAEProbeConfig(
+        aggregation="max",
+        model_name="meta-llama/Llama-3.3-70B-Instruct",
+    ),
+    "sae_llama33b_last": SAEProbeConfig(
+        aggregation="last",
+        model_name="meta-llama/Llama-3.3-70B-Instruct",
+    ),
+    "sae_llama33b_softmax": SAEProbeConfig(
+        aggregation="softmax",
+        model_name="meta-llama/Llama-3.3-70B-Instruct",
     ),
     
     # Qwen3 family (SAE Lens transcoders)

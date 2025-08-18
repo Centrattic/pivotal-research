@@ -6,7 +6,7 @@ import re
 import glob
 import os
 from pathlib import Path
-from typing import List, Dict, Tuple, Optional
+from typing import List, Dict, Tuple, Optional, Callable
 import statistics
 
 
@@ -37,49 +37,32 @@ def extract_probe_info_from_filename(filename):
 
 def _get_scores_and_labels_from_result_file(
     result_path,
-    filtered=True,
 ):
     with open(
             result_path,
             'r',
     ) as f:
         d = json.load(f)
-    # Try to use filtered_scores if present and requested
-    if filtered:
-        if 'filtered_scores' in d:
-            scores = np.array(d['filtered_scores']['scores'])
-            labels = np.array(d['filtered_scores']['labels'])
-            return scores, labels
-        elif 'scores' in d and d['scores'].get(
-                'filtered',
-                False,
-        ):
-            scores = np.array(d['scores']['scores'])
-            labels = np.array(d['scores']['labels'])
-            return scores, labels
-        elif 'all_scores' in d:
-            scores = np.array(d['all_scores']['scores'])
-            labels = np.array(d['all_scores']['labels'])
-            return scores, labels
-    else:
-        if 'all_scores' in d:
-            scores = np.array(d['all_scores']['scores'])
-            labels = np.array(d['all_scores']['labels'])
-            return scores, labels
-        elif 'scores' in d and not d['scores'].get(
-                'filtered',
-                False,
-        ):
-            scores = np.array(d['scores']['scores'])
-            labels = np.array(d['scores']['labels'])
-            return scores, labels
-        elif 'filtered_scores' in d:
-            scores = np.array(d['filtered_scores']['scores'])
-            labels = np.array(d['filtered_scores']['labels'])
-            return scores, labels
-    # fallback
-    scores = np.array(d['scores']['scores'])
-    labels = np.array(d['scores']['labels'])
+    # New pipeline: scoring is already filtered; results contain a single 'scores' block
+    if 'scores' in d and isinstance(d['scores'], dict) and 'scores' in d['scores']:
+        scores = np.array(d['scores']['scores'])
+        labels = np.array(d['scores']['labels'])
+        return scores, labels
+    # Backward compatibility: try filtered_scores or all_scores
+    if 'filtered_scores' in d:
+        scores = np.array(d['filtered_scores']['scores'])
+        labels = np.array(d['filtered_scores']['labels'])
+        return scores, labels
+    if 'all_scores' in d:
+        scores = np.array(d['all_scores']['scores'])
+        labels = np.array(d['all_scores']['labels'])
+        return scores, labels
+    # Final fallback: try top-level 'scores' as list
+    if 'scores' in d and isinstance(d['scores'], list):
+        scores = np.array(d['scores'])
+        labels = np.array(d.get('labels', []))
+        return scores, labels
+    raise ValueError(f"Could not parse scores/labels from {result_path}")
     return scores, labels
 
 
@@ -118,10 +101,141 @@ def _get_result_files_for_seeds(
     return seed_files
 
 
+# -----------------------
+# General helpers (new)
+# -----------------------
+
+def find_experiment_folders(
+    results_root: Path,
+    seed: str,
+    exp_prefix: str,
+) -> List[Path]:
+    """Return paths to experiment folders under seed that start with given prefix (e.g., '2-' or '4-')."""
+    seed_dir = results_root / f"seed_{seed}"
+    if not seed_dir.exists():
+        return []
+    matches = []
+    for sub in os.listdir(seed_dir):
+        if sub.startswith(exp_prefix):
+            matches.append(seed_dir / sub)
+    return matches
+
+
+def find_inner_results_folder(exp_dir: Path) -> Optional[Path]:
+    """Return the inner folder that contains results JSONs (prefers 'dataclass_exps_*', falls back to 'train_*' or 'trained')."""
+    if not exp_dir.exists():
+        return None
+    subfolders = [d for d in os.listdir(exp_dir) if (exp_dir / d).is_dir()]
+    # Prefer dataclass_exps_*
+    for d in subfolders:
+        if d.startswith('dataclass_exps_'):
+            return exp_dir / d
+    # Then 'train_*'
+    for d in subfolders:
+        if d.startswith('train_'):
+            return exp_dir / d
+    # Some runs place results under 'trained'
+    for d in subfolders:
+        if d == 'trained':
+            return exp_dir / d
+    return None
+
+
+def extract_eval_and_train_from_filename(path_str: str) -> Tuple[Optional[str], Optional[str]]:
+    """Extract eval_on and train_on dataset identifiers from filename if present."""
+    eval_match = re.search(r'eval_on_([^_]+(?:_[^_]+)*?)__', path_str)
+    train_match = re.search(r'train_on_([^_]+(?:_[^_]+)*)_', path_str)
+    eval_ds = eval_match.group(1) if eval_match else None
+    train_ds = train_match.group(1) if train_match else None
+    return eval_ds, train_ds
+
+
+def is_default_probe_file(
+    filepath: str,
+    probe_type: str,
+) -> bool:
+    """Heuristic to decide if a result filename corresponds to default hyperparameters.
+
+    Rules (based on user's convention: default values omitted from filenames):
+    - Linear and SAE: default C=1.0, thus any occurrence of 'C' indicates non-default
+    - SAE default top-k=3584; any occurrence of 'topk' indicates non-default
+    - Attention default lr=5e-4 and wd=0.0; any occurrence of 'lr' or 'wd' indicates non-default
+    - Activation similarity: assume no tunable defaults; accept all
+    """
+    name = os.path.basename(filepath)
+    lowered = name.lower()
+    if probe_type in ('linear', 'sae'):
+        if 'c' in lowered:
+            # Avoid matching the 'class' substring; ensure it's parameter-like
+            if re.search(r'[_-]c\d', lowered):
+                return False
+        if probe_type == 'sae' and 'topk' in lowered:
+            return False
+    elif probe_type == 'attention':
+        # ensure we only match lr/wd as parameter tokens, not substrings in other words
+        if re.search(r'(^|[_-])lr\d', lowered) or re.search(r'(^|[_-])wd\d', lowered):
+            return False
+    return True
+
+
+def default_probe_patterns() -> Dict[str, List[str]]:
+    """Return mapping from probe type to patterns for default variants to search for.
+
+    We use broad substrings that should appear in filenames across architectures.
+    """
+    return {
+        'linear': ['linear_last', 'linear_max', 'linear_mean', 'linear_softmax'],
+        'sae': ['sae_16k_l0_408', 'sae_262k_l0_259'],
+        'attention': ['attention_attention'],
+        'act_sim': ['act_sim_max_max', 'act_sim_last_last'],
+    }
+
+
+def collect_result_files_for_pattern(
+    base_results_dir: Path,
+    seeds: List[str],
+    experiment_folder: str,
+    inner_folder_name: Optional[str],
+    pattern: str,
+    eval_dataset: Optional[str] = None,
+    require_default: bool = True,
+) -> List[str]:
+    """Collect all result JSON files matching a given probe pattern across seeds for an experiment.
+
+    Optionally filter to a specific evaluation dataset and default hyperparameters only.
+    """
+    collected: List[str] = []
+    for seed in seeds:
+        seed_dir = base_results_dir / f"seed_{seed}" / experiment_folder
+        if inner_folder_name:
+            seed_dir = seed_dir / inner_folder_name
+        if not seed_dir.exists():
+            continue
+        glob_pat = f"*{pattern}*_results.json"
+        if eval_dataset:
+            files = glob.glob(str(seed_dir / f"eval_on_{eval_dataset}__{glob_pat}"))
+        else:
+            files = glob.glob(str(seed_dir / glob_pat))
+        for f in files:
+            # Determine probe_type from pattern
+            if 'linear' in pattern:
+                ptype = 'linear'
+            elif 'sae' in pattern:
+                ptype = 'sae'
+            elif 'attention' in pattern:
+                ptype = 'attention'
+            elif 'act_sim' in pattern:
+                ptype = 'act_sim'
+            else:
+                ptype = 'unknown'
+            if not require_default or is_default_probe_file(f, ptype):
+                collected.append(f)
+    return collected
+
+
 def _calculate_metric_with_error_bars(
     seed_files: Dict[str, List[str]],
     metric_func,
-    filtered: bool = True,
 ) -> Tuple[List, List, List]:
     """Calculate metric values across seeds and return mean, std, and x_values."""
     # Group files by their class1 count across seeds
@@ -151,10 +265,7 @@ def _calculate_metric_with_error_bars(
 
         for file in files:
             try:
-                scores, labels = _get_scores_and_labels_from_result_file(
-                    file,
-                    filtered=filtered,
-                )
+                scores, labels = _get_scores_and_labels_from_result_file(file)
                 metric = metric_func(
                     scores,
                     labels,
@@ -284,11 +395,7 @@ def plot_multi_folder_recall_at_fpr(
                     best_recall = recall
             return best_recall
 
-        x_values, means, stds = _calculate_metric_with_error_bars(
-            seed_files,
-            recall_at_fpr_func,
-            filtered,
-        )
+        x_values, means, stds = _calculate_metric_with_error_bars(seed_files, recall_at_fpr_func)
 
         if x_values:
             all_recalls.extend(means)
@@ -430,11 +537,7 @@ def plot_multi_folder_auc_vs_n_class1(
             except Exception:
                 return np.nan
 
-        x_values, means, stds = _calculate_metric_with_error_bars(
-            seed_files,
-            auc_func,
-            filtered,
-        )
+        x_values, means, stds = _calculate_metric_with_error_bars(seed_files, auc_func)
 
         if x_values:
             all_aucs.extend(means)
@@ -614,7 +717,7 @@ def plot_all_probe_loss_curves_in_folder(
 def plot_experiment_3_per_probe(
     base_results_dir: Path,
     save_path_base=None,
-    filtered: bool = True,
+    # retained for backward signature compatibility; ignored
     seeds: List[str] = None,
     fpr_target: float = 0.01,
     train_dataset: str = None,
@@ -697,10 +800,7 @@ def plot_experiment_3_per_probe(
                     all_data_recall[key] = []
 
                 try:
-                    scores, labels = _get_scores_and_labels_from_result_file(
-                        str(file),
-                        filtered=filtered,
-                    )
+                    scores, labels = _get_scores_and_labels_from_result_file(str(file))
 
                     # Calculate AUC
                     scores_auc = expit(scores)
@@ -1047,7 +1147,6 @@ def plot_experiment_3_per_probe(
 def get_best_probes_by_type(
     base_results_dir: Path,
     seeds: List[str],
-    filtered: bool = True,
     eval_dataset: str = None,
 ) -> Dict[str, str]:
     """
@@ -1101,10 +1200,7 @@ def get_best_probes_by_type(
 
                 for file in result_files:
                     try:
-                        scores, labels = _get_scores_and_labels_from_result_file(
-                            file,
-                            filtered=filtered,
-                        )
+                        scores, labels = _get_scores_and_labels_from_result_file(file)
                         scores = expit(scores)
                         auc = roc_auc_score(
                             labels,
@@ -1221,10 +1317,7 @@ def plot_experiment_2_unified(
                         all_data[class1_count] = []
 
                     try:
-                        scores, labels = _get_scores_and_labels_from_result_file(
-                            file,
-                            filtered=filtered,
-                        )
+                        scores, labels = _get_scores_and_labels_from_result_file(file)
                         if metric == 'auc':
                             scores = expit(scores)
                             value = roc_auc_score(
@@ -1343,10 +1436,7 @@ def plot_experiment_2_unified(
                         class1_to_values[class1_count] = []
 
                     try:
-                        scores, labels = _get_scores_and_labels_from_result_file(
-                            file,
-                            filtered=filtered,
-                        )
+                        scores, labels = _get_scores_and_labels_from_result_file(file)
                         if metric == 'auc':
                             scores = expit(scores)
                             value = roc_auc_score(
@@ -1453,6 +1543,442 @@ def plot_experiment_2_unified(
             dpi=150,
         )
         print(f"Saved experiment 2 plot to {save_path}")
+        plt.close()
+    else:
+        plt.show()
+
+
+def get_best_default_probes_by_type(
+    base_results_dir: Path,
+    seeds: List[str],
+    exp_prefix: str,
+    filtered: bool = True,
+    eval_dataset: str = None,
+) -> Dict[str, str]:
+    """Pick best default probes per type for a given experiment prefix by median AUC across class1 counts."""
+    from scipy.special import expit
+    from sklearn.metrics import roc_auc_score
+
+    patterns_per_type = default_probe_patterns()
+    experiment_dirs = find_experiment_folders(base_results_dir, seeds[0], exp_prefix)
+    if not experiment_dirs:
+        return {}
+    exp_dir = experiment_dirs[0]
+    inner = find_inner_results_folder(exp_dir)
+    inner_name = inner.name if inner is not None else None
+
+    best: Dict[str, str] = {}
+    for probe_type, patterns in patterns_per_type.items():
+        med_by_pattern: Dict[str, float] = {}
+        for pattern in patterns:
+            files = collect_result_files_for_pattern(
+                base_results_dir,
+                seeds,
+                exp_dir.name,
+                inner_name,
+                pattern,
+                eval_dataset=eval_dataset,
+                require_default=True,
+            )
+            aucs: List[float] = []
+            for f in files:
+                try:
+                    scores, labels = _get_scores_and_labels_from_result_file(f)
+                    aucs.append(roc_auc_score(labels, expit(scores)))
+                except Exception:
+                    continue
+            if aucs:
+                med_by_pattern[pattern] = float(np.median(aucs))
+        if med_by_pattern:
+            best_pattern = max(med_by_pattern.items(), key=lambda kv: kv[1])[0]
+            best[probe_type] = best_pattern
+    return best
+
+
+def plot_experiment_unified(
+    base_results_dir: Path,
+    probe_names: List[str],
+    save_path=None,
+    metric='auc',
+    fpr_target: float = 0.01,
+    filtered: bool = True,
+    seeds: List[str] = None,
+    plot_title: str = None,
+    eval_dataset: str = None,
+    exp_prefix: str = '2-',
+    probe_labels: Dict[str, str] = None,
+    x_label: Optional[str] = None,
+    y_label: Optional[str] = None,
+):
+    """Generalized unified plot for experiment 2 or 4 depending on exp_prefix."""
+    from scipy.special import expit
+    from sklearn.metrics import roc_auc_score
+
+    if seeds is None:
+        seeds = ['42']
+    if probe_labels is None:
+        probe_labels = {p: p for p in probe_names}
+
+    # resolve experiment and inner folder
+    experiment_dirs = find_experiment_folders(base_results_dir, seeds[0], exp_prefix)
+    if not experiment_dirs:
+        print(f"No experiment folders starting with {exp_prefix} found for seed {seeds[0]}")
+        return
+    exp_dir = experiment_dirs[0]
+    inner = find_inner_results_folder(exp_dir)
+    if inner is None:
+        print(f"No inner results folder found in {exp_dir}")
+        return
+    experiment_folder = exp_dir.name
+    dataclass_folder = inner.name
+
+    def recall_at_fpr_func(scores, labels):
+        s = expit(scores)
+        thresholds = np.unique(s)[::-1]
+        best_recall = 0.0
+        for thresh in thresholds:
+            preds = (s >= thresh).astype(int)
+            tp = np.sum((preds == 1) & (labels == 1))
+            fn = np.sum((preds == 0) & (labels == 1))
+            fp = np.sum((preds == 1) & (labels == 0))
+            tn = np.sum((preds == 0) & (labels == 0))
+            fpr = fp / (fp + tn) if (fp + tn) > 0 else 0.0
+            recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
+            if fpr <= fpr_target and recall > best_recall:
+                best_recall = recall
+        return best_recall
+
+    plt.figure(figsize=(6, 4))
+    colors = [f"C{i}" for i in range(len(probe_names))]
+    is_ood = False
+    global_lower_bounds: List[float] = []
+
+    for probe_idx, probe_name in enumerate(probe_names):
+        # Collect data across seeds
+        all_data: Dict[int, List[float]] = {}
+        for seed in seeds:
+            seed_dir = base_results_dir / f"seed_{seed}" / experiment_folder / dataclass_folder
+            if not seed_dir.exists():
+                continue
+            if eval_dataset:
+                result_files = glob.glob(str(seed_dir / f"eval_on_{eval_dataset}__*{probe_name}*_results.json"))
+            else:
+                result_files = glob.glob(str(seed_dir / f"*{probe_name}*_results.json"))
+            for file in result_files:
+                match = re.search(r'class1_(\d+)', file)
+                if not match:
+                    continue
+                class1_count = int(match.group(1))
+                try:
+                    scores, labels = _get_scores_and_labels_from_result_file(file, filtered=filtered)
+                    if metric == 'auc':
+                        value = roc_auc_score(labels, expit(scores))
+                    else:
+                        value = recall_at_fpr_func(scores, labels)
+                    all_data.setdefault(class1_count, []).append(value)
+                    if eval_dataset is not None:
+                        eval_ds, train_ds = extract_eval_and_train_from_filename(file)
+                        if eval_ds and train_ds and eval_ds != train_ds:
+                            is_ood = True
+                except Exception as e:
+                    print(f"Error processing file {file}: {e}")
+                    continue
+
+        x_values = sorted(all_data.keys())
+        if not x_values:
+            continue
+        medians = []
+        lower_bounds = []
+        upper_bounds = []
+        for x in x_values:
+            vals = all_data[x]
+            medians.append(np.median(vals))
+            if len(vals) > 1:
+                lower_bounds.append(np.percentile(vals, 25))
+                upper_bounds.append(np.percentile(vals, 75))
+            else:
+                lower_bounds.append(vals[0])
+                upper_bounds.append(vals[0])
+
+        color = colors[probe_idx]
+        label = probe_labels.get(probe_name, probe_name)
+        plt.plot(x_values, medians, 'o-', label=label, linewidth=2, color=color, markersize=6)
+        if any(a != b for a, b in zip(lower_bounds, upper_bounds)):
+            plt.fill_between(x_values, lower_bounds, upper_bounds, alpha=0.2, color=color)
+        if lower_bounds:
+            global_lower_bounds.append(min(lower_bounds))
+
+    if plot_title:
+        plt.title(plot_title, fontsize=14)
+    else:
+        plt.title("Varying number of positive training examples\nwith 3000 negative examples", fontsize=14)
+
+    # Axis labels (overrideable)
+    if y_label is None:
+        if metric == 'auc':
+            y_label = ("AUC" if not is_ood else "AUC on target dataset")
+        else:
+            y_label = f"Recall at {fpr_target*100}% FPR"
+    if x_label is None:
+        x_label = ("Number of positive examples in the train set" if not is_ood else "Number of positive training samples")
+    plt.ylabel(y_label, fontsize=12)
+    plt.xlabel(x_label, fontsize=12)
+    plt.xscale('log')
+    plt.legend(fontsize=10)
+    plt.grid(True, alpha=0.3)
+    plt.tight_layout()
+    if global_lower_bounds:
+        y_min = max(0.0, min(global_lower_bounds) - 0.05)
+        plt.ylim(y_min, 1.0)
+    if save_path:
+        plt.savefig(save_path, dpi=150)
+        print(f"Saved experiment plot to {save_path}")
+        plt.close()
+    else:
+        plt.show()
+
+
+def plot_probe_group_comparison(
+    base_results_dir: Path,
+    probe_patterns: List[str],
+    save_path=None,
+    metric: str = 'auc',
+    fpr_target: float = 0.01,
+    filtered: bool = True,
+    seeds: List[str] = None,
+    plot_title: str = None,
+    eval_dataset: str = None,
+    exp_prefix: str = '2-',
+    probe_labels: Dict[str, str] = None,
+    require_default: bool = True,
+    x_label: Optional[str] = None,
+    y_label: Optional[str] = None,
+):
+    """Compare multiple probes in one plot for a given experiment prefix with IQR shading."""
+    from scipy.special import expit
+    from sklearn.metrics import roc_auc_score
+
+    if seeds is None:
+        seeds = ['42']
+    if probe_labels is None:
+        probe_labels = {p: p for p in probe_patterns}
+
+    experiment_dirs = find_experiment_folders(base_results_dir, seeds[0], exp_prefix)
+    if not experiment_dirs:
+        print(f"No experiment folders starting with {exp_prefix} found for seed {seeds[0]}")
+        return
+    exp_dir = experiment_dirs[0]
+    inner = find_inner_results_folder(exp_dir)
+    if inner is None:
+        print(f"No inner results folder found in {exp_dir}")
+        return
+
+    plt.figure(figsize=(6, 4))
+    colors = [f"C{i}" for i in range(len(probe_patterns))]
+    global_lower_bounds: List[float] = []
+
+    def recall_at_fpr_func(scores, labels):
+        s = expit(scores)
+        thresholds = np.unique(s)[::-1]
+        best_recall = 0.0
+        for thresh in thresholds:
+            preds = (s >= thresh).astype(int)
+            tp = np.sum((preds == 1) & (labels == 1))
+            fn = np.sum((preds == 0) & (labels == 1))
+            fp = np.sum((preds == 1) & (labels == 0))
+            tn = np.sum((preds == 0) & (labels == 0))
+            fpr = fp / (fp + tn) if (fp + tn) > 0 else 0.0
+            recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
+            if fpr <= fpr_target and recall > best_recall:
+                best_recall = recall
+        return best_recall
+
+    for idx, pattern in enumerate(probe_patterns):
+        files = collect_result_files_for_pattern(
+            base_results_dir,
+            seeds,
+            exp_dir.name,
+            inner.name,
+            pattern,
+            eval_dataset=eval_dataset,
+            require_default=require_default,
+        )
+        class1_to_values: Dict[int, List[float]] = {}
+        for f in files:
+            m = re.search(r'class1_(\d+)', f)
+            if not m:
+                continue
+            n_pos = int(m.group(1))
+            try:
+                scores, labels = _get_scores_and_labels_from_result_file(f, filtered=filtered)
+                if metric == 'auc':
+                    val = roc_auc_score(labels, expit(scores))
+                else:
+                    val = recall_at_fpr_func(scores, labels)
+                class1_to_values.setdefault(n_pos, []).append(val)
+            except Exception:
+                continue
+
+        x_vals = sorted(class1_to_values.keys())
+        if not x_vals:
+            continue
+        medians = []
+        q25 = []
+        q75 = []
+        for x in x_vals:
+            vals = class1_to_values[x]
+            medians.append(np.median(vals))
+            if len(vals) > 1:
+                q25.append(np.percentile(vals, 25))
+                q75.append(np.percentile(vals, 75))
+            else:
+                q25.append(vals[0])
+                q75.append(vals[0])
+
+        color = colors[idx]
+        label = probe_labels.get(pattern, pattern)
+        plt.plot(x_vals, medians, 'o-', color=color, label=label, linewidth=2, markersize=6)
+        if any(a != b for a, b in zip(q25, q75)):
+            plt.fill_between(x_vals, q25, q75, color=color, alpha=0.2)
+        if q25:
+            global_lower_bounds.append(min(q25))
+
+    if plot_title:
+        plt.title(plot_title, fontsize=14)
+    else:
+        plt.title("Varying number of positive training examples\nwith 3000 negative examples", fontsize=14)
+    # Axis labels (overrideable)
+    if x_label is None:
+        x_label = "Number of positive examples in the train set"
+    if y_label is None:
+        y_label = ("AUC" if metric == 'auc' else f"Recall at {fpr_target*100}% FPR")
+    plt.xlabel(x_label, fontsize=12)
+    plt.ylabel(y_label, fontsize=12)
+    plt.xscale('log')
+    plt.legend(fontsize=10)
+    plt.grid(True, alpha=0.3)
+    plt.tight_layout()
+    if global_lower_bounds:
+        y_min = max(0.0, min(global_lower_bounds) - 0.05)
+        plt.ylim(y_min, 1.0)
+    if save_path:
+        plt.savefig(save_path, dpi=150)
+        print(f"Saved probe group comparison plot to {save_path}")
+        plt.close()
+    else:
+        plt.show()
+
+
+def plot_scaling_law_across_runs(
+    run_roots: List[Path],
+    run_labels: List[str],
+    probe_pattern: str,
+    save_path=None,
+    metric: str = 'auc',
+    fpr_target: float = 0.01,
+    filtered: bool = True,
+    seeds: List[str] = None,
+    exp_prefix: str = '2-',
+    x_label: Optional[str] = None,
+    y_label: Optional[str] = None,
+):
+    """Scaling-law plot across multiple run roots for a single probe pattern with blue gradient."""
+    from scipy.special import expit
+    from sklearn.metrics import roc_auc_score
+
+    if seeds is None:
+        seeds = ['42']
+
+    plt.figure(figsize=(6, 4))
+    colors = plt.cm.Blues(np.linspace(0.4, 0.9, len(run_roots)))
+    global_lower_bounds: List[float] = []
+
+    for idx, (root, label) in enumerate(zip(run_roots, run_labels)):
+        exp_dirs = find_experiment_folders(root, seeds[0], exp_prefix)
+        if not exp_dirs:
+            continue
+        exp_dir = exp_dirs[0]
+        inner = find_inner_results_folder(exp_dir)
+        if inner is None:
+            continue
+
+        files = collect_result_files_for_pattern(
+            root,
+            seeds,
+            exp_dir.name,
+            inner.name,
+            probe_pattern,
+            eval_dataset=None,
+            require_default=True,
+        )
+        class1_to_values: Dict[int, List[float]] = {}
+        for f in files:
+            m = re.search(r'class1_(\d+)', f)
+            if not m:
+                continue
+            n_pos = int(m.group(1))
+            try:
+                scores, labels = _get_scores_and_labels_from_result_file(f, filtered=filtered)
+                if metric == 'auc':
+                    val = roc_auc_score(labels, expit(scores))
+                else:
+                    s = expit(scores)
+                    thresholds = np.unique(s)[::-1]
+                    best_recall = 0.0
+                    for thresh in thresholds:
+                        preds = (s >= thresh).astype(int)
+                        tp = np.sum((preds == 1) & (labels == 1))
+                        fn = np.sum((preds == 0) & (labels == 1))
+                        fp = np.sum((preds == 1) & (labels == 0))
+                        tn = np.sum((preds == 0) & (labels == 0))
+                        fpr = fp / (fp + tn) if (fp + tn) > 0 else 0.0
+                        recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
+                        if fpr <= fpr_target and recall > best_recall:
+                            best_recall = recall
+                    val = best_recall
+                class1_to_values.setdefault(n_pos, []).append(val)
+            except Exception:
+                continue
+
+        x_vals = sorted(class1_to_values.keys())
+        if not x_vals:
+            continue
+        medians = []
+        q25 = []
+        q75 = []
+        for x in x_vals:
+            vals = class1_to_values[x]
+            medians.append(np.median(vals))
+            if len(vals) > 1:
+                q25.append(np.percentile(vals, 25))
+                q75.append(np.percentile(vals, 75))
+            else:
+                q25.append(vals[0])
+                q75.append(vals[0])
+        color = colors[idx]
+        plt.plot(x_vals, medians, 'o-', color=color, label=label, linewidth=2, markersize=6)
+        if any(a != b for a, b in zip(q25, q75)):
+            plt.fill_between(x_vals, q25, q75, color=color, alpha=0.2)
+        if q25:
+            global_lower_bounds.append(min(q25))
+
+    plt.title("Scaling law across model sizes", fontsize=14)
+    if y_label is None:
+        y_label = ("AUC" if metric == 'auc' else f"Recall at {fpr_target*100}% FPR")
+    if x_label is None:
+        x_label = "Number of positive examples in the train set"
+    plt.ylabel(y_label, fontsize=12)
+    plt.xlabel(x_label, fontsize=12)
+    plt.xscale('log')
+    plt.legend(fontsize=10)
+    plt.grid(True, alpha=0.3)
+    plt.tight_layout()
+    if global_lower_bounds:
+        y_min = max(0.0, min(global_lower_bounds) - 0.05)
+        plt.ylim(y_min, 1.0)
+    if save_path:
+        plt.savefig(save_path, dpi=150)
+        print(f"Saved scaling law plot to {save_path}")
         plt.close()
     else:
         plt.show()

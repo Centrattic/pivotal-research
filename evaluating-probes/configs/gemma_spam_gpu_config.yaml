@@ -15,22 +15,6 @@ activation_extraction:
 
 # Evaluation dataset configurations
 architectures:
-  - name: "sae_16k_l0_408_mean"
-    config_name: "sae_16k_l0_408_mean"
-  - name: "sae_16k_l0_408_max"
-    config_name: "sae_16k_l0_408_max"
-  - name: "sae_16k_l0_408_last"
-    config_name: "sae_16k_l0_408_last"
-  - name: "sae_16k_l0_408_softmax"
-    config_name: "sae_16k_l0_408_softmax"
-  - name: "sae_262k_l0_259_mean"
-    config_name: "sae_262k_l0_259_mean"
-  - name: "sae_262k_l0_259_max"
-    config_name: "sae_262k_l0_259_max"
-  - name: "sae_262k_l0_259_last"
-    config_name: "sae_262k_l0_259_last"
-  - name: "sae_262k_l0_259_softmax"
-    config_name: "sae_262k_l0_259_softmax"
   - name: "attention"
     config_name: "attention"
 
