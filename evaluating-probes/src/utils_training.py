@@ -505,6 +505,9 @@ def train_single_probe(
 
     elif job.architecture_name == "sae" or job.architecture_name.startswith("sae"):
         # SAE probe
+        # Ensure the SAE probe is instantiated with the correct layer/model mapping from the job/config
+        probe_config_dict.setdefault('model_name', config['model_name'])
+        probe_config_dict['layer'] = job.layer
         probe = get_probe_architecture(
             "sae",
             d_model=get_model_d_model(config['model_name']),
@@ -673,6 +676,9 @@ def evaluate_single_probe(
             config=probe_config_dict,
         )
     elif job.architecture_name == "sae" or job.architecture_name.startswith("sae"):
+        # Ensure the SAE probe is instantiated with the correct layer/model mapping from the job/config
+        probe_config_dict.setdefault('model_name', config['model_name'])
+        probe_config_dict['layer'] = job.layer
         probe = get_probe_architecture(
             "sae",
             d_model=get_model_d_model(config['model_name']),
