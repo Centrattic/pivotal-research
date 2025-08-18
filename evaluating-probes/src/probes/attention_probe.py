@@ -415,25 +415,36 @@ class AttentionProbe(BaseProbe):
 
     def predict_proba(self, X: np.ndarray) -> np.ndarray:
         """Predict probabilities."""
-        logits = self.predict_logits(X)
+        # Ensure logits are float32 for stable numpy ops
+        logits = self.predict_logits(X).astype(np.float32, copy=False)
         probs = 1 / (1 + np.exp(-logits))
         return np.column_stack([1 - probs, probs])
 
     def predict_logits(self, X: np.ndarray) -> np.ndarray:
-        """Predict logits."""
-        # Convert to torch tensor - match model dtype (bfloat16)
-        # First convert to float32, then to bfloat16 to handle any potential issues
-        X_tensor = torch.tensor(X, dtype=torch.bfloat16, device=self.device) # to(torch.bfloat16)
-
-        # Predict
-        self.model.eval()
-        with torch.no_grad():
-            logits = self.model(X_tensor).cpu().numpy().squeeze()
-
-        return logits
+        """Predict logits. Cast to float32 on CPU for eval to avoid bfloat16 issues."""
+        is_cpu = (self.device == 'cpu') or (isinstance(self.device, torch.device) and self.device.type == 'cpu')
+        if is_cpu:
+            X_tensor = torch.tensor(X, dtype=torch.float32, device=self.device)
+            # Temporarily cast model to float32 for CPU inference
+            original_dtype = next(self.model.parameters()).dtype
+            self.model = self.model.to(torch.float32)
+            self.model.eval()
+            with torch.no_grad():
+                logits = self.model(X_tensor).cpu().numpy().squeeze()
+            # Restore original dtype
+            self.model = self.model.to(original_dtype)
+            return logits
+        else:
+            # GPU path keeps bfloat16 for speed
+            X_tensor = torch.tensor(X, dtype=torch.bfloat16, device=self.device)
+            self.model.eval()
+            with torch.no_grad():
+                # Cast to float32 before moving to CPU/numpy to avoid bf16 numpy ops later
+                logits = self.model(X_tensor).to(torch.float32).cpu().numpy().squeeze()
+            return logits
 
     def score(self, X: np.ndarray, y: np.ndarray) -> dict[str, float]:
-        """Calculate accuracy score."""
+        """Calculate accuracy score. Ensure eval in float32 on CPU."""
         predictions = self.predict(X)
         accuracy = np.mean(predictions == y)
         return {"accuracy": accuracy}

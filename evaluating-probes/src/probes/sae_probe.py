@@ -188,21 +188,50 @@ class SAEProbe(BaseProbe):
                 raise ValueError("HF SAE repo is not set for Llama-3.3-70B.")
             local_dir = self.sae_cache_dir / "goodfire_llama33b_l50"
             local_dir.mkdir(parents=True, exist_ok=True)
-            print(f"Loading Goodfire SAE from HF repo: {self.hf_sae_repo}")
-            repo_path = snapshot_download(
-                repo_id=self.hf_sae_repo, local_dir=str(local_dir), local_dir_use_symlinks=False
+            # Prefer existing local cache if present to avoid unnecessary downloads
+            repo_path = Path(local_dir)
+            local_any = (
+                list(repo_path.glob("*.safetensors"))
+                or list(repo_path.glob("*.pt"))
+                or list(repo_path.rglob("*.safetensors"))
+                or list(repo_path.rglob("*.pt"))
             )
+            if not local_any:
+                print(f"Loading Goodfire SAE from HF repo: {self.hf_sae_repo}")
+                downloaded = snapshot_download(
+                    repo_id=self.hf_sae_repo, local_dir=str(local_dir), local_dir_use_symlinks=False
+                )
+                repo_path = Path(downloaded)
 
-            # Find a safetensors file
-            repo_path = Path(repo_path)
+            # Find a weights file: prefer safetensors, else fall back to .pt
             candidates = list(repo_path.glob("*.safetensors"))
             if not candidates:
-                # fallback to common filename inside subfolders
                 candidates = list(repo_path.rglob("*.safetensors"))
             if not candidates:
-                raise FileNotFoundError(f"No .safetensors file found in {repo_path}")
+                candidates = list(repo_path.glob("*.pt"))
+            if not candidates:
+                candidates = list(repo_path.rglob("*.pt"))
+            if not candidates:
+                raise FileNotFoundError(f"No .safetensors or .pt file found in {repo_path}")
 
-            weights = safetensors_load_file(str(candidates[0]))
+            selected_path = Path(candidates[0])
+            if selected_path.suffix == ".safetensors":
+                weights = safetensors_load_file(str(selected_path))
+            else:
+                # Load PyTorch-serialized weights
+                obj = torch.load(str(selected_path), map_location="cpu")
+                if isinstance(obj, dict):
+                    # Unwrap common wrappers
+                    for key in ["state_dict", "model_state_dict", "weights", "params"]:
+                        if key in obj and isinstance(obj[key], dict):
+                            obj = obj[key]
+                            break
+                    # Ensure a mapping of str -> Tensor
+                    weights = {k: (torch.as_tensor(v) if not isinstance(v, torch.Tensor) else v) for k, v in obj.items()}
+                else:
+                    raise ValueError(
+                        f"Unexpected .pt format at {selected_path}. Expected a dict or a dict under a common wrapper key."
+                    )
 
             # Heuristically determine encoder weight/bias as the 2D tensor with shape (F, D)
             # where D == d_model, and the largest F is selected
@@ -241,11 +270,15 @@ class SAEProbe(BaseProbe):
 
                 def encode(self, x: torch.Tensor) -> torch.Tensor:
                     # x: (N, D)
-                    return F.relu(torch.addmm(self.b, x, self.W.t()))
+                    # Ensure dtype alignment with weights to avoid matmul dtype mismatch
+                    if x.dtype != self.W.dtype:
+                        x = x.to(self.W.dtype)
+                    b = self.b if self.b.dtype == self.W.dtype else self.b.to(self.W.dtype)
+                    return F.relu(torch.addmm(b, x, self.W.t()))
 
             self.sae = _SimpleHFSAE(enc_weight, bias, self.device)
             print(
-                f"Loaded Goodfire SAE ({enc_weight.shape[0]} features, d_model={self.d_model}) from {candidates[0].name}"
+                f"Loaded Goodfire SAE ({enc_weight.shape[0]} features, d_model={self.d_model}) from {selected_path.name}"
             )
             return self.sae
         else:
@@ -310,7 +343,10 @@ class SAEProbe(BaseProbe):
         for start in tqdm(range(0, N, self.encoding_batch_size), desc="Encoding activations"):
             end = min(start + self.encoding_batch_size, N)
             batch = activations[start:end]
-            batch_tensor = torch.tensor(batch, dtype=torch.bfloat16, device=self.device)
+            # Use bfloat16 on GPU, float32 on CPU to avoid unsupported ops
+            device_type = torch.device(self.device).type if isinstance(self.device, str) else self.device.type
+            preferred_dtype = torch.bfloat16 if device_type == 'cuda' else torch.float32
+            batch_tensor = torch.tensor(batch, dtype=preferred_dtype, device=self.device)
             encoded_batch = sae.encode(batch_tensor).float().cpu().detach().numpy()  # (B, F)
             encoded_list.append(encoded_batch)
 
