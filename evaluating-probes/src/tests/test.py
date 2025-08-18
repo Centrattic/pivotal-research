@@ -11,10 +11,18 @@ MODEL = "gemma-2-9b"
 
 # ---------- load dataset (no activations yet) ----------
 model = AutoModelForCausalLM.from_pretrained(
-    MODEL, device_map="cpu", torch_dtype=torch.float32
+    MODEL,
+    device_map="cpu",
+    torch_dtype=torch.float32,
 )  # CPU is fine for counting
 tokenizer = AutoTokenizer.from_pretrained(MODEL)
-ds = Dataset(DATASET, model=model, tokenizer=tokenizer, model_name=MODEL, device="cpu")
+ds = Dataset(
+    DATASET,
+    model=model,
+    tokenizer=tokenizer,
+    model_name=MODEL,
+    device="cpu",
+)
 
 # ---- counts straight from Dataset object ----
 n_train, n_test = len(ds.X_train_text), len(ds.X_test_text)

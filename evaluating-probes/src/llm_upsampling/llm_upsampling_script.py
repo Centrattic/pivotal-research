@@ -62,7 +62,11 @@ class LLMUpsamplingStateMachine:
         self.retry_delay = 2  # seconds
         print(f"LLM client initialized successfully")
 
-    def extract_csv_from_response(self, response: str, target_samples: int = None) -> Optional[pd.DataFrame]:
+    def extract_csv_from_response(
+        self,
+        response: str,
+        target_samples: int = None,
+    ) -> Optional[pd.DataFrame]:
         """Extract new prompts from LLM response and create DataFrame."""
         try:
             # Use the entire response content
@@ -140,7 +144,11 @@ class LLMUpsamplingStateMachine:
             return None
 
     def validate_upsampled_data(
-        self, original_df: pd.DataFrame, upsampled_df: pd.DataFrame, target_samples: int, upsampling_factor: int
+        self,
+        original_df: pd.DataFrame,
+        upsampled_df: pd.DataFrame,
+        target_samples: int,
+        upsampling_factor: int,
     ) -> Tuple[bool, str]:
         """Validate upsampled data meets requirements."""
         if len(upsampled_df) < target_samples:
@@ -181,8 +189,12 @@ class LLMUpsamplingStateMachine:
 
         return True, "Validation passed"
 
-    def validate_new_samples(self, original_df: pd.DataFrame, new_samples_df: pd.DataFrame,
-                             batch_size: int) -> Tuple[bool, str]:
+    def validate_new_samples(
+        self,
+        original_df: pd.DataFrame,
+        new_samples_df: pd.DataFrame,
+        batch_size: int,
+    ) -> Tuple[bool, str]:
         """Validate only the new samples meet requirements."""
 
         # Check that all new samples are class 1 (positive)
@@ -216,20 +228,29 @@ class LLMUpsamplingStateMachine:
         return True, "New samples validation passed"
 
     def generate_batch_upsampling_prompt(
-        self, original_df: pd.DataFrame, batch_size: int, previous_samples: Optional[pd.DataFrame] = None
+        self,
+        original_df: pd.DataFrame,
+        batch_size: int,
+        previous_samples: Optional[pd.DataFrame] = None,
     ) -> str:
         """Generate the upsampling prompt for a batch of samples."""
 
         # Convert original data to CSV string
         csv_buffer = io.StringIO()
-        original_df.to_csv(csv_buffer, index=False)
+        original_df.to_csv(
+            csv_buffer,
+            index=False,
+        )
         original_csv = csv_buffer.getvalue()
 
         # Include previous samples if available
         previous_csv = ""
         if previous_samples is not None and len(previous_samples) > 0:
             csv_buffer = io.StringIO()
-            previous_samples.to_csv(csv_buffer, index=False)
+            previous_samples.to_csv(
+                csv_buffer,
+                index=False,
+            )
             previous_csv = f"\n\nPreviously generated samples:\n{csv_buffer.getvalue()}"
 
         prompt = f"""You are an expert at creating synthetic data samples for machine learning. I need you to add {batch_size} new unique samples to the existing dataset.
@@ -259,11 +280,15 @@ class LLMUpsamplingStateMachine:
         self,
         original_df: pd.DataFrame,
         batch_size: int,
-        previous_samples: Optional[pd.DataFrame] = None
+        previous_samples: Optional[pd.DataFrame] = None,
     ) -> Optional[pd.DataFrame]:
         """Request a batch of upsampling from the LLM with retry logic."""
 
-        prompt = self.generate_batch_upsampling_prompt(original_df, batch_size, previous_samples)
+        prompt = self.generate_batch_upsampling_prompt(
+            original_df,
+            batch_size,
+            previous_samples,
+        )
 
         for attempt in range(self.max_retries):
             try:
@@ -285,7 +310,7 @@ class LLMUpsamplingStateMachine:
                         }, {"role": "user", "content": prompt}
                     ],
                     temperature=0.7,
-                    max_tokens=4000
+                    max_tokens=4000,
                 )
 
                 print(f"    API call successful, response object: {type(response)}")
@@ -300,7 +325,10 @@ class LLMUpsamplingStateMachine:
                 print(f"    Response preview: {response_text[:200]}...")
 
                 # Extract new samples from response
-                new_samples_df = self.extract_csv_from_response(response_text, batch_size)
+                new_samples_df = self.extract_csv_from_response(
+                    response_text,
+                    batch_size,
+                )
                 if new_samples_df is None:
                     print(f"    Failed to parse response, retrying...")
                     time.sleep(self.retry_delay)
@@ -318,10 +346,17 @@ class LLMUpsamplingStateMachine:
                         return None
 
                 # Combine original samples with new samples
-                combined_df = pd.concat([original_df, new_samples_df], ignore_index=True)
+                combined_df = pd.concat(
+                    [original_df, new_samples_df],
+                    ignore_index=True,
+                )
 
                 # Validate the new samples (not the combined dataset)
-                is_valid, validation_msg = self.validate_new_samples(original_df, new_samples_df, batch_size)
+                is_valid, validation_msg = self.validate_new_samples(
+                    original_df,
+                    new_samples_df,
+                    batch_size,
+                )
 
                 if is_valid:
                     print(f"    ✅ Validation passed: {len(new_samples_df)} new samples generated")
@@ -358,12 +393,21 @@ def extract_config_parameters(config_path: Path) -> Tuple[List[int], List[int], 
         Tuple of (seeds, num_real_samples, upsampling_factors, train_on_dataset)
     """
     # Load config
-    with open(config_path, 'r') as f:
+    with open(
+            config_path,
+            'r',
+    ) as f:
         config = yaml.safe_load(f)
 
     # Extract seeds from config
-    seeds = config.get('seeds', [42])
-    if isinstance(seeds, int):
+    seeds = config.get(
+        'seeds',
+        [42],
+    )
+    if isinstance(
+            seeds,
+            int,
+    ):
         seeds = [seeds]
 
     # Find the first experiment with train_on dataset
@@ -383,7 +427,10 @@ def extract_config_parameters(config_path: Path) -> Tuple[List[int], List[int], 
     # Look specifically for the LLM upsampling experiment
     for experiment in config['experiments']:
         if 'llm-upsampling' in experiment.get('name'):
-            rebuild_config = experiment.get('rebuild_config', {})
+            rebuild_config = experiment.get(
+                'rebuild_config',
+                {},
+            )
             if 'llm_upsampling_experiments' in rebuild_config:
                 llm_configs = rebuild_config['llm_upsampling_experiments']
                 for llm_config in llm_configs:
@@ -419,8 +466,11 @@ def extract_config_parameters(config_path: Path) -> Tuple[List[int], List[int], 
     return seeds, num_real_samples, upsampling_factors, train_on
 
 
-def extract_samples_for_upsampling(config_path: Path, num_real_samples: List[int],
-                                   seed: int) -> Dict[int, pd.DataFrame]:
+def extract_samples_for_upsampling(
+    config_path: Path,
+    num_real_samples: List[int],
+    seed: int,
+) -> Dict[int, pd.DataFrame]:
     """
     Extract positive samples using the same logic as build_imbalanced_train_balanced_eval.
     
@@ -433,7 +483,10 @@ def extract_samples_for_upsampling(config_path: Path, num_real_samples: List[int
         Dictionary mapping sample count to DataFrame
     """
     # Load config
-    with open(config_path, 'r') as f:
+    with open(
+            config_path,
+            'r',
+    ) as f:
         config = yaml.safe_load(f)
 
     # Find the first experiment with train_on dataset
@@ -449,7 +502,12 @@ def extract_samples_for_upsampling(config_path: Path, num_real_samples: List[int
     print(f"Loading dataset: {train_on}")
 
     # Load original dataset
-    orig_ds = Dataset(train_on, model=None, device='cpu', seed=seed)
+    orig_ds = Dataset(
+        train_on,
+        model=None,
+        device='cpu',
+        seed=seed,
+    )
 
     # Get all positive samples
     df = orig_ds.df
@@ -500,7 +558,10 @@ def run_llm_upsampling(
     seeds, num_real_samples, upsampling_factors, train_on = extract_config_parameters(config_path)
 
     # Load config
-    with open(config_path, 'r') as f:
+    with open(
+            config_path,
+            'r',
+    ) as f:
         config = yaml.safe_load(f)
 
     run_name = config['run_name']
@@ -516,13 +577,20 @@ def run_llm_upsampling(
 
         # Create seed-specific output directory with dataset name
         seed_output_dir = Path('results') / run_name / f'seed_{seed}' / f'llm_samples_{train_on}'
-        seed_output_dir.mkdir(parents=True, exist_ok=True)
+        seed_output_dir.mkdir(
+            parents=True,
+            exist_ok=True,
+        )
 
         print(f"Output directory: {seed_output_dir}")
 
         # Extract samples using same logic as build_imbalanced_train_balanced_eval
         print(f"Extracting samples using seed {seed}...")
-        extracted_samples = extract_samples_for_upsampling(config_path, num_real_samples, seed)
+        extracted_samples = extract_samples_for_upsampling(
+            config_path,
+            num_real_samples,
+            seed,
+        )
 
         # Process each sample count
         for n_real_samples in num_real_samples:
@@ -591,7 +659,10 @@ def run_llm_upsampling(
             if not skip_generation:
                 while len(current_upsampled_df) < max_target_samples:
                     samples_needed = max_target_samples - len(current_upsampled_df)
-                    current_batch_size = min(batch_size, samples_needed)
+                    current_batch_size = min(
+                        batch_size,
+                        samples_needed,
+                    )
 
                     print(f"\n--- Generating batch of {current_batch_size} samples ---")
                     print(f"Current samples: {len(current_upsampled_df)}")
@@ -600,7 +671,9 @@ def run_llm_upsampling(
 
                     # Request batch upsampling
                     new_samples_df = state_machine.request_upsampling_batch(
-                        original_df, current_batch_size, current_upsampled_df
+                        original_df,
+                        current_batch_size,
+                        current_upsampled_df,
                     )
 
                     if new_samples_df is None:
@@ -609,7 +682,10 @@ def run_llm_upsampling(
 
                     # Add new samples to our collection
                     all_new_samples.append(new_samples_df)
-                    current_upsampled_df = pd.concat([current_upsampled_df, new_samples_df], ignore_index=True)
+                    current_upsampled_df = pd.concat(
+                        [current_upsampled_df, new_samples_df],
+                        ignore_index=True,
+                    )
 
                     print(f"✅ Added {len(new_samples_df)} new samples, total: {len(current_upsampled_df)}")
 
@@ -637,7 +713,13 @@ def run_llm_upsampling(
                 print(f"📁 Using existing dataset for activation extraction")
                 final_df = current_upsampled_df.copy()
                 # Compute actually achieved factor based on current dataset size
-                achieved_factor = max(1, len(final_df) // max(1, n_real_samples))
+                achieved_factor = max(
+                    1,
+                    len(final_df) // max(
+                        1,
+                        n_real_samples,
+                    ),
+                )
                 all_generated_samples = {achieved_factor: final_df}
                 print(f"   Debug: final_df has {len(final_df)} samples, original_df has {len(original_df)} samples")
                 print(f"   Debug: LLM samples (after original) should be {len(final_df) - len(original_df)}")
@@ -662,14 +744,23 @@ def run_llm_upsampling(
                 # Safety check: ensure directory exists before saving
                 if not seed_output_dir.exists():
                     print(f"⚠️  Output directory {seed_output_dir} no longer exists, recreating...")
-                    seed_output_dir.mkdir(parents=True, exist_ok=True)
+                    seed_output_dir.mkdir(
+                        parents=True,
+                        exist_ok=True,
+                    )
 
-                if not os.access(seed_output_dir, os.W_OK):
+                if not os.access(
+                        seed_output_dir,
+                        os.W_OK,
+                ):
                     print(f"❌ Output directory {seed_output_dir} is not writable!")
                     print(f"   Trying to save to current directory instead...")
                     output_path = Path(f"samples_{n_real_samples}_seed_{seed}.csv")
 
-                final_df.to_csv(output_path, index=False)
+                final_df.to_csv(
+                    output_path,
+                    index=False,
+                )
 
                 print(f"✅ Saved complete dataset with {len(final_df)} samples to: {output_path}")
                 print(
@@ -697,9 +788,16 @@ def run_llm_upsampling(
 def main():
     parser = argparse.ArgumentParser(description="Run automatic LLM upsampling using OpenAI API")
     parser.add_argument(
-        "-c", "--config", required=True, help="Config name (e.g. 'spam_exp') or path to config YAML file"
+        "-c",
+        "--config",
+        required=True,
+        help="Config name (e.g. 'spam_exp') or path to config YAML file",
     )
-    parser.add_argument("--api-key", required=True, help="OpenAI API key")
+    parser.add_argument(
+        "--api-key",
+        required=True,
+        help="OpenAI API key",
+    )
 
     args = parser.parse_args()
 
@@ -714,7 +812,10 @@ def main():
         sys.exit(1)
 
     try:
-        run_llm_upsampling(config_path=config_path, api_key=args.api_key)
+        run_llm_upsampling(
+            config_path=config_path,
+            api_key=args.api_key,
+        )
     except Exception as e:
         print(f"❌ Error during LLM upsampling: {e}")
         import traceback

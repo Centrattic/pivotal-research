@@ -24,7 +24,12 @@ class ActivationSimilarityProbe(BaseProbeNonTrainable):
         task_type: str = "classification",
         aggregation: str = "mean",
     ):
-        super().__init__(d_model, device, task_type, aggregation)
+        super().__init__(
+            d_model,
+            device,
+            task_type,
+            aggregation,
+        )
         self.positive_prototype = None
         self.negative_prototype = None
 
@@ -82,7 +87,10 @@ class ActivationSimilarityProbe(BaseProbeNonTrainable):
         print(f"=== ACTIVATION SIMILARITY PROBE FITTING COMPLETE ===\n")
         return self
 
-    def predict_logits(self, X: np.ndarray) -> np.ndarray:
+    def predict_logits(
+        self,
+        X: np.ndarray,
+    ) -> np.ndarray:
         """
         Compute logits (similarity scores) from pre-aggregated activations (binary classification only).
         
@@ -97,11 +105,17 @@ class ActivationSimilarityProbe(BaseProbeNonTrainable):
         if np.isnan(self.positive_prototype).any():
             print(f"Warning: NaN detected in positive_prototype")
             # Replace NaN with zeros
-            self.positive_prototype = np.nan_to_num(self.positive_prototype, nan=0.0)
+            self.positive_prototype = np.nan_to_num(
+                self.positive_prototype,
+                nan=0.0,
+            )
         if np.isnan(self.negative_prototype).any():
             print(f"Warning: NaN detected in negative_prototype")
             # Replace NaN with zeros
-            self.negative_prototype = np.nan_to_num(self.negative_prototype, nan=0.0)
+            self.negative_prototype = np.nan_to_num(
+                self.negative_prototype,
+                nan=0.0,
+            )
 
         # Check if prototypes are all zeros
         if np.all(self.positive_prototype == 0):
@@ -109,8 +123,14 @@ class ActivationSimilarityProbe(BaseProbeNonTrainable):
         if np.all(self.negative_prototype == 0):
             print(f"Warning: negative_prototype is all zeros")
 
-        pos_sim = self._cosine_similarity(X, self.positive_prototype)
-        neg_sim = self._cosine_similarity(X, self.negative_prototype)
+        pos_sim = self._cosine_similarity(
+            X,
+            self.positive_prototype,
+        )
+        neg_sim = self._cosine_similarity(
+            X,
+            self.negative_prototype,
+        )
         logits = pos_sim - neg_sim
 
         # Check for NaN in logits
@@ -120,11 +140,17 @@ class ActivationSimilarityProbe(BaseProbeNonTrainable):
             print(f"neg_sim range: [{neg_sim.min():.4f}, {neg_sim.max():.4f}]")
             print(f"logits range: [{logits.min():.4f}, {logits.max():.4f}]")
             # Replace NaN with zeros as fallback
-            logits = np.nan_to_num(logits, nan=0.0)
+            logits = np.nan_to_num(
+                logits,
+                nan=0.0,
+            )
 
         return logits
 
-    def predict(self, X: np.ndarray) -> np.ndarray:
+    def predict(
+        self,
+        X: np.ndarray,
+    ) -> np.ndarray:
         """
         Compute predictions from pre-aggregated activations (binary classification only).
         
@@ -139,7 +165,10 @@ class ActivationSimilarityProbe(BaseProbeNonTrainable):
         # Binary classification only: threshold at 0
         return (logits > 0).astype(int)
 
-    def predict_proba(self, X: np.ndarray) -> np.ndarray:
+    def predict_proba(
+        self,
+        X: np.ndarray,
+    ) -> np.ndarray:
         """
         Compute probabilities from pre-aggregated activations (binary classification only).
         
@@ -156,9 +185,16 @@ class ActivationSimilarityProbe(BaseProbeNonTrainable):
         if np.isnan(logits).any():
             print(f"Warning: NaN detected in logits before sigmoid")
             # Replace NaN with 0 for sigmoid computation
-            logits = np.nan_to_num(logits, nan=0.0)
+            logits = np.nan_to_num(
+                logits,
+                nan=0.0,
+            )
 
-        logits_tensor = torch.tensor(logits, dtype=torch.float32, device=self.device)
+        logits_tensor = torch.tensor(
+            logits,
+            dtype=torch.float32,
+            device=self.device,
+        )
         probs_positive = torch.sigmoid(logits_tensor).cpu().numpy()
         probs_negative = 1 - probs_positive
 
@@ -168,7 +204,11 @@ class ActivationSimilarityProbe(BaseProbeNonTrainable):
 
         return np.column_stack([probs_negative, probs_positive])
 
-    def _cosine_similarity(self, X: np.ndarray, prototype: np.ndarray) -> np.ndarray:
+    def _cosine_similarity(
+        self,
+        X: np.ndarray,
+        prototype: np.ndarray,
+    ) -> np.ndarray:
         """
         Compute cosine similarity between activations and prototype using PyTorch's built-in function.
         
@@ -182,12 +222,30 @@ class ActivationSimilarityProbe(BaseProbeNonTrainable):
         import torch.nn.functional as F
 
         # Convert to PyTorch tensors
-        X_tensor = torch.tensor(X, dtype=torch.float32, device=self.device)
-        prototype_tensor = torch.tensor(prototype, dtype=torch.float32, device=self.device)
+        X_tensor = torch.tensor(
+            X,
+            dtype=torch.float32,
+            device=self.device,
+        )
+        prototype_tensor = torch.tensor(
+            prototype,
+            dtype=torch.float32,
+            device=self.device,
+        )
 
         # Replace any infinity values with zeros
-        X_tensor = torch.nan_to_num(X_tensor, nan=0.0, posinf=0.0, neginf=0.0)
-        prototype_tensor = torch.nan_to_num(prototype_tensor, nan=0.0, posinf=0.0, neginf=0.0)
+        X_tensor = torch.nan_to_num(
+            X_tensor,
+            nan=0.0,
+            posinf=0.0,
+            neginf=0.0,
+        )
+        prototype_tensor = torch.nan_to_num(
+            prototype_tensor,
+            nan=0.0,
+            posinf=0.0,
+            neginf=0.0,
+        )
 
         # Expand prototype to match X shape for broadcasting
         # prototype_tensor: (d_model,) -> (1, d_model)
@@ -195,10 +253,18 @@ class ActivationSimilarityProbe(BaseProbeNonTrainable):
 
         # Compute cosine similarity using PyTorch's built-in function
         # This handles zero vectors and numerical stability automatically
-        similarities = F.cosine_similarity(X_tensor, prototype_expanded, dim=1)
+        similarities = F.cosine_similarity(
+            X_tensor,
+            prototype_expanded,
+            dim=1,
+        )
 
         # Clamp to valid range [-1, 1] to handle any numerical errors
-        similarities = torch.clamp(similarities, min=-1.0, max=1.0)
+        similarities = torch.clamp(
+            similarities,
+            min=-1.0,
+            max=1.0,
+        )
 
         return similarities.cpu().numpy()
 

@@ -18,8 +18,15 @@ def dump_loss_history(
     """
      Write `[loss0, loss1, ...]` as pretty-printed JSON.
      """
-    with open(out_path, "w") as fp:
-        json.dump(losses, fp, indent=2)
+    with open(
+            out_path,
+            "w",
+    ) as fp:
+        json.dump(
+            losses,
+            fp,
+            indent=2,
+        )
     if logger:
         logger.log(f"  - 😋 Loss history saved in {out_path.name}")
 
@@ -31,13 +38,19 @@ def extract_aggregation_from_config(
     """Extract aggregation from config for backward compatibility."""
     # Prefer explicit aggregation from known configs
     config = PROBE_CONFIGS.get(config_name)
-    if config is not None and hasattr(config, 'aggregation'):
+    if config is not None and hasattr(
+            config,
+            'aggregation',
+    ):
         return config.aggregation
 
     # Fallback: infer aggregation from name suffix when config key isn't in PROBE_CONFIGS
     # Works for names like 'sae_mean', 'sklearn_linear_last', 'sae_qwen3_8b_softmax', etc.
     try:
-        suffix = config_name.rsplit("_", 1)[-1]
+        suffix = config_name.rsplit(
+            "_",
+            1,
+        )[-1]
         if suffix in {"mean", "max", "last", "softmax"}:
             return suffix
     except Exception:
@@ -106,16 +119,17 @@ def get_probe_filename_prefix(
     config_name,
 ):
     # Use config_name instead of architecture name for better organization
-    agg_name = extract_aggregation_from_config(config_name, arch_name)
+    agg_name = extract_aggregation_from_config(
+        config_name,
+        arch_name,
+    )
 
     base_prefix = f"train_on_{train_ds}_{config_name}_L{layer}_{component}"
 
     return base_prefix
 
 
-def rebuild_suffix(
-    rebuild_config,
-):
+def rebuild_suffix(rebuild_config):
     if not rebuild_config:
         return "original"
 
@@ -139,9 +153,7 @@ def rebuild_suffix(
         return "custom"
 
 
-def resample_params_to_str(
-    params,
-):
+def resample_params_to_str(params):
     if params is None:
         return "original"
 
@@ -171,19 +183,25 @@ def get_dataset(
     device,
     seed,
 ):
-    return Dataset(name, model=model, device=device, seed=seed)
+    return Dataset(
+        name,
+        model=model,
+        device=device,
+        seed=seed,
+    )
 
 
-def get_effective_seeds(
-    config,
-):
+def get_effective_seeds(config):
     """Extract seeds from config, supporting both single seed and multiple seeds.
     Returns a list of seeds for uniform processing.
     """
     if 'seeds' in config:
         # Multiple seeds specified
         seeds = config['seeds']
-        if isinstance(seeds, list):
+        if isinstance(
+                seeds,
+                list,
+        ):
             return seeds
         else:
             # Handle case where seeds might be a single value

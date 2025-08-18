@@ -17,26 +17,63 @@ from src.visualize.utils_viz import (
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('-c', '--config', required=True, help='Config name (without _config.yaml)')
-    # Adding these as args since I don't want to save separate visualizations for filtered and all scores, can just re-run visualizations
-    parser.add_argument('--filtered', dest='filtered', action='store_true', help='Use filtered scores (default)')
-    parser.add_argument('--all', dest='filtered', action='store_false', help='Use all scores (not filtered)')
-    parser.set_defaults(filtered=True)
-    parser.add_argument('--seeds', nargs='+', default=['42'], help='List of seeds to use (default: 42)')
     parser.add_argument(
-        '--force', action='store_true', help='Overwrite existing visualizations (default: skip if they exist)'
+        '-c',
+        '--config',
+        required=True,
+        help='Config name (without _config.yaml)',
+    )
+    # Adding these as args since I don't want to save separate visualizations for filtered and all scores, can just re-run visualizations
+    parser.add_argument(
+        '--filtered',
+        dest='filtered',
+        action='store_true',
+        help='Use filtered scores (default)',
+    )
+    parser.add_argument(
+        '--all',
+        dest='filtered',
+        action='store_false',
+        help='Use all scores (not filtered)',
+    )
+    parser.set_defaults(filtered=True)
+    parser.add_argument(
+        '--seeds',
+        nargs='+',
+        default=['42'],
+        help='List of seeds to use (default: 42)',
+    )
+    parser.add_argument(
+        '--force',
+        action='store_true',
+        help='Overwrite existing visualizations (default: skip if they exist)',
     )
     args = parser.parse_args()
 
     config_path = Path('configs') / f'{args.config}_config.yaml'
-    with open(config_path, 'r') as f:
+    with open(
+            config_path,
+            'r',
+    ) as f:
         config = yaml.safe_load(f)
-    run_name = config.get('run_name', 'default_run')
+    run_name = config.get(
+        'run_name',
+        'default_run',
+    )
     results_dir = Path('results') / run_name
     viz_root = results_dir / 'visualizations'
-    viz_root.mkdir(parents=True, exist_ok=True)
-    architectures = [a['name'] for a in config.get('architectures', [])]
-    class_names = config.get('class_names', {0: 'Class0', 1: 'Class1'})
+    viz_root.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+    architectures = [a['name'] for a in config.get(
+        'architectures',
+        [],
+    )]
+    class_names = config.get(
+        'class_names',
+        {0: 'Class0', 1: 'Class1'},
+    )
 
     # 1. Run logit diffs from CSV for any runthrough folder
     for sub in os.listdir(results_dir):
@@ -47,7 +84,11 @@ def main():
                     csv_path = runthrough_dir / file
                     save_path = viz_root / f'logit_diff_hist_{sub}.png'
                     if not save_path.exists() or args.force:
-                        plot_logit_diffs_from_csv(csv_path, class_names, save_path=save_path)
+                        plot_logit_diffs_from_csv(
+                            csv_path,
+                            class_names,
+                            save_path=save_path,
+                        )
                     else:
                         print(f"Skipping {save_path} (already exists, use --force to overwrite)")
 
@@ -107,7 +148,11 @@ def main():
                         continue
                     save_path = viz_root / f'loss_curves_{sub}.png'
                     if not save_path.exists() or args.force:
-                        plot_all_probe_loss_curves_in_folder(str(loss_folder), save_path=save_path, seeds=args.seeds)
+                        plot_all_probe_loss_curves_in_folder(
+                            str(loss_folder),
+                            save_path=save_path,
+                            seeds=args.seeds,
+                        )
                     else:
                         print(f"Skipping {save_path} (already exists, use --force to overwrite)")
 
@@ -129,9 +174,21 @@ def main():
         # Get evaluation datasets from experiment 2 config - make it flexible
         eval_datasets = []
         exp2_name = None
-        for exp in config.get('experiments', []):
-            if exp.get('name', '').startswith('2-') and 'increasing' in exp.get('name', ''):
-                eval_datasets = exp.get('evaluate_on', [])
+        for exp in config.get(
+                'experiments',
+            [],
+        ):
+            if exp.get(
+                    'name',
+                    '',
+            ).startswith('2-') and 'increasing' in exp.get(
+                    'name',
+                    '',
+            ):
+                eval_datasets = exp.get(
+                    'evaluate_on',
+                    [],
+                )
                 exp2_name = exp.get('name')
                 break
 
@@ -146,8 +203,17 @@ def main():
 
         # Get probe names from config
         config_probes = []
-        for arch in config.get('architectures', []):
-            config_probes.append(arch.get('config_name', arch.get('name', '')))
+        for arch in config.get(
+                'architectures',
+            [],
+        ):
+            config_probes.append(arch.get(
+                'config_name',
+                arch.get(
+                    'name',
+                    '',
+                ),
+            ))
 
         # Define probe label mapping for clearer legends - make it flexible
         probe_labels = {}
@@ -170,7 +236,10 @@ def main():
 
         # Get the training dataset from experiment 2 config
         train_dataset = None
-        for exp in config.get('experiments', []):
+        for exp in config.get(
+                'experiments',
+            [],
+        ):
             if exp.get('name') == exp2_name:
                 train_dataset = exp.get('train_on')
                 break
@@ -184,7 +253,10 @@ def main():
 
             # Get the best probes of each type for this evaluation dataset
             best_probes = get_best_probes_by_type(
-                results_dir, args.seeds, filtered=args.filtered, eval_dataset=eval_dataset
+                results_dir,
+                args.seeds,
+                filtered=args.filtered,
+                eval_dataset=eval_dataset,
             )
             probe_groups['best_probes'] = list(best_probes.values()) if len(best_probes) >= 4 else None
 
@@ -213,7 +285,7 @@ def main():
                         seeds=args.seeds,
                         plot_title=title,
                         eval_dataset=eval_dataset,
-                        probe_labels=probe_labels
+                        probe_labels=probe_labels,
                     )
                 else:
                     print(f"Skipping {save_path} (already exists, use --force to overwrite)")
@@ -229,7 +301,10 @@ def main():
 
             # Get the training dataset from experiment 3 config
             train_dataset = None
-            for exp in config.get('experiments', []):
+            for exp in config.get(
+                    'experiments',
+                [],
+            ):
                 if exp.get('name') == '3-spam-pred-auc-llm-upsampling':
                     train_dataset = exp.get('train_on')
                     break
@@ -240,7 +315,7 @@ def main():
                 filtered=args.filtered,
                 seeds=args.seeds,
                 fpr_target=0.01,
-                train_dataset=train_dataset
+                train_dataset=train_dataset,
             )
     else:
         print(f"Experiment 3 not found")

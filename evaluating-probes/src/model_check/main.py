@@ -25,9 +25,7 @@ from tqdm import tqdm
 # torch.cuda.set_device(1)
 
 
-def load_hf_model_and_tokenizer(
-    model_name,
-):
+def load_hf_model_and_tokenizer(model_name):
     tokenizer = AutoTokenizer.from_pretrained(model_name)
     model = AutoModelForCausalLM.from_pretrained(
         model_name,
@@ -48,10 +46,16 @@ def print_top_logits(
     if logits.dim() == 3:
         logits = logits[0]  # Remove batch dim
     last_token_logits = logits[-1]
-    values, indices = torch.topk(last_token_logits, topk)
+    values, indices = torch.topk(
+        last_token_logits,
+        topk,
+    )
     tokens = [tokenizer.decode([ix]) for ix in indices.tolist()]
     print("Top logits for last token:")
-    for t, v in zip(tokens, values.tolist()):
+    for t, v in zip(
+            tokens,
+            values.tolist(),
+    ):
         print(f"  {t!r} ({v:.3f})")
     print("")
 
@@ -66,12 +70,18 @@ def run_single_model_check(
 ):
     """Run model check on a single dataset. Only default to values if they might not be provided."""
     prompt_template = check['check_prompt']
-    few_shot_prompt = check.get('few_shot_prompt', prompt_template)  # Fallback to check_prompt if not provided
+    few_shot_prompt = check.get(
+        'few_shot_prompt',
+        prompt_template,
+    )  # Fallback to check_prompt if not provided
     method = check.get('method')
     run_name = config.get("run_name")
     device = config.get("device")
     seed = config.get("seed")  # Use the same seed as the main run
-    num_tokens_to_generate = check.get('num_tokens_to_generate', 1)
+    num_tokens_to_generate = check.get(
+        'num_tokens_to_generate',
+        1,
+    )
 
     # Use the full dataset (not just test set) to ensure consistency across seeds
     # We'll align by prompts later during filtering
@@ -112,9 +122,15 @@ def run_single_model_check(
         idx = int(idx)
 
         # Convert to list if it's a single string
-        if isinstance(name_or_names, str):
+        if isinstance(
+                name_or_names,
+                str,
+        ):
             name_list = [name_or_names]
-        elif isinstance(name_or_names, list):
+        elif isinstance(
+                name_or_names,
+                list,
+        ):
             name_list = name_or_names
         else:
             raise ValueError(f"Class names must be strings or lists of strings, got {type(name_or_names)}")
@@ -179,7 +195,7 @@ def run_single_model_check(
     logger.log(f"Running model over all {len(messages_list)} prompts...")
     logger.log(f"Looking at log probabilities across the next {num_tokens_to_generate} tokens for each class...")
     logger.log(f"Dataset size: {len(X_full)} examples")
-    logger.log(f"Class distribution: {dict(zip(unique_labels, counts))}")
+    logger.log(f"Class distribution: {dict(zip(unique_labels, counts,))}")
     logger.log(f"Processing in batches of size: {batch_size}")
 
     # Initialize logit_values outside the loop to avoid UnboundLocalError
@@ -188,7 +204,10 @@ def run_single_model_check(
     # First, tokenize all prompts to get their lengths for proper batching
     logger.log("Pre-tokenizing all prompts to determine batch padding...")
     all_tokenized = []
-    for messages in tqdm(messages_list, desc="Pre-tokenizing prompts"):
+    for messages in tqdm(
+            messages_list,
+            desc="Pre-tokenizing prompts",
+    ):
         if method == "it":
             # Use chat template method
             try:
@@ -202,13 +221,19 @@ def run_single_model_check(
                 if "chat_template" in str(e):
                     # Fallback to direct tokenization
                     formatted_prompt = messages[0]["content"]
-                    tokenized = tokenizer(formatted_prompt, return_tensors="pt")
+                    tokenized = tokenizer(
+                        formatted_prompt,
+                        return_tensors="pt",
+                    )
                 else:
                     raise e
         elif method == "no-it":
             # Use few-shot method (no chat template)
             formatted_prompt = messages  # messages is already the raw text
-            tokenized = tokenizer(formatted_prompt, return_tensors="pt")
+            tokenized = tokenizer(
+                formatted_prompt,
+                return_tensors="pt",
+            )
         else:
             raise ValueError(f"Unknown model check method: {method}")
 
@@ -216,15 +241,28 @@ def run_single_model_check(
 
     # Process in batches
     for batch_start in tqdm(
-            range(0, len(messages_list), batch_size), desc=f"Processing {ds_name} examples in batches", unit="batch",
-            bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}] ({percentage:3.0f}%)'):
-        batch_end = min(batch_start + batch_size, len(messages_list))
+            range(
+                0,
+                len(messages_list),
+                batch_size,
+            ),
+            desc=f"Processing {ds_name} examples in batches",
+            unit="batch",
+            bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}] ({percentage:3.0f}%)',
+    ):
+        batch_end = min(
+            batch_start + batch_size,
+            len(messages_list),
+        )
         batch_messages = messages_list[batch_start:batch_end]
         batch_tokenized = all_tokenized[batch_start:batch_end]
 
         try:
             # Get the maximum sequence length in this batch
-            max_seq_len = max(tokenized['input_ids'].size(1) for tokenized in batch_tokenized)
+            max_seq_len = max(
+                tokenized['input_ids'].size(
+                    1) for tokenized in batch_tokenized\
+            )
 
             # Pad all examples in the batch to the same length
             batch_input_ids = []
@@ -263,7 +301,10 @@ def run_single_model_check(
                     else:
                         padded_attention_mask = torch.cat(
                             [
-                                torch.ones((1, seq_len), dtype=torch.long),
+                                torch.ones(
+                                    (1, seq_len),
+                                    dtype=torch.long,
+                                ),
                                 torch.zeros(
                                     (1, padding_len),
                                     dtype=torch.long,
@@ -286,7 +327,10 @@ def run_single_model_check(
 
             # Stack the batch
             batch_input_dict = {
-                'input_ids': torch.cat(batch_input_ids, dim=0),
+                'input_ids': torch.cat(
+                    batch_input_ids,
+                    dim=0,
+                ),
                 'attention_mask': torch.cat(
                     batch_attention_masks,
                     dim=0,
@@ -348,14 +392,20 @@ def run_single_model_check(
                     )
 
             # Process each example's results
-            for i, (messages, example_logits) in enumerate(zip(batch_messages, batch_logits_list)):
+            for i, (messages, example_logits) in enumerate(zip(
+                    batch_messages,
+                    batch_logits_list,
+            )):
                 global_idx = batch_start + i
 
                 # Stack all logits for this example: (num_tokens, vocab_size)
                 all_logits = torch.stack(example_logits)
 
                 # Compute log probabilities for all positions
-                all_log_probs = torch.log_softmax(all_logits, dim=-1)  # (num_tokens, vocab_size)
+                all_log_probs = torch.log_softmax(
+                    all_logits,
+                    dim=-1,
+                )  # (num_tokens, vocab_size)
 
                 # Extract logits and log probabilities for each class
                 logit_values = {}
@@ -393,7 +443,10 @@ def run_single_model_check(
                     final_logits = all_logits[final_pos]
                     final_log_probs = all_log_probs[final_pos]
                     topk = 5
-                    top_values, top_indices = torch.topk(final_logits, k=topk)
+                    top_values, top_indices = torch.topk(
+                        final_logits,
+                        k=topk,
+                    )
                     print("\n--- Example", global_idx)
                     # Show the actual rendered prompt passed to the tokenizer/model
                     if method == "it":
@@ -404,13 +457,19 @@ def run_single_model_check(
                     else:
                         rendered_prompt = messages  # already a formatted string for no-it
 
-                    prompt_preview = str(rendered_prompt)[:120].replace("\n", " ")
+                    prompt_preview = str(rendered_prompt)[:120].replace(
+                        "\n",
+                        " ",
+                    )
                     print(f"Prompt preview: {prompt_preview!r}")
                     print("Full prompt:")
                     print(rendered_prompt)
                     print("Top-5 tokens at final position:")
                     for rank, (val, idx_tok) in enumerate(
-                            zip(top_values.tolist(), top_indices.tolist()),
+                            zip(
+                                top_values.tolist(),
+                                top_indices.tolist(),
+                            ),
                             start=1,
                     ):
                         tok = tokenizer.decode([idx_tok])
@@ -418,10 +477,22 @@ def run_single_model_check(
                         print(f"  {rank}. {tok!r}  logit={val:.3f}  logprob={lp:.3f}")
 
                     if 0 in logit_values and 1 in logit_values:
-                        yes_name = chosen_tokens.get(0, "<unk>")
-                        no_name = chosen_tokens.get(1, "<unk>")
-                        yes_pos = chosen_positions.get(0, None)
-                        no_pos = chosen_positions.get(1, None)
+                        yes_name = chosen_tokens.get(
+                            0,
+                            "<unk>",
+                        )
+                        no_name = chosen_tokens.get(
+                            1,
+                            "<unk>",
+                        )
+                        yes_pos = chosen_positions.get(
+                            0,
+                            None,
+                        )
+                        no_pos = chosen_positions.get(
+                            1,
+                            None,
+                        )
                         yes_logit = logit_values[0]
                         no_logit = logit_values[1]
                         yes_lp = log_prob_values[0]
@@ -477,9 +548,15 @@ def run_single_model_check(
             continue
 
     # Save to CSV
-    plot_dir.mkdir(parents=True, exist_ok=True)
+    plot_dir.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
     df = pd.DataFrame(csv_rows)
-    df.to_csv(csv_path, index=False)
+    df.to_csv(
+        csv_path,
+        index=False,
+    )
     logger.log(f"Saved CSV of logit diffs to: {csv_path}")
     logger.log(
         f"Processed {processed_count} examples successfully, {error_count} errors out of {len(X_full)} total examples"
@@ -549,7 +626,10 @@ def run_model_check(
 
         # Support both single dataset and list of datasets
         check_on = check['check_on']
-        if isinstance(check_on, list):
+        if isinstance(
+                check_on,
+                list,
+        ):
             datasets_to_check = check_on
         else:
             datasets_to_check = [check_on] if check_on else []
@@ -561,7 +641,14 @@ def run_model_check(
         # Run the check for each dataset
         for ds_name in datasets_to_check:
             logger.log(f"\n=== Running model check on dataset: {ds_name} ===")
-            run_single_model_check(check, ds_name, model, tokenizer, config, logger=logger)
+            run_single_model_check(
+                check,
+                ds_name,
+                model,
+                tokenizer,
+                config,
+                logger=logger,
+            )
 
         # Free model and clear CUDA memory after each check
         del model

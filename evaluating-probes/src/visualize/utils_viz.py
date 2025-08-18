@@ -10,14 +10,24 @@ from typing import List, Dict, Tuple, Optional
 import statistics
 
 
-def extract_probe_info_from_filename(
-    filename,
-):
+def extract_probe_info_from_filename(filename):
     base = os.path.basename(filename)
-    arch_match = re.search(r'_(linear|attention)[^_]*', base)
-    layer_match = re.search(r'_L(\d+)', base)
-    class0_match = re.search(r'class0_(\d+)', base)
-    class1_match = re.search(r'class1_(\d+)', base)
+    arch_match = re.search(
+        r'_(linear|attention)[^_]*',
+        base,
+    )
+    layer_match = re.search(
+        r'_L(\d+)',
+        base,
+    )
+    class0_match = re.search(
+        r'class0_(\d+)',
+        base,
+    )
+    class1_match = re.search(
+        r'class1_(\d+)',
+        base,
+    )
     arch = arch_match.group(1) if arch_match else 'unknown'
     layer = layer_match.group(1) if layer_match else 'L?'
     class0 = class0_match.group(1) if class0_match else '?'
@@ -29,7 +39,10 @@ def _get_scores_and_labels_from_result_file(
     result_path,
     filtered=True,
 ):
-    with open(result_path, 'r') as f:
+    with open(
+            result_path,
+            'r',
+    ) as f:
         d = json.load(f)
     # Try to use filtered_scores if present and requested
     if filtered:
@@ -37,7 +50,10 @@ def _get_scores_and_labels_from_result_file(
             scores = np.array(d['filtered_scores']['scores'])
             labels = np.array(d['filtered_scores']['labels'])
             return scores, labels
-        elif 'scores' in d and d['scores'].get('filtered', False):
+        elif 'scores' in d and d['scores'].get(
+                'filtered',
+                False,
+        ):
             scores = np.array(d['scores']['scores'])
             labels = np.array(d['scores']['labels'])
             return scores, labels
@@ -50,7 +66,10 @@ def _get_scores_and_labels_from_result_file(
             scores = np.array(d['all_scores']['scores'])
             labels = np.array(d['all_scores']['labels'])
             return scores, labels
-        elif 'scores' in d and not d['scores'].get('filtered', False):
+        elif 'scores' in d and not d['scores'].get(
+                'filtered',
+                False,
+        ):
             scores = np.array(d['scores']['scores'])
             labels = np.array(d['scores']['labels'])
             return scores, labels
@@ -69,7 +88,7 @@ def _get_result_files_for_seeds(
     seeds: List[str],
     experiment_folder: str,
     architecture: str,
-    dataclass_folder: str = None
+    dataclass_folder: str = None,
 ) -> Dict[str, List[str]]:
     """Get result files for each seed for a given experiment and architecture."""
     seed_files = {}
@@ -99,9 +118,11 @@ def _get_result_files_for_seeds(
     return seed_files
 
 
-def _calculate_metric_with_error_bars(seed_files: Dict[str, List[str]],
-                                      metric_func,
-                                      filtered: bool = True) -> Tuple[List, List, List]:
+def _calculate_metric_with_error_bars(
+    seed_files: Dict[str, List[str]],
+    metric_func,
+    filtered: bool = True,
+) -> Tuple[List, List, List]:
     """Calculate metric values across seeds and return mean, std, and x_values."""
     # Group files by their class1 count across seeds
     class1_to_files = {}
@@ -110,7 +131,10 @@ def _calculate_metric_with_error_bars(seed_files: Dict[str, List[str]],
         for file in files:
             # Updated regex to match new filename structure
             # Look for class1_X pattern in the filename
-            match = re.search(r'class1_(\d+)', file)
+            match = re.search(
+                r'class1_(\d+)',
+                file,
+            )
             if match:
                 class1_count = int(match.group(1))
                 if class1_count not in class1_to_files:
@@ -127,8 +151,14 @@ def _calculate_metric_with_error_bars(seed_files: Dict[str, List[str]],
 
         for file in files:
             try:
-                scores, labels = _get_scores_and_labels_from_result_file(file, filtered=filtered)
-                metric = metric_func(scores, labels)
+                scores, labels = _get_scores_and_labels_from_result_file(
+                    file,
+                    filtered=filtered,
+                )
+                metric = metric_func(
+                    scores,
+                    labels,
+                )
                 metrics.append(metric)
             except Exception as e:
                 print(f"Error processing {file}: {e}")
@@ -142,7 +172,13 @@ def _calculate_metric_with_error_bars(seed_files: Dict[str, List[str]],
     return x_values, means, stds
 
 
-def plot_logit_diffs_from_csv(csv_path, class_names, save_path=None, bins=50, x_range=(-10, 10)):
+def plot_logit_diffs_from_csv(
+    csv_path,
+    class_names,
+    save_path=None,
+    bins=50,
+    x_range=(-10, 10),
+):
     df = pd.read_csv(csv_path)
     plt.figure(figsize=(6, 4))  # Larger figure size to accommodate longer titles
     color_cycle = plt.rcParams['axes.prop_cycle'].by_key()['color']
@@ -155,16 +191,28 @@ def plot_logit_diffs_from_csv(csv_path, class_names, save_path=None, bins=50, x_
             alpha=0.7,
             label=f"{name} (N={mask.sum()})",
             color=color_cycle[i % len(color_cycle)],
-            edgecolor="black"
+            edgecolor="black",
         )
-    plt.xlabel("Logit difference", fontsize=12)
-    plt.ylabel("Count", fontsize=12)
-    plt.title("Logit difference histogram from CSV", fontsize=14)
+    plt.xlabel(
+        "Logit difference",
+        fontsize=12,
+    )
+    plt.ylabel(
+        "Count",
+        fontsize=12,
+    )
+    plt.title(
+        "Logit difference histogram from CSV",
+        fontsize=14,
+    )
     plt.yscale("log")
     plt.legend(fontsize=10)
     plt.tight_layout()
     if save_path:
-        plt.savefig(save_path, dpi=150)
+        plt.savefig(
+            save_path,
+            dpi=150,
+        )
         print(f"Saved histogram to {save_path}")
         plt.close()
     else:
@@ -194,7 +242,10 @@ def plot_multi_folder_recall_at_fpr(
     plt.figure(figsize=(6, 4))  # Larger figure size to accommodate longer titles
     all_recalls = []  # Collect all recall values across all folders
 
-    for i, (folder, label) in enumerate(zip(folders, folder_labels)):
+    for i, (folder, label) in enumerate(zip(
+            folders,
+            folder_labels,
+    )):
         # For each folder, get result files across all seeds
         # The folder path is now like: results/run_name/seed_42/2-experiment/dataclass_exps_...
         # We need to extract the experiment folder name and the dataclass folder name
@@ -204,7 +255,11 @@ def plot_multi_folder_recall_at_fpr(
         base_results_dir = folder_path.parent.parent.parent  # Go up to results/run_name
 
         seed_files = _get_result_files_for_seeds(
-            base_results_dir, seeds, experiment_folder, architecture, dataclass_folder
+            base_results_dir,
+            seeds,
+            experiment_folder,
+            architecture,
+            dataclass_folder,
         )
 
         if not seed_files:
@@ -229,35 +284,86 @@ def plot_multi_folder_recall_at_fpr(
                     best_recall = recall
             return best_recall
 
-        x_values, means, stds = _calculate_metric_with_error_bars(seed_files, recall_at_fpr_func, filtered)
+        x_values, means, stds = _calculate_metric_with_error_bars(
+            seed_files,
+            recall_at_fpr_func,
+            filtered,
+        )
 
         if x_values:
             all_recalls.extend(means)
             if len(seeds) > 1:
-                plt.errorbar(x_values, means, yerr=stds, fmt='o-', color=colors[i], label=label, capsize=5, capthick=2)
+                plt.errorbar(
+                    x_values,
+                    means,
+                    yerr=stds,
+                    fmt='o-',
+                    color=colors[i],
+                    label=label,
+                    capsize=5,
+                    capthick=2,
+                )
             else:
-                plt.plot(x_values, means, 'o-', color=colors[i], label=label)
+                plt.plot(
+                    x_values,
+                    means,
+                    'o-',
+                    color=colors[i],
+                    label=label,
+                )
 
-            for x, y in zip(x_values, means):
-                plt.text(x, y + 0.01, f"{y:.2f}", ha='center', va='bottom', fontsize=8, color=colors[i])
+            for x, y in zip(
+                    x_values,
+                    means,
+            ):
+                plt.text(
+                    x,
+                    y + 0.01,
+                    f"{y:.2f}",
+                    ha='center',
+                    va='bottom',
+                    fontsize=8,
+                    color=colors[i],
+                )
 
-    plt.title("Varying number of positive training examples\nwith 3000 negative examples", fontsize=14)
-    plt.ylabel("Recall", fontsize=12)
-    plt.xlabel("Number of positive examples in the train set", fontsize=12)
+    plt.title(
+        "Varying number of positive training examples\nwith 3000 negative examples",
+        fontsize=14,
+    )
+    plt.ylabel(
+        "Recall",
+        fontsize=12,
+    )
+    plt.xlabel(
+        "Number of positive examples in the train set",
+        fontsize=12,
+    )
     plt.xscale('log')
 
     # Set y-axis to start at a reasonable nonzero value based on the data
     if all_recalls:
         min_recall = min(all_recalls)
-        y_min = max(0.0, min_recall - 0.1)  # Start at least 0.1 below the minimum, but not below 0
-        plt.ylim(y_min, 1)
+        y_min = max(
+            0.0,
+            min_recall - 0.1,
+        )  # Start at least 0.1 below the minimum, but not below 0
+        plt.ylim(
+            y_min,
+            1,
+        )
     else:
-        plt.ylim(0, 1)
+        plt.ylim(
+            0,
+            1,
+        )
 
     plt.legend(fontsize=10)
     plt.tight_layout()
     if save_path:
-        plt.savefig(save_path, dpi=150)
+        plt.savefig(
+            save_path,
+            dpi=150,
+        )
         print(f"Saved multi-folder recall@FPR plot to {save_path}")
         plt.close()
     else:
@@ -287,7 +393,10 @@ def plot_multi_folder_auc_vs_n_class1(
     plt.figure(figsize=(6, 4))  # Larger figure size to accommodate longer titles
     all_aucs = []  # Collect all AUC values across all folders
 
-    for i, (folder, label) in enumerate(zip(folders, folder_labels)):
+    for i, (folder, label) in enumerate(zip(
+            folders,
+            folder_labels,
+    )):
         # For each folder, get result files across all seeds
         # The folder path is now like: results/run_name/seed_42/2-experiment/dataclass_exps_...
         # We need to extract the experiment folder name and the dataclass folder name
@@ -297,7 +406,11 @@ def plot_multi_folder_auc_vs_n_class1(
         base_results_dir = folder_path.parent.parent.parent  # Go up to results/run_name
 
         seed_files = _get_result_files_for_seeds(
-            base_results_dir, seeds, experiment_folder, architecture, dataclass_folder
+            base_results_dir,
+            seeds,
+            experiment_folder,
+            architecture,
+            dataclass_folder,
         )
 
         if not seed_files:
@@ -309,40 +422,94 @@ def plot_multi_folder_auc_vs_n_class1(
         ):
             scores = expit(scores)
             try:
-                auc = roc_auc_score(labels, scores)
+                auc = roc_auc_score(
+                    labels,
+                    scores,
+                )
                 return auc
             except Exception:
                 return np.nan
 
-        x_values, means, stds = _calculate_metric_with_error_bars(seed_files, auc_func, filtered)
+        x_values, means, stds = _calculate_metric_with_error_bars(
+            seed_files,
+            auc_func,
+            filtered,
+        )
 
         if x_values:
             all_aucs.extend(means)
             if len(seeds) > 1:
-                plt.errorbar(x_values, means, yerr=stds, fmt='o-', color=colors[i], label=label, capsize=5, capthick=2)
+                plt.errorbar(
+                    x_values,
+                    means,
+                    yerr=stds,
+                    fmt='o-',
+                    color=colors[i],
+                    label=label,
+                    capsize=5,
+                    capthick=2,
+                )
             else:
-                plt.plot(x_values, means, 'o-', color=colors[i], label=label)
+                plt.plot(
+                    x_values,
+                    means,
+                    'o-',
+                    color=colors[i],
+                    label=label,
+                )
 
-            for x, y in zip(x_values, means):
-                plt.text(x, y + 0.01, f"{y:.2f}", ha='center', va='bottom', fontsize=8, color=colors[i])
+            for x, y in zip(
+                    x_values,
+                    means,
+            ):
+                plt.text(
+                    x,
+                    y + 0.01,
+                    f"{y:.2f}",
+                    ha='center',
+                    va='bottom',
+                    fontsize=8,
+                    color=colors[i],
+                )
 
-    plt.title("Varying number of positive training examples\nwith 3000 negative examples", fontsize=14)
-    plt.ylabel("AUC", fontsize=12)
-    plt.xlabel("Number of positive examples in the train set", fontsize=12)
+    plt.title(
+        "Varying number of positive training examples\nwith 3000 negative examples",
+        fontsize=14,
+    )
+    plt.ylabel(
+        "AUC",
+        fontsize=12,
+    )
+    plt.xlabel(
+        "Number of positive examples in the train set",
+        fontsize=12,
+    )
     plt.xscale('log')
 
     # Set y-axis to start at a reasonable nonzero value based on the data
     if all_aucs:
         min_auc = min(all_aucs)
-        y_min = max(0.0, min_auc - 0.1)  # Start at least 0.1 below the minimum, but not below 0
-        plt.ylim(y_min, 1)
+        y_min = max(
+            0.0,
+            min_auc - 0.1,
+        )  # Start at least 0.1 below the minimum, but not below 0
+        plt.ylim(
+            y_min,
+            1,
+        )
     else:
-        plt.ylim(0, 1)
+        plt.ylim(
+            0,
+            1,
+        )
 
     plt.legend(fontsize=10)
     plt.tight_layout()
     if save_path:
-        plt.savefig(save_path, dpi=150)
+        plt.savefig(
+            save_path,
+            dpi=150,
+        )
         print(f"Saved multi-folder AUC vs #class1 plot to {save_path}")
         plt.close()
     else:
@@ -363,39 +530,78 @@ def plot_all_probe_loss_curves_in_folder(
     # For loss curves, we'll just use the first seed for now since loss curves are typically the same across seeds
     seed = seeds[0]
 
-    log_files = sorted(glob.glob(os.path.join(folder, '*_train_log.json')))
-    n = min(len(log_files), max_probes)
+    log_files = sorted(glob.glob(os.path.join(
+        folder,
+        '*_train_log.json',
+    )))
+    n = min(
+        len(log_files),
+        max_probes,
+    )
 
     if n == 0:
         print(f"No training log files found in {folder}")
         return
 
-    ncols = min(4, n)
+    ncols = min(
+        4,
+        n,
+    )
     nrows = math.ceil(n / ncols)
     fig, axs = plt.subplots(
-        nrows, ncols, figsize=(4 * ncols, 2.5 * nrows), squeeze=False
+        nrows,
+        ncols,
+        figsize=(4 * ncols, 2.5 * nrows),
+        squeeze=False,
     )  # Smaller figure size for bigger text
 
     for idx, log_path in enumerate(log_files[:max_probes]):
-        row, col = divmod(idx, ncols)
+        row, col = divmod(
+            idx,
+            ncols,
+        )
         ax = axs[row][col]
-        with open(log_path, 'r') as f:
+        with open(
+                log_path,
+                'r',
+        ) as f:
             d = json.load(f)
-        loss_history = d.get('loss_history', [])
+        loss_history = d.get(
+            'loss_history',
+            [],
+        )
         ax.plot(loss_history)
         label = extract_probe_info_from_filename(log_path)
-        ax.set_title(label, fontsize=10)  # Bigger font size
-        ax.set_xlabel('Epoch', fontsize=9)
-        ax.set_ylabel('Loss', fontsize=9)
+        ax.set_title(
+            label,
+            fontsize=10,
+        )  # Bigger font size
+        ax.set_xlabel(
+            'Epoch',
+            fontsize=9,
+        )
+        ax.set_ylabel(
+            'Loss',
+            fontsize=9,
+        )
 
     # Hide unused subplots
-    for idx in range(n, nrows * ncols):
-        row, col = divmod(idx, ncols)
+    for idx in range(
+            n,
+            nrows * ncols,
+    ):
+        row, col = divmod(
+            idx,
+            ncols,
+        )
         fig.delaxes(axs[row][col])
 
     plt.tight_layout()
     if save_path:
-        plt.savefig(save_path, dpi=150)
+        plt.savefig(
+            save_path,
+            dpi=150,
+        )
         print(f"Saved all probe loss curves to {save_path}")
         plt.close()
     else:
@@ -459,11 +665,20 @@ def plot_experiment_3_per_probe(
         for file in result_files:
             # Extract probe name, true samples and upsampling ratio from filename
             # Example filename: eval_on_94_better_spam__train_on_94_better_spam_linear_max_L20_resid_post_llm_neg3000_pos10_4x_seed42_max_results.json
-            llm_match = re.search(r'llm_neg(\d+)_pos(\d+)_(\d+)x', str(file))
-            probe_match = re.search(r'train_on_94_better_spam_(.*?)_L\d+_resid_post_llm', str(file))
+            llm_match = re.search(
+                r'llm_neg(\d+)_pos(\d+)_(\d+)x',
+                str(file),
+            )
+            probe_match = re.search(
+                r'train_on_94_better_spam_(.*?)_L\d+_resid_post_llm',
+                str(file),
+            )
 
             # Extract evaluation dataset from filename
-            eval_match = re.search(r'eval_on_([^_]+(?:_[^_]+)*?)__', str(file))
+            eval_match = re.search(
+                r'eval_on_([^_]+(?:_[^_]+)*?)__',
+                str(file),
+            )
 
             if llm_match and probe_match and eval_match:
                 n_real_pos = int(llm_match.group(2))
@@ -482,15 +697,24 @@ def plot_experiment_3_per_probe(
                     all_data_recall[key] = []
 
                 try:
-                    scores, labels = _get_scores_and_labels_from_result_file(str(file), filtered=filtered)
+                    scores, labels = _get_scores_and_labels_from_result_file(
+                        str(file),
+                        filtered=filtered,
+                    )
 
                     # Calculate AUC
                     scores_auc = expit(scores)
-                    auc = roc_auc_score(labels, scores_auc)
+                    auc = roc_auc_score(
+                        labels,
+                        scores_auc,
+                    )
                     all_data_auc[key].append(auc)
 
                     # Calculate Recall at FPR
-                    recall = recall_at_fpr_func(scores, labels)
+                    recall = recall_at_fpr_func(
+                        scores,
+                        labels,
+                    )
                     all_data_recall[key].append(recall)
 
                 except Exception as e:
@@ -516,7 +740,11 @@ def plot_experiment_3_per_probe(
                 break
 
     # Create gradient red colors for upsampling factors (light red to dark red)
-    red_colors = plt.cm.Reds(np.linspace(0.3, 0.9, len(upsampling_factors)))
+    red_colors = plt.cm.Reds(np.linspace(
+        0.3,
+        0.9,
+        len(upsampling_factors),
+    ))
 
     # Define markers for different upsampling factors
     markers = ['o', 's', '^', 'D', '*']  # circle, square, triangle, diamond, star
@@ -545,8 +773,14 @@ def plot_experiment_3_per_probe(
                     # Calculate 25th and 75th percentiles for shaded region
                     if len(values) > 1:
                         # Use numpy percentile for more accurate calculation
-                        lower_bounds.append(np.percentile(values, 25))
-                        upper_bounds.append(np.percentile(values, 75))
+                        lower_bounds.append(np.percentile(
+                            values,
+                            25,
+                        ))
+                        upper_bounds.append(np.percentile(
+                            values,
+                            75,
+                        ))
                     else:
                         # If only one value, use the same value for bounds (no shading)
                         lower_bounds.append(values[0])
@@ -557,29 +791,72 @@ def plot_experiment_3_per_probe(
                 marker = markers[i] if i < len(markers) else 'o'  # Use different marker for each upsampling factor
 
                 # Plot median line
-                plt.plot(x_values, medians, f'{marker}-', label=f'{factor}x', color=color, linewidth=2, markersize=8)
+                plt.plot(
+                    x_values,
+                    medians,
+                    f'{marker}-',
+                    label=f'{factor}x',
+                    color=color,
+                    linewidth=2,
+                    markersize=8,
+                )
 
                 # Add shaded confidence band (25th to 75th percentile)
                 if len(x_values) > 0 and lower_bounds and upper_bounds:
                     # Only show shading if there's actual variation (not all bounds are the same)
-                    has_variation = any(lower_bounds[j] != upper_bounds[j] for j in range(len(lower_bounds)))
+                    has_variation = any(
+                        lower_bounds[j] != upper_bounds[j] for j in range(
+                            len(
+                                lower_bounds))\
+                    )
                     if has_variation:
-                        plt.fill_between(x_values, lower_bounds, upper_bounds, alpha=0.2, color=color)
+                        plt.fill_between(
+                            x_values,
+                            lower_bounds,
+                            upper_bounds,
+                            alpha=0.2,
+                            color=color,
+                        )
 
         # Set plot properties for AUC
-        plt.xlabel('Number of positive real examples in the train set', fontsize=12)
-        plt.ylabel('AUC', fontsize=12)
+        plt.xlabel(
+            'Number of positive real examples in the train set',
+            fontsize=12,
+        )
+        plt.ylabel(
+            'AUC',
+            fontsize=12,
+        )
         if is_ood:
-            plt.title("LLM Upsampling: Out of Distribution", fontsize=14)
+            plt.title(
+                "LLM Upsampling: Out of Distribution",
+                fontsize=14,
+            )
         else:
-            plt.title("LLM Upsampling", fontsize=14)
+            plt.title(
+                "LLM Upsampling",
+                fontsize=14,
+            )
 
-        plt.xticks(true_samples_list, true_samples_list)
-        plt.grid(True, alpha=0.3)
-        plt.legend(title="LLM Upsampling Factor", fontsize=10)
+        plt.xticks(
+            true_samples_list,
+            true_samples_list,
+        )
+        plt.grid(
+            True,
+            alpha=0.3,
+        )
+        plt.legend(
+            title="LLM Upsampling Factor",
+            fontsize=10,
+        )
 
         # Set larger font sizes for tick labels
-        plt.tick_params(axis='both', which='major', labelsize=10)
+        plt.tick_params(
+            axis='both',
+            which='major',
+            labelsize=10,
+        )
 
         # Set y-axis limits for better readability
         all_values = []
@@ -591,9 +868,15 @@ def plot_experiment_3_per_probe(
 
         if all_values:
             min_val = min(all_values)
-            y_min = max(0.0, min_val - 0.05)
+            y_min = max(
+                0.0,
+                min_val - 0.05,
+            )
             y_max = 1.0
-            plt.ylim(y_min, y_max)
+            plt.ylim(
+                y_min,
+                y_max,
+            )
 
         plt.tight_layout()
 
@@ -602,7 +885,11 @@ def plot_experiment_3_per_probe(
             # Create filename with probe name and metric
             base_path = Path(save_path_base)
             probe_save_path = base_path.parent / f"{base_path.stem}_{probe_name}_auc{base_path.suffix}"
-            plt.savefig(probe_save_path, dpi=150, bbox_inches='tight')
+            plt.savefig(
+                probe_save_path,
+                dpi=150,
+                bbox_inches='tight',
+            )
             print(f"Saved experiment 3 AUC plot for {probe_name} to {probe_save_path}")
             plt.close()
         else:
@@ -630,8 +917,14 @@ def plot_experiment_3_per_probe(
                     # Calculate 25th and 75th percentiles for shaded region
                     if len(values) > 1:
                         # Use numpy percentile for more accurate calculation
-                        lower_bounds.append(np.percentile(values, 25))
-                        upper_bounds.append(np.percentile(values, 75))
+                        lower_bounds.append(np.percentile(
+                            values,
+                            25,
+                        ))
+                        upper_bounds.append(np.percentile(
+                            values,
+                            75,
+                        ))
                     else:
                         # If only one value, use the same value for bounds (no shading)
                         lower_bounds.append(values[0])
@@ -642,29 +935,72 @@ def plot_experiment_3_per_probe(
                 marker = markers[i] if i < len(markers) else 'o'  # Use different marker for each upsampling factor
 
                 # Plot median line
-                plt.plot(x_values, medians, f'{marker}-', label=f'{factor}x', color=color, linewidth=2, markersize=8)
+                plt.plot(
+                    x_values,
+                    medians,
+                    f'{marker}-',
+                    label=f'{factor}x',
+                    color=color,
+                    linewidth=2,
+                    markersize=8,
+                )
 
                 # Add shaded confidence band (25th to 75th percentile)
                 if len(x_values) > 0 and lower_bounds and upper_bounds:
                     # Only show shading if there's actual variation (not all bounds are the same)
-                    has_variation = any(lower_bounds[j] != upper_bounds[j] for j in range(len(lower_bounds)))
+                    has_variation = any(
+                        lower_bounds[j] != upper_bounds[j] for j in range(
+                            len(
+                                lower_bounds))\
+                    )
                     if has_variation:
-                        plt.fill_between(x_values, lower_bounds, upper_bounds, alpha=0.2, color=color)
+                        plt.fill_between(
+                            x_values,
+                            lower_bounds,
+                            upper_bounds,
+                            alpha=0.2,
+                            color=color,
+                        )
 
         # Set plot properties for Recall
-        plt.xlabel('Number of positive real examples in the train set', fontsize=12)
-        plt.ylabel(f'Recall at {fpr_target*100}% FPR', fontsize=12)
+        plt.xlabel(
+            'Number of positive real examples in the train set',
+            fontsize=12,
+        )
+        plt.ylabel(
+            f'Recall at {fpr_target*100}% FPR',
+            fontsize=12,
+        )
         if is_ood:
-            plt.title("LLM Upsampling: Out of Distribution", fontsize=14)
+            plt.title(
+                "LLM Upsampling: Out of Distribution",
+                fontsize=14,
+            )
         else:
-            plt.title("LLM Upsampling", fontsize=14)
+            plt.title(
+                "LLM Upsampling",
+                fontsize=14,
+            )
 
-        plt.xticks(true_samples_list, true_samples_list)
-        plt.grid(True, alpha=0.3)
-        plt.legend(title="LLM Upsampling\nFactor", fontsize=10)
+        plt.xticks(
+            true_samples_list,
+            true_samples_list,
+        )
+        plt.grid(
+            True,
+            alpha=0.3,
+        )
+        plt.legend(
+            title="LLM Upsampling\nFactor",
+            fontsize=10,
+        )
 
         # Set larger font sizes for tick labels
-        plt.tick_params(axis='both', which='major', labelsize=10)
+        plt.tick_params(
+            axis='both',
+            which='major',
+            labelsize=10,
+        )
 
         # Set y-axis limits for better readability
         all_values = []
@@ -676,9 +1012,15 @@ def plot_experiment_3_per_probe(
 
         if all_values:
             min_val = min(all_values)
-            y_min = max(0.0, min_val - 0.05)
+            y_min = max(
+                0.0,
+                min_val - 0.05,
+            )
             y_max = 1.0
-            plt.ylim(y_min, y_max)
+            plt.ylim(
+                y_min,
+                y_max,
+            )
 
         plt.tight_layout()
 
@@ -687,7 +1029,11 @@ def plot_experiment_3_per_probe(
             # Create filename with probe name and metric
             base_path = Path(save_path_base)
             probe_save_path = base_path.parent / f"{base_path.stem}_{probe_name}_recall{base_path.suffix}"
-            plt.savefig(probe_save_path, dpi=150, bbox_inches='tight')
+            plt.savefig(
+                probe_save_path,
+                dpi=150,
+                bbox_inches='tight',
+            )
             print(f"Saved experiment 3 Recall plot for {probe_name} to {probe_save_path}")
             plt.close()
         else:
@@ -698,10 +1044,12 @@ def plot_experiment_3_per_probe(
 # Removed: plot_experiment_2_recall_total_with_error_bars - replaced by plot_experiment_2_unified
 
 
-def get_best_probes_by_type(base_results_dir: Path,
-                            seeds: List[str],
-                            filtered: bool = True,
-                            eval_dataset: str = None) -> Dict[str, str]:
+def get_best_probes_by_type(
+    base_results_dir: Path,
+    seeds: List[str],
+    filtered: bool = True,
+    eval_dataset: str = None,
+) -> Dict[str, str]:
     """
     Determine the best performing probe of each type based on median AUC across all class1 counts.
     
@@ -753,9 +1101,15 @@ def get_best_probes_by_type(base_results_dir: Path,
 
                 for file in result_files:
                     try:
-                        scores, labels = _get_scores_and_labels_from_result_file(file, filtered=filtered)
+                        scores, labels = _get_scores_and_labels_from_result_file(
+                            file,
+                            filtered=filtered,
+                        )
                         scores = expit(scores)
-                        auc = roc_auc_score(labels, scores)
+                        auc = roc_auc_score(
+                            labels,
+                            scores,
+                        )
                         all_aucs.append(auc)
                     except Exception as e:
                         print(f"Error processing {file}: {e}")
@@ -767,7 +1121,10 @@ def get_best_probes_by_type(base_results_dir: Path,
 
         # Select the best probe for this type
         if probe_scores:
-            best_probe = max(probe_scores.items(), key=lambda x: x[1])[0]
+            best_probe = max(
+                probe_scores.items(),
+                key=lambda x: x[1],
+            )[0]
             best_probes[probe_type] = best_probe
             print(f"Best {probe_type} probe: {best_probe} (median AUC: {probe_scores[best_probe]:.3f})")
 
@@ -854,19 +1211,31 @@ def plot_experiment_2_unified(
 
             for file in result_files:
                 # Extract class1 count from filename
-                match = re.search(r'class1_(\d+)', file)
+                match = re.search(
+                    r'class1_(\d+)',
+                    file,
+                )
                 if match:
                     class1_count = int(match.group(1))
                     if class1_count not in all_data:
                         all_data[class1_count] = []
 
                     try:
-                        scores, labels = _get_scores_and_labels_from_result_file(file, filtered=filtered)
+                        scores, labels = _get_scores_and_labels_from_result_file(
+                            file,
+                            filtered=filtered,
+                        )
                         if metric == 'auc':
                             scores = expit(scores)
-                            value = roc_auc_score(labels, scores)
+                            value = roc_auc_score(
+                                labels,
+                                scores,
+                            )
                         else:  # recall at fpr
-                            value = recall_at_fpr_func(scores, labels)
+                            value = recall_at_fpr_func(
+                                scores,
+                                labels,
+                            )
                         all_data[class1_count].append(value)
                     except Exception as e:
                         print(f"Error processing file {file}: {e}")
@@ -886,8 +1255,14 @@ def plot_experiment_2_unified(
                 # Calculate confidence interval (25th and 75th percentiles for interquartile range)
                 if len(all_data[class1_count]) > 1:
                     # Use numpy percentile for more accurate calculation
-                    lower_bounds.append(np.percentile(all_data[class1_count], 25))
-                    upper_bounds.append(np.percentile(all_data[class1_count], 75))
+                    lower_bounds.append(np.percentile(
+                        all_data[class1_count],
+                        25,
+                    ))
+                    upper_bounds.append(np.percentile(
+                        all_data[class1_count],
+                        75,
+                    ))
                 else:
                     # If only one value, use the same value for bounds (no shading)
                     value = all_data[class1_count][0]
@@ -897,15 +1272,36 @@ def plot_experiment_2_unified(
         if x_values:
             color = colors[probe_idx]
             # Use readable label if available, otherwise use original name
-            label = probe_labels.get(probe_name, probe_name)
+            label = probe_labels.get(
+                probe_name,
+                probe_name,
+            )
             # Plot median line
-            plt.plot(x_values, medians, 'o-', label=label, linewidth=2, color=color, markersize=6)
+            plt.plot(
+                x_values,
+                medians,
+                'o-',
+                label=label,
+                linewidth=2,
+                color=color,
+                markersize=6,
+            )
             # Add shaded confidence band (25th to 75th percentile)
             if lower_bounds and upper_bounds:
                 # Only show shading if there's actual variation (not all bounds are the same)
-                has_variation = any(lower_bounds[j] != upper_bounds[j] for j in range(len(lower_bounds)))
+                has_variation = any(
+                    lower_bounds[j] != upper_bounds[j] for j in range(
+                        len(
+                            lower_bounds))\
+                )
                 if has_variation:
-                    plt.fill_between(x_values, lower_bounds, upper_bounds, alpha=0.2, color=color)
+                    plt.fill_between(
+                        x_values,
+                        lower_bounds,
+                        upper_bounds,
+                        alpha=0.2,
+                        color=color,
+                    )
 
     # Set plot properties
     if plot_title:
@@ -913,7 +1309,10 @@ def plot_experiment_2_unified(
     else:
         title = "Varying number of positive training examples\nwith 3000 negative examples"
 
-    plt.title(title, fontsize=14)
+    plt.title(
+        title,
+        fontsize=14,
+    )
 
     # Collect all values to determine y-axis limits
     all_lower_bounds = []  # Store the 25th percentile (lower bound of confidence bands)
@@ -934,19 +1333,31 @@ def plot_experiment_2_unified(
             # Group by class1 count to calculate confidence bands
             class1_to_values = {}
             for file in result_files:
-                match = re.search(r'class1_(\d+)', file)
+                match = re.search(
+                    r'class1_(\d+)',
+                    file,
+                )
                 if match:
                     class1_count = int(match.group(1))
                     if class1_count not in class1_to_values:
                         class1_to_values[class1_count] = []
 
                     try:
-                        scores, labels = _get_scores_and_labels_from_result_file(file, filtered=filtered)
+                        scores, labels = _get_scores_and_labels_from_result_file(
+                            file,
+                            filtered=filtered,
+                        )
                         if metric == 'auc':
                             scores = expit(scores)
-                            value = roc_auc_score(labels, scores)
+                            value = roc_auc_score(
+                                labels,
+                                scores,
+                            )
                         else:  # recall at fpr
-                            value = recall_at_fpr_func(scores, labels)
+                            value = recall_at_fpr_func(
+                                scores,
+                                labels,
+                            )
                         class1_to_values[class1_count].append(value)
                     except Exception as e:
                         continue
@@ -956,8 +1367,14 @@ def plot_experiment_2_unified(
                 if values:
                     sorted_values = np.sort(values)
                     n = len(sorted_values)
-                    q25_idx = max(0, int(0.25 * n))
-                    q75_idx = min(n - 1, int(0.75 * n))
+                    q25_idx = max(
+                        0,
+                        int(0.25 * n),
+                    )
+                    q75_idx = min(
+                        n - 1,
+                        int(0.75 * n),
+                    )
                     all_lower_bounds.append(sorted_values[q25_idx])
                     all_upper_bounds.append(sorted_values[q75_idx])
 
@@ -965,39 +1382,76 @@ def plot_experiment_2_unified(
     if all_lower_bounds and all_upper_bounds:
         # Find the lowest point of any confidence band and set y-axis 0.05 below it
         lowest_confidence_bound = min(all_lower_bounds)
-        y_min = max(0.0, lowest_confidence_bound - 0.05)  # Don't go below 0
+        y_min = max(
+            0.0,
+            lowest_confidence_bound - 0.05,
+        )  # Don't go below 0
         y_max = 1.0
-        plt.ylim(y_min, y_max)
+        plt.ylim(
+            y_min,
+            y_max,
+        )
     else:
         # Fallback limits
         if metric == 'auc':
-            plt.ylim(0.4, 1)
+            plt.ylim(
+                0.4,
+                1,
+            )
         else:
-            plt.ylim(0, 1)
+            plt.ylim(
+                0,
+                1,
+            )
 
     if metric == 'auc':
         if is_ood:
-            plt.ylabel("AUC on text spam", fontsize=12)
+            plt.ylabel(
+                "AUC on text spam",
+                fontsize=12,
+            )
         else:
-            plt.ylabel("AUC", fontsize=12)
+            plt.ylabel(
+                "AUC",
+                fontsize=12,
+            )
     else:
-        plt.ylabel(f"Recall at {fpr_target*100}% FPR", fontsize=12)
+        plt.ylabel(
+            f"Recall at {fpr_target*100}% FPR",
+            fontsize=12,
+        )
 
     if is_ood:
-        plt.xlabel("Number of positive email spam samples", fontsize=12)
+        plt.xlabel(
+            "Number of positive email spam samples",
+            fontsize=12,
+        )
     else:
-        plt.xlabel("Number of positive examples in the train set", fontsize=12)
+        plt.xlabel(
+            "Number of positive examples in the train set",
+            fontsize=12,
+        )
     plt.xscale('log')  # Keep log scale for experiment 2
     plt.legend(fontsize=10)
-    plt.grid(True, alpha=0.3)
+    plt.grid(
+        True,
+        alpha=0.3,
+    )
 
     # Increase tick label sizes
-    plt.tick_params(axis='both', which='major', labelsize=10)
+    plt.tick_params(
+        axis='both',
+        which='major',
+        labelsize=10,
+    )
 
     plt.tight_layout()
 
     if save_path:
-        plt.savefig(save_path, dpi=150)
+        plt.savefig(
+            save_path,
+            dpi=150,
+        )
         print(f"Saved experiment 2 plot to {save_path}")
         plt.close()
     else:

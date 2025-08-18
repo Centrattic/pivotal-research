@@ -21,27 +21,52 @@ class AttentionProbeNet(nn.Module):
         self.device = device
         self.scale = math.sqrt(d_model)
         # Create linear layers with bfloat16 dtype
-        self.context_query = nn.Linear(d_model, 1, dtype=torch.bfloat16)
-        self.classifier = nn.Linear(d_model, 1, dtype=torch.bfloat16)
+        self.context_query = nn.Linear(
+            d_model,
+            1,
+            dtype=torch.bfloat16,
+        )
+        self.classifier = nn.Linear(
+            d_model,
+            1,
+            dtype=torch.bfloat16,
+        )
         # Move the model to the specified device
         self.to(device)
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self,
+        x: torch.Tensor,
+    ) -> torch.Tensor:
         # x: (batch, seq, d_model) - all positions are valid, let attention learn importance
         attn_scores = self.context_query(x).squeeze(-1) / self.scale
         # No masking - let attention learn which positions are important
         if x.device.type == 'cpu':
-            attn_weights = torch.softmax(attn_scores.float(), dim=-1).to(attn_scores.dtype)
+            attn_weights = torch.softmax(
+                attn_scores.float(),
+                dim=-1,
+            ).to(attn_scores.dtype)
         else:
-            attn_weights = torch.softmax(attn_scores, dim=-1)
+            attn_weights = torch.softmax(
+                attn_scores,
+                dim=-1,
+            )
         token_logits = self.classifier(x).squeeze(-1)
         # No masking of token logits - let the model learn
 
         # Compute weighted context (promote to float32 on CPU for op support)
         if x.device.type == 'cpu':
-            context = torch.einsum("bs,bse->be", attn_weights.float(), x.float()).to(x.dtype)
+            context = torch.einsum(
+                "bs,bse->be",
+                attn_weights.float(),
+                x.float(),
+            ).to(x.dtype)
         else:
-            context = torch.einsum("bs,bse->be", attn_weights, x)
+            context = torch.einsum(
+                "bs,bse->be",
+                attn_weights,
+                x,
+            )
         sequence_logits = self.classifier(context).squeeze(-1)
 
         return sequence_logits
@@ -58,13 +83,22 @@ class AttentionProbe(BaseProbe):
     ):
         # Store any additional config parameters for this probe
         for key, value in kwargs.items():
-            setattr(self, key, value)
-        super().__init__(d_model, device, task_type)
+            setattr(
+                self,
+                key,
+                value,
+            )
+        super().__init__(
+            d_model,
+            device,
+            task_type,
+        )
 
-    def _init_model(
-        self,
-    ):
-        self.model = AttentionProbeNet(self.d_model, device=self.device)
+    def _init_model(self):
+        self.model = AttentionProbeNet(
+            self.d_model,
+            device=self.device,
+        )
 
     def load_state(
         self,
@@ -94,7 +128,7 @@ class AttentionProbe(BaseProbe):
         verbose: bool = True,
         metric: str = 'acc',
         probe_save_dir: Path = None,
-        probe_filename_base: str = None
+        probe_filename_base: str = None,
     ) -> dict:
         """
         Find best hyperparameters by training multiple probes simultaneously on each batch.
@@ -102,8 +136,16 @@ class AttentionProbe(BaseProbe):
         Saves all probes to hyperparameter_sweep folder and selects best based on training loss.
         """
         # Define hyperparameter search space
-        lr_values = np.logspace(-5, -2, 8)  # 8 learning rates from 1e-5 to 1e-2
-        weight_decay_values = np.logspace(-6, -2, 5)  # 5 weight decay values from 1e-6 to 1e-2
+        lr_values = np.logspace(
+            -5,
+            -2,
+            8,
+        )  # 8 learning rates from 1e-5 to 1e-2
+        weight_decay_values = np.logspace(
+            -6,
+            -2,
+            5,
+        )  # 5 weight decay values from 1e-6 to 1e-2
 
         # Create all combinations
         hyperparam_combinations = []
@@ -118,12 +160,27 @@ class AttentionProbe(BaseProbe):
 
         # Convert data to torch tensors once - match model dtype (bfloat16)
         # First convert to float32, then to bfloat16 to handle any potential issues
-        X_tensor = torch.tensor(X_train, dtype=torch.float32, device=self.device).to(torch.bfloat16)
-        y_tensor = torch.tensor(y_train, dtype=torch.float32, device=self.device)  # Keep labels as float32 for loss
+        X_tensor = torch.tensor(
+            X_train,
+            dtype=torch.float32,
+            device=self.device,
+        ).to(torch.bfloat16)
+        y_tensor = torch.tensor(
+            y_train,
+            dtype=torch.float32,
+            device=self.device,
+        )  # Keep labels as float32 for loss
 
         # Create dataset and dataloader (no masks needed for attention probe)
-        dataset = torch.utils.data.TensorDataset(X_tensor, y_tensor)
-        dataloader = torch.utils.data.DataLoader(dataset, batch_size=1024, shuffle=True)
+        dataset = torch.utils.data.TensorDataset(
+            X_tensor,
+            y_tensor,
+        )
+        dataloader = torch.utils.data.DataLoader(
+            dataset,
+            batch_size=1024,
+            shuffle=True,
+        )
 
         # Initialize all probes
         probes = []
@@ -137,11 +194,19 @@ class AttentionProbe(BaseProbe):
                 for k, v in self.__dict__.items()
                 if k not in ['d_model', 'device', 'task_type', 'aggregation', 'model', 'loss_history']
             }
-            probe = AttentionProbe(self.d_model, device=self.device, **config_params)
+            probe = AttentionProbe(
+                self.d_model,
+                device=self.device,
+                **config_params,
+            )
             probe._init_model()  # Initialize the model
 
             # Setup optimizer
-            optimizer = torch.optim.Adam(probe.model.parameters(), lr=lr, weight_decay=weight_decay)
+            optimizer = torch.optim.Adam(
+                probe.model.parameters(),
+                lr=lr,
+                weight_decay=weight_decay,
+            )
 
             probes.append(probe)
             optimizers.append(optimizer)
@@ -162,12 +227,18 @@ class AttentionProbe(BaseProbe):
                 num_batches += 1
 
                 # Train all probes on this batch
-                for i, (probe, optimizer) in enumerate(zip(probes, optimizers)):
+                for i, (probe, optimizer) in enumerate(zip(
+                        probes,
+                        optimizers,
+                )):
                     optimizer.zero_grad()
 
                     # Forward pass
                     outputs = probe.model(batch_X)
-                    loss = criterion(outputs.squeeze(), batch_y)
+                    loss = criterion(
+                        outputs.squeeze(),
+                        batch_y,
+                    )
 
                     # Backward pass
                     loss.backward()
@@ -191,7 +262,10 @@ class AttentionProbe(BaseProbe):
 
                 for weight_decay in sorted(wd_to_losses.keys()):
                     losses = wd_to_losses[weight_decay]
-                    best_lr, best_loss = min(losses, key=lambda x: x[1])
+                    best_lr, best_loss = min(
+                        losses,
+                        key=lambda x: x[1],
+                    )
                     print(f"  wd={weight_decay:.2e}: best lr={best_lr:.2e} (loss={best_loss:.4f})")
 
         # Calculate final average losses (using last fit_patience epochs for stability)
@@ -256,11 +330,26 @@ class AttentionProbe(BaseProbe):
             # Save best probe for each weight decay
             for weight_decay, results in wd_to_results.items():
                 # Find best (lowest loss) for this weight decay
-                best_idx, best_lr, best_loss = min(results, key=lambda x: x[2])
+                best_idx, best_lr, best_loss = min(
+                    results,
+                    key=lambda x: x[2],
+                )
 
                 # Create filename with best learning rate for this weight decay
-                lr_str = f"{best_lr:.2e}".replace("+", "").replace(".", "p")
-                wd_str = f"{weight_decay:.2e}".replace("+", "").replace(".", "p")
+                lr_str = f"{best_lr:.2e}".replace(
+                    "+",
+                    "",
+                ).replace(
+                    ".",
+                    "p",
+                )
+                wd_str = f"{weight_decay:.2e}".replace(
+                    "+",
+                    "",
+                ).replace(
+                    ".",
+                    "p",
+                )
                 probe_filename = f"{probe_filename_base}_best_lr_{lr_str}_wd_{wd_str}_state.pt"
                 probe_path = sweep_dir / probe_filename
 
@@ -290,7 +379,10 @@ class AttentionProbe(BaseProbe):
             # Create summary of best learning rate for each weight decay
             best_per_wd = {}
             for weight_decay, results in wd_to_results.items():
-                best_idx, best_lr, best_loss = min(results, key=lambda x: x[2])
+                best_idx, best_lr, best_loss = min(
+                    results,
+                    key=lambda x: x[2],
+                )
                 best_per_wd[f"wd_{weight_decay:.2e}"] = {
                     'best_lr': best_lr, 'best_loss': best_loss, 'all_lrs':
                     {f"lr_{lr:.2e}": loss
@@ -303,10 +395,20 @@ class AttentionProbe(BaseProbe):
                 'best_loss_among_weight_decay_0.0' if best_weight_decay == 0.0 else 'overall_best',
                 'best_per_weight_decay': best_per_wd, 'all_results':
                 {f"lr_{lr:.2e}_wd_{wd:.2e}": loss
-                 for (lr, wd), loss in zip(hyperparam_combinations, final_losses)}
+                 for (lr, wd), loss in zip(
+                     hyperparam_combinations,
+                     final_losses,
+                 )}
             }
-            with open(best_hparams_path, 'w') as f:
-                json.dump(best_params, f, indent=2)
+            with open(
+                    best_hparams_path,
+                    'w',
+            ) as f:
+                json.dump(
+                    best_params,
+                    f,
+                    indent=2,
+                )
 
         return {'lr': best_lr, 'weight_decay': best_weight_decay, 'final_loss': best_loss}
 
@@ -323,7 +425,7 @@ class AttentionProbe(BaseProbe):
         early_stopping: bool = True,
         patience: int = 10,
         min_delta: float = 0.005,
-        use_weighted_sampler: bool = True
+        use_weighted_sampler: bool = True,
     ) -> None:
         """
         Fit the attention probe to the data.
@@ -343,11 +445,22 @@ class AttentionProbe(BaseProbe):
             use_weighted_sampler: Whether to use weighted sampling for class imbalance
         """
         # Convert to torch tensors - match model dtype (bfloat16)
-        X_tensor = torch.tensor(X, dtype=torch.bfloat16, device=self.device)
-        y_tensor = torch.tensor(y, dtype=torch.bfloat16, device=self.device)  # Keep labels as float32 for loss
+        X_tensor = torch.tensor(
+            X,
+            dtype=torch.bfloat16,
+            device=self.device,
+        )
+        y_tensor = torch.tensor(
+            y,
+            dtype=torch.bfloat16,
+            device=self.device,
+        )  # Keep labels as float32 for loss
 
         # Create dataset and dataloader (no masks needed for attention probe)
-        dataset = torch.utils.data.TensorDataset(X_tensor, y_tensor)
+        dataset = torch.utils.data.TensorDataset(
+            X_tensor,
+            y_tensor,
+        )
 
         if use_weighted_sampler:
             # Calculate class weights for weighted sampling
@@ -355,14 +468,28 @@ class AttentionProbe(BaseProbe):
             class_weights = 1.0 / class_counts
             sample_weights = class_weights[y.astype(int)]
             sampler = torch.utils.data.WeightedRandomSampler(
-                weights=sample_weights, num_samples=len(sample_weights), replacement=True
+                weights=sample_weights,
+                num_samples=len(sample_weights),
+                replacement=True,
             )
-            dataloader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, sampler=sampler)
+            dataloader = torch.utils.data.DataLoader(
+                dataset,
+                batch_size=batch_size,
+                sampler=sampler,
+            )
         else:
-            dataloader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=True)
+            dataloader = torch.utils.data.DataLoader(
+                dataset,
+                batch_size=batch_size,
+                shuffle=True,
+            )
 
         # Setup optimizer and loss
-        optimizer = torch.optim.Adam(self.model.parameters(), lr=lr, weight_decay=weight_decay)
+        optimizer = torch.optim.Adam(
+            self.model.parameters(),
+            lr=lr,
+            weight_decay=weight_decay,
+        )
         criterion = torch.nn.BCEWithLogitsLoss()
 
         # Training loop
@@ -380,7 +507,10 @@ class AttentionProbe(BaseProbe):
 
                 # Forward pass
                 outputs = self.model(batch_X)
-                loss = criterion(outputs.squeeze(), batch_y)
+                loss = criterion(
+                    outputs.squeeze(),
+                    batch_y,
+                )
 
                 # Backward pass
                 loss.backward()
@@ -408,23 +538,42 @@ class AttentionProbe(BaseProbe):
                         print(f"Early stopping at epoch {epoch + 1}")
                     break
 
-    def predict(self, X: np.ndarray) -> np.ndarray:
+    def predict(
+        self,
+        X: np.ndarray,
+    ) -> np.ndarray:
         """Predict binary labels."""
         logits = self.predict_logits(X)
         return (logits > 0).astype(int)
 
-    def predict_proba(self, X: np.ndarray) -> np.ndarray:
+    def predict_proba(
+        self,
+        X: np.ndarray,
+    ) -> np.ndarray:
         """Predict probabilities."""
         # Ensure logits are float32 for stable numpy ops
-        logits = self.predict_logits(X).astype(np.float32, copy=False)
+        logits = self.predict_logits(X).astype(
+            np.float32,
+            copy=False,
+        )
         probs = 1 / (1 + np.exp(-logits))
         return np.column_stack([1 - probs, probs])
 
-    def predict_logits(self, X: np.ndarray) -> np.ndarray:
+    def predict_logits(
+        self,
+        X: np.ndarray,
+    ) -> np.ndarray:
         """Predict logits. Cast to float32 on CPU for eval to avoid bfloat16 issues."""
-        is_cpu = (self.device == 'cpu') or (isinstance(self.device, torch.device) and self.device.type == 'cpu')
+        is_cpu = (self.device == 'cpu') or (isinstance(
+            self.device,
+            torch.device,
+        ) and self.device.type == 'cpu')
         if is_cpu:
-            X_tensor = torch.tensor(X, dtype=torch.float32, device=self.device)
+            X_tensor = torch.tensor(
+                X,
+                dtype=torch.float32,
+                device=self.device,
+            )
             # Temporarily cast model to float32 for CPU inference
             original_dtype = next(self.model.parameters()).dtype
             self.model = self.model.to(torch.float32)
@@ -436,14 +585,22 @@ class AttentionProbe(BaseProbe):
             return logits
         else:
             # GPU path keeps bfloat16 for speed
-            X_tensor = torch.tensor(X, dtype=torch.bfloat16, device=self.device)
+            X_tensor = torch.tensor(
+                X,
+                dtype=torch.bfloat16,
+                device=self.device,
+            )
             self.model.eval()
             with torch.no_grad():
                 # Cast to float32 before moving to CPU/numpy to avoid bf16 numpy ops later
                 logits = self.model(X_tensor).to(torch.float32).cpu().numpy().squeeze()
             return logits
 
-    def score(self, X: np.ndarray, y: np.ndarray) -> dict[str, float]:
+    def score(
+        self,
+        X: np.ndarray,
+        y: np.ndarray,
+    ) -> dict[str, float]:
         """Calculate accuracy score. Ensure eval in float32 on CPU."""
         predictions = self.predict(X)
         accuracy = np.mean(predictions == y)

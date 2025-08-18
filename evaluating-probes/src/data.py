@@ -52,7 +52,15 @@ def get_model_d_model(model_name: str) -> int:
     try:
         print(f"Getting d_model for {model_name} using AutoConfig")
         cfg = AutoConfig.from_pretrained(model_name)
-        d_model = getattr(cfg, 'hidden_size', None) or getattr(cfg, 'n_embd', None)
+        d_model = getattr(
+            cfg,
+            'hidden_size',
+            None,
+        ) or getattr(
+            cfg,
+            'n_embd',
+            None,
+        )
         if d_model is None:
             raise ValueError(f"Could not determine d_model from config for {model_name}")
         return int(d_model)
@@ -99,7 +107,10 @@ class Dataset:
             csv_path = data_dir / f"{number}_{save_name}"
         else:
             try:
-                idx = int(dataset_name.split("_", 1)[0])
+                idx = int(dataset_name.split(
+                    "_",
+                    1,
+                )[0])
                 meta_row = meta.loc[idx]
                 csv_path = data_dir / f"{dataset_name}.csv"
             except Exception as e:
@@ -163,7 +174,10 @@ class Dataset:
         # If only_test is True, override splits: build a balanced 50/50 test set
         if only_test:
             # Find all indices for each class
-            classes, counts = np.unique(self.y, return_counts=True)
+            classes, counts = np.unique(
+                self.y,
+                return_counts=True,
+            )
             if len(classes) != 2:
                 raise ValueError("only_test=True requires exactly 2 classes for 50/50 split.")
             min_class = classes[np.argmin(counts)]
@@ -173,7 +187,11 @@ class Dataset:
             n = len(min_indices)
             # Randomly sample n from majority class
             rng = np.random.RandomState(seed)
-            maj_indices_sample = rng.choice(maj_indices, size=n, replace=False)
+            maj_indices_sample = rng.choice(
+                maj_indices,
+                size=n,
+                replace=False,
+            )
             test_indices = np.concatenate([min_indices, maj_indices_sample])
             rng.shuffle(test_indices)
             self.X_test_text = self.X[test_indices].tolist()
@@ -192,7 +210,15 @@ class Dataset:
             try:
                 # Derive model_name from model if not explicitly provided
                 if self.model_name is None and self.model is not None:
-                    self.model_name = getattr(getattr(self.model, 'config', None), 'name_or_path', None)
+                    self.model_name = getattr(
+                        getattr(
+                            self.model,
+                            'config',
+                            None,
+                        ),
+                        'name_or_path',
+                        None,
+                    )
 
                 if self.model_name is None:
                     raise ValueError("model_name is not set and could not be derived from model.config.name_or_path")
@@ -209,10 +235,18 @@ class Dataset:
                 if model is not None and tokenizer is not None:
                     # Full model and tokenizer provided - use them
                     # Get d_model from model config
-                    d_model = getattr(model.config, 'hidden_size', None)
+                    d_model = getattr(
+                        model.config,
+                        'hidden_size',
+                        None,
+                    )
                     if d_model is None:
                         # Try alternative attribute names
-                        d_model = getattr(model.config, 'n_embd', None)  # GPT-2 style
+                        d_model = getattr(
+                            model.config,
+                            'n_embd',
+                            None,
+                        )  # GPT-2 style
                     if d_model is None:
                         raise ValueError(f"Could not determine d_model from model config: {model.config}")
 
@@ -265,8 +299,14 @@ class Dataset:
             self.test_indices = indices_all
             self.X_test_text = self.X.tolist()
             self.y_test = self.y
-            self.train_indices = np.array([], dtype=int)
-            self.val_indices = np.array([], dtype=int)
+            self.train_indices = np.array(
+                [],
+                dtype=int,
+            )
+            self.val_indices = np.array(
+                [],
+                dtype=int,
+            )
             self.X_train_text = None
             self.y_train = None
             self.X_val_text = None
@@ -291,22 +331,34 @@ class Dataset:
             )
         else:
             trval_idx = indices
-            te_idx = np.array([], dtype=int)
+            te_idx = np.array(
+                [],
+                dtype=int,
+            )
 
         # Now split train/val depending on val_size
         if val_size and val_size > 0.0:
             # If train_size is zero, assign everything to val
             if train_size == 0.0:
-                tr_idx = np.array([], dtype=int)
+                tr_idx = np.array(
+                    [],
+                    dtype=int,
+                )
                 va_idx = trval_idx
             else:
                 val_relative = val_size / (train_size + val_size)
                 # Guard against edge cases where val_relative becomes 0 or 1
                 if val_relative <= 0.0:
                     tr_idx = trval_idx
-                    va_idx = np.array([], dtype=int)
+                    va_idx = np.array(
+                        [],
+                        dtype=int,
+                    )
                 elif val_relative >= 1.0:
-                    tr_idx = np.array([], dtype=int)
+                    tr_idx = np.array(
+                        [],
+                        dtype=int,
+                    )
                     va_idx = trval_idx
                 else:
                     tr_idx, va_idx = train_test_split(
@@ -318,7 +370,10 @@ class Dataset:
                     )
         else:
             tr_idx = trval_idx
-            va_idx = np.array([], dtype=int)
+            va_idx = np.array(
+                [],
+                dtype=int,
+            )
         self.train_indices = tr_idx
         self.val_indices = va_idx
         self.test_indices = te_idx
@@ -332,8 +387,15 @@ class Dataset:
 
         # Debug: print class distributions per split
         def _class_dist(arr):
-            uniq, cnt = np.unique(arr, return_counts=True)
-            return {int(k): int(v) for k, v in zip(uniq.tolist(), cnt.tolist())}
+            uniq, cnt = np.unique(
+                arr,
+                return_counts=True,
+            )
+            return {int(k): int(v)
+                    for k, v in zip(
+                        uniq.tolist(),
+                        cnt.tolist(),
+                    )}
 
         try:
             print(
@@ -352,27 +414,26 @@ class Dataset:
         """Get activations for an arbitrary list of texts."""
         if self.act_manager is None:
             raise ValueError("No activation manager available. Model may not be loaded.")
-        acts = self.act_manager.get_activations_for_texts(texts, layer, component, activation_type)
+        acts = self.act_manager.get_activations_for_texts(
+            texts,
+            layer,
+            component,
+            activation_type,
+        )
         return acts
 
     # Text getters
-    def get_train_set(
-        self,
-    ):
+    def get_train_set(self):
         if self.X_train_text is None:
             raise ValueError("Data not split yet. Split data first.")
         return self.X_train_text, self.y_train
 
-    def get_val_set(
-        self,
-    ):
+    def get_val_set(self):
         if self.X_val_text is None:
             raise ValueError("Data not split yet. Split data first.")
         return self.X_val_text, self.y_val
 
-    def get_test_set(
-        self,
-    ):
+    def get_test_set(self):
         if self.X_test_text is None:
             raise ValueError("Data not split yet. Split data first.")
         return self.X_test_text, self.y_test
@@ -386,7 +447,10 @@ class Dataset:
         if self.act_manager is not None:
             # The ActivationManager will compute its own max_len when needed
             # We can also update our own max_len for compatibility
-            actual_max_len = self.act_manager.get_actual_max_len(layer, component)
+            actual_max_len = self.act_manager.get_actual_max_len(
+                layer,
+                component,
+            )
             if actual_max_len is not None:
                 self.max_len = actual_max_len
 
@@ -405,7 +469,10 @@ class Dataset:
             raise ValueError("No activation manager available. Model may not be loaded.")
 
         # Update max_len from actual activations if available
-        self.update_max_len_from_activations(layer, component)
+        self.update_max_len_from_activations(
+            layer,
+            component,
+        )
 
         cache_key = (layer, component, format_type, activation_type, bool(on_policy))
         if cache_key in self._acts_cache_train:
@@ -428,11 +495,18 @@ class Dataset:
         else:
             # Off-policy: extract activations from prompt texts
             acts = self.act_manager.get_activations_for_texts(
-                self.X_train_text, layer, component, format_type, activation_type
+                self.X_train_text,
+                layer,
+                component,
+                format_type,
+                activation_type,
             )
 
         # Validate activations for numerical issues
-        self._validate_activations(acts, "train")
+        self._validate_activations(
+            acts,
+            "train",
+        )
 
         # Cache and expose
         self._acts_cache_train[cache_key] = acts
@@ -453,7 +527,10 @@ class Dataset:
             raise ValueError("No activation manager available. Model may not be loaded.")
 
         # Update max_len from actual activations if available
-        self.update_max_len_from_activations(layer, component)
+        self.update_max_len_from_activations(
+            layer,
+            component,
+        )
 
         cache_key = (layer, component, format_type, activation_type, bool(on_policy))
         if cache_key in self._acts_cache_val:
@@ -476,11 +553,18 @@ class Dataset:
         else:
             # Off-policy: extract activations from prompt texts
             acts = self.act_manager.get_activations_for_texts(
-                self.X_val_text, layer, component, format_type, activation_type
+                self.X_val_text,
+                layer,
+                component,
+                format_type,
+                activation_type,
             )
 
         # Validate activations for numerical issues
-        self._validate_activations(acts, "val")
+        self._validate_activations(
+            acts,
+            "val",
+        )
 
         # Cache and expose
         self._acts_cache_val[cache_key] = acts
@@ -501,7 +585,10 @@ class Dataset:
             raise ValueError("No activation manager available. Model may not be loaded.")
 
         # Update max_len from actual activations if available
-        self.update_max_len_from_activations(layer, component)
+        self.update_max_len_from_activations(
+            layer,
+            component,
+        )
 
         cache_key = (layer, component, format_type, activation_type, bool(on_policy))
         if cache_key in self._acts_cache_test:
@@ -532,7 +619,10 @@ class Dataset:
             )
 
         # Validate activations for numerical issues
-        self._validate_activations(acts, "test")
+        self._validate_activations(
+            acts,
+            "test",
+        )
 
         # Cache and expose
         self._acts_cache_test[cache_key] = acts
@@ -549,7 +639,11 @@ class Dataset:
             raise ValueError("No activation manager available. Model may not be loaded.")
 
         print(f"Extracting activations for all {len(self.X)} texts in dataset {self.dataset_name}")
-        acts, masks = self.act_manager.get_activations_for_texts(self.X.tolist(), layer, component)
+        acts, masks = self.act_manager.get_activations_for_texts(
+            self.X.tolist(),
+            layer,
+            component,
+        )
         print(f"Successfully extracted activations: shape={acts.shape}")
         return acts, masks
 
@@ -562,7 +656,10 @@ class Dataset:
         if acts is None:
             return
 
-        acts_array = np.array(acts) if isinstance(acts, list) else acts
+        acts_array = np.array(acts) if isinstance(
+            acts,
+            list,
+        ) else acts
 
         # Check for infinity
         if np.any(np.isinf(acts_array)):
@@ -609,7 +706,10 @@ class Dataset:
         df_check = pd.read_csv(csv_path)
 
         # Create a mapping from prompt to use_in_filtered_scoring
-        prompt_to_filter = dict(zip(df_check['prompt'], df_check['use_in_filtered_scoring']))
+        prompt_to_filter = dict(zip(
+            df_check['prompt'],
+            df_check['use_in_filtered_scoring'],
+        ))
 
         # Filter the dataset
         filtered_indices = []
@@ -638,14 +738,19 @@ class Dataset:
         self.n_classes = len(np.unique(self.y))
 
         # Debug: counts per class post-filter
-        uniq, cnt = np.unique(self.y, return_counts=True)
-        class_counts = {int(k): int(v) for k, v in zip(uniq.tolist(), cnt.tolist())}
+        uniq, cnt = np.unique(
+            self.y,
+            return_counts=True,
+        )
+        class_counts = {int(k): int(v)
+                        for k, v in zip(
+                            uniq.tolist(),
+                            cnt.tolist(),
+                        )}
         print(f"Filtered dataset {self.dataset_name}: {len(filtered_indices)} examples passed the filter")
         print(f"[DEBUG] Class distribution after filter: {class_counts}")
 
-    def clear_activation_cache(
-        self,
-    ):
+    def clear_activation_cache(self):
         """Clear activation cache to free memory."""
         if self.act_manager is not None:
             self.act_manager.clear_activation_cache()
@@ -681,7 +786,15 @@ class Dataset:
         obj.tokenizer = tokenizer
         # Prefer explicit model_name, otherwise derive safely from model.config.name_or_path
         obj.model_name = model_name or (
-            getattr(getattr(model, 'config', None), 'name_or_path', None) if model is not None else None
+            getattr(
+                getattr(
+                    model,
+                    'config',
+                    None,
+                ),
+                'name_or_path',
+                None,
+            ) if model is not None else None
         )
         obj.device = device
         obj.cache_root = cache_root
@@ -739,17 +852,33 @@ class Dataset:
         if (model is not None and tokenizer is not None) or obj.model_name is not None:
             try:
                 if obj.model_name is None and model is not None:
-                    obj.model_name = getattr(getattr(model, 'config', None), 'name_or_path', None)
+                    obj.model_name = getattr(
+                        getattr(
+                            model,
+                            'config',
+                            None,
+                        ),
+                        'name_or_path',
+                        None,
+                    )
                 if obj.model_name is None:
                     raise ValueError("model_name is not set and could not be derived from model.config.name_or_path")
 
                 cache_dir = cache_root / obj.model_name / dataset_name
                 if model is not None and tokenizer is not None:
                     # Get d_model from model config
-                    d_model = getattr(model.config, 'hidden_size', None)
+                    d_model = getattr(
+                        model.config,
+                        'hidden_size',
+                        None,
+                    )
                     if d_model is None:
                         # Try alternative attribute names
-                        d_model = getattr(model.config, 'n_embd', None)  # GPT-2 style
+                        d_model = getattr(
+                            model.config,
+                            'n_embd',
+                            None,
+                        )  # GPT-2 style
                     if d_model is None:
                         raise ValueError(f"Could not determine d_model from model config: {model.config}")
 
@@ -808,7 +937,11 @@ class Dataset:
             )
 
         rng = np.random.RandomState(seed)
-        class0_selected = rng.choice(class0_indices, size=n_class1, replace=False)
+        class0_selected = rng.choice(
+            class0_indices,
+            size=n_class1,
+            replace=False,
+        )
 
         test_indices_original = np.concatenate([class1_indices, class0_selected])
         rng.shuffle(test_indices_original)
@@ -817,7 +950,10 @@ class Dataset:
         all_df = df.iloc[test_indices_original].reset_index(drop=True)
 
         # The constructed dataset will have only a test split; keep val empty
-        val_indices_new = np.array([], dtype=int)
+        val_indices_new = np.array(
+            [],
+            dtype=int,
+        )
         test_indices_new = np.arange(len(all_df))
 
         # Compute max_len from available data
@@ -904,8 +1040,16 @@ class Dataset:
 
         # Sample real negatives and positives deterministically
         rng = np.random.RandomState(seed)
-        real_neg_selected = rng.choice(real_neg_indices, size=n_real_neg, replace=False)
-        real_pos_selected = rng.choice(real_pos_indices, size=n_real_pos, replace=False)
+        real_neg_selected = rng.choice(
+            real_neg_indices,
+            size=n_real_neg,
+            replace=False,
+        )
+        real_pos_selected = rng.choice(
+            real_pos_indices,
+            size=n_real_pos,
+            replace=False,
+        )
 
         # Calculate how many total samples we need
         n_llm_pos = n_real_pos * upsampling_factor - n_real_pos  # Total needed - real samples
@@ -933,7 +1077,10 @@ class Dataset:
         # Create train set: real negatives + real positives + LLM positives
         train_df = pd.concat([real_neg_df, real_pos_df, llm_pos_selected])
         # Shuffle train set deterministically
-        train_df = train_df.sample(frac=1, random_state=seed).reset_index(drop=True)
+        train_df = train_df.sample(
+            frac=1,
+            random_state=seed,
+        ).reset_index(drop=True)
 
         # Build val/test DataFrames from real data only
         val_df = df.iloc[val_indices]
@@ -942,13 +1089,19 @@ class Dataset:
         # Build new Dataset object
         all_df = pd.concat([train_df, val_df, test_df]).reset_index(drop=True)
         train_indices_new = np.arange(len(train_df))
-        val_indices_new = np.arange(len(train_df), len(train_df) + len(val_df))
-        test_indices_new = np.arange(len(train_df) + len(val_df), len(all_df))
+        val_indices_new = np.arange(
+            len(train_df),
+            len(train_df) + len(val_df),
+        )
+        test_indices_new = np.arange(
+            len(train_df) + len(val_df),
+            len(all_df),
+        )
 
         # Calculate max_len from all possible data
         all_lengths = max(
             df["prompt_len"].max() if "prompt_len" in df.columns else df["prompt"].str.len().max(),
-            llm_df["prompt_len"].max() if "prompt_len" in llm_df.columns else llm_df["prompt"].str.len().max()
+            llm_df["prompt_len"].max() if "prompt_len" in llm_df.columns else llm_df["prompt"].str.len().max(),
         )
         max_len = all_lengths
 
@@ -1041,7 +1194,11 @@ class Dataset:
                 else:
                     raise ValueError("Must specify either class_counts or (class_percents and total_samples)")
 
-            train_counts = get_counts(train_class_counts, train_class_percents, train_total_samples)
+            train_counts = get_counts(
+                train_class_counts,
+                train_class_percents,
+                train_total_samples,
+            )
             for cls in train_counts:
                 cls_avail_indices = available_indices[y_avail == cls]
                 n_train = train_counts[cls]
@@ -1066,8 +1223,14 @@ class Dataset:
             # Build new Dataset object with train, val, test
             all_df = pd.concat([train_df, val_df, test_df]).reset_index(drop=True)
             train_indices_new = np.arange(len(train_df))
-            val_indices_new = np.arange(len(train_df), len(train_df) + len(val_df))
-            test_indices_new = np.arange(len(train_df) + len(val_df), len(all_df))
+            val_indices_new = np.arange(
+                len(train_df),
+                len(train_df) + len(val_df),
+            )
+            test_indices_new = np.arange(
+                len(train_df) + len(val_df),
+                len(all_df),
+            )
         else:
             # Only create val/test sets
             val_df = df.iloc[val_indices]
@@ -1076,7 +1239,10 @@ class Dataset:
             all_df = pd.concat([val_df, test_df]).reset_index(drop=True)
             train_indices_new = None
             val_indices_new = np.arange(len(val_df))
-            test_indices_new = np.arange(len(val_df), len(all_df))
+            test_indices_new = np.arange(
+                len(val_df),
+                len(all_df),
+            )
 
         # Overlap checks
         train_set = set(train_indices_new) if train_indices_new is not None else set()
@@ -1108,10 +1274,17 @@ class Dataset:
             test_indices=test_indices_new,
         )
 
-    def get_actual_max_len(self, layer: int, component: str) -> int:
+    def get_actual_max_len(
+        self,
+        layer: int,
+        component: str,
+    ) -> int:
         """Get the actual maximum token length from activations if available."""
         if self.act_manager is not None:
-            return self.act_manager.get_actual_max_len(layer, component)
+            return self.act_manager.get_actual_max_len(
+                layer,
+                component,
+            )
         return None
 
 

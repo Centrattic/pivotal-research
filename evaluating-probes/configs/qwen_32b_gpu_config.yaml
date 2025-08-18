@@ -1,11 +1,11 @@
-run_name: "spam_qwen_14B"
-model_name: "Qwen/Qwen3-14B"
+run_name: "spam_qwen_32B"
+model_name: "Qwen/Qwen3-32B"
 device: "cuda:0" # will use these for extracting activations, but not for sklearn probes
 cache_activations: True
 log_file: "logs/spam_exp_gpu.log"  # Custom log file path
 seeds: [42, 43, 44, 45, 46] 
 
-layers: [24]
+layers: [32]
 components:
   - "resid_post"
 
@@ -17,15 +17,7 @@ activation_extraction:
   format_type: "r-no-it"  # Options: "qr" (on-policy), "r" (off-policy instruct), "r-no-it" (off-policy non-instruct)
 
 # Evaluation dataset configurations
-architectures:
-  - name: "sae"
-    config_name: "sae_qwen3_14b_mean"
-  - name: "sae"
-    config_name: "sae_qwen3_14b_max"
-  - name: "sae"
-    config_name: "sae_qwen3_14b_last"
-  - name: "sae"
-    config_name: "sae_qwen3_14b_softmax"
+architectures: # no available SAE probes
   - name: "attention"
     config_name: "attention"
 
@@ -62,7 +54,7 @@ experiments:
         
 model_check:
   - name: spam-pred
-    hf_model_name: "Qwen/Qwen3-14B"
+    hf_model_name: "Qwen/Qwen3-32B"
     check_on: ["87_is_spam", "94_better_spam"]
     method: "no-it"  # Options: "it" (uses chat template), "no-it" (uses few-shot prompt and no chat template)
     check_prompt: "Is this message spam? Answer with either Yes or No. \n {prompt}"

@@ -25,32 +25,49 @@ class BaseProbeNonTrainable:
         self.model = None  # No trainable model for these probes
         self.loss_history = []  # Empty for non-trainable probes
 
-    def fit(self, X: np.ndarray, y: np.ndarray) -> None:
+    def fit(
+        self,
+        X: np.ndarray,
+        y: np.ndarray,
+    ) -> None:
         """Fit the non-trainable probe to the data."""
         # X should already be pre-aggregated activations (N, d_model)
         # Store the activations and labels for later use
         self.X_aggregated = X
         self.y = y
 
-    def predict(self, X: np.ndarray) -> np.ndarray:
+    def predict(
+        self,
+        X: np.ndarray,
+    ) -> np.ndarray:
         """Predict binary labels."""
         logits = self.predict_logits(X)
         return (logits > 0).astype(int)
 
-    def predict_proba(self, X: np.ndarray) -> np.ndarray:
+    def predict_proba(
+        self,
+        X: np.ndarray,
+    ) -> np.ndarray:
         """Predict probabilities."""
         logits = self.predict_logits(X)
         probs = 1 / (1 + np.exp(-logits))
         return np.column_stack([1 - probs, probs])
 
-    def predict_logits(self, X: np.ndarray) -> np.ndarray:
+    def predict_logits(
+        self,
+        X: np.ndarray,
+    ) -> np.ndarray:
         """Predict logits."""
         # X should already be pre-aggregated activations (N, d_model)
         # For non-trainable probes, we need to implement the specific prediction logic
         # This is a placeholder - subclasses should override this method
         raise NotImplementedError("Subclasses must implement predict_logits")
 
-    def score(self, X: np.ndarray, y: np.ndarray) -> dict[str, float]:
+    def score(
+        self,
+        X: np.ndarray,
+        y: np.ndarray,
+    ) -> dict[str, float]:
         """Calculate accuracy and AUC scores."""
         from sklearn.metrics import roc_auc_score
 
@@ -66,7 +83,10 @@ class BaseProbeNonTrainable:
             else:
                 y_prob_positive = y_prob.flatten()
 
-            auc = roc_auc_score(y, y_prob_positive) if len(np.unique(y)) > 1 else 0.5
+            auc = roc_auc_score(
+                y,
+                y_prob_positive,
+            ) if len(np.unique(y)) > 1 else 0.5
         except Exception as e:
             print(f"Warning: Could not calculate AUC: {e}")
             auc = 0.5
@@ -80,7 +100,7 @@ class BaseProbeNonTrainable:
         dataset_name: str = None,
         results_dir: Path = None,
         seed: int = None,
-        test_size: float = 0.15
+        test_size: float = 0.15,
     ) -> dict[str, float]:
         """
         Calculate metrics only on examples where the model's logit_diff indicates correct prediction.
@@ -99,7 +119,10 @@ class BaseProbeNonTrainable:
         """
         if dataset_name is None or results_dir is None:
             # Fallback to regular scoring if we can't find the CSV
-            return self.score(X, y)
+            return self.score(
+                X,
+                y,
+            )
 
         # Find the runthrough directory
         parent_dir = results_dir.parent
@@ -107,13 +130,19 @@ class BaseProbeNonTrainable:
 
         if not runthrough_dir.exists():
             print(f"[DEBUG] Runthrough directory not found: {runthrough_dir}")
-            return self.score(X, y)
+            return self.score(
+                X,
+                y,
+            )
 
         # Look for CSV files with logit_diff in the filename
         csv_files = list(runthrough_dir.glob("*logit_diff*.csv"))
         if not csv_files:
             print(f"[DEBUG] No logit_diff CSV files found in: {runthrough_dir}")
-            return self.score(X, y)
+            return self.score(
+                X,
+                y,
+            )
 
         csv_path = csv_files[0]
         try:
@@ -122,7 +151,10 @@ class BaseProbeNonTrainable:
             # Check if we have the required columns
             if 'logit_diff' not in df.columns or 'label' not in df.columns:
                 print(f"[DEBUG] Missing required columns. Available columns: {list(df.columns)}")
-                return self.score(X, y)
+                return self.score(
+                    X,
+                    y,
+                )
 
             # Calculate use_in_filtered_scoring based on logit_diff and true label
             # For class 0 samples: use if logit_diff < 0 (model correctly predicts class 0)
@@ -145,29 +177,47 @@ class BaseProbeNonTrainable:
             # Check if the number of samples matches
             if len(use_in_filtered) != len(y):
                 print(f"[DEBUG] Sample count mismatch: CSV has {len(use_in_filtered)} samples, but y has {len(y)}")
-                return self.score(X, y)
+                return self.score(
+                    X,
+                    y,
+                )
 
             # Filter based on use_in_filtered_scoring
             filtered_indices = [i for i, use in enumerate(use_in_filtered) if use == 1]
 
             if len(filtered_indices) == 0:
                 print(f"[DEBUG] No samples passed the filter criteria")
-                return self.score(X, y)
+                return self.score(
+                    X,
+                    y,
+                )
 
             # Apply the filter to X and y
             # Handle both numpy arrays and lists of arrays
-            if isinstance(X, np.ndarray):
+            if isinstance(
+                    X,
+                    np.ndarray,
+            ):
                 X_filtered = X[filtered_indices]
-            elif isinstance(X, list):
+            elif isinstance(
+                    X,
+                    list,
+            ):
                 X_filtered = [X[i] for i in filtered_indices]
             else:
                 print(f"[DEBUG] Unexpected X type: {type(X)}")
-                return self.score(X, y)
+                return self.score(
+                    X,
+                    y,
+                )
 
             y_filtered = y[filtered_indices]
 
             # Calculate metrics on filtered data
-            result = self.score(X_filtered, y_filtered)
+            result = self.score(
+                X_filtered,
+                y_filtered,
+            )
 
             # Add filter info to result
             result["filtered"] = True
@@ -181,7 +231,10 @@ class BaseProbeNonTrainable:
         except Exception as e:
             # If anything goes wrong, fall back to regular scoring
             print(f"[DEBUG] Exception in score_filtered: {e}")
-            return self.score(X, y)
+            return self.score(
+                X,
+                y,
+            )
 
     def save_state(
         self,
@@ -199,13 +252,23 @@ class BaseProbeNonTrainable:
         probe_params = self._get_probe_parameters()
         save_dict.update(probe_params)
 
-        torch.save(save_dict, path)
+        torch.save(
+            save_dict,
+            path,
+        )
 
         # Save training info (empty for non-trainable probes)
         log_path = path.with_name(path.stem + "_train_log.json")
         train_info = {"loss_history": self.loss_history, "probe_type": "non_trainable"}
-        with open(log_path, "w") as f:
-            json.dump(train_info, f, indent=2)
+        with open(
+                log_path,
+                "w",
+        ) as f:
+            json.dump(
+                train_info,
+                f,
+                indent=2,
+            )
 
     def _get_probe_parameters(self) -> dict:
         """
@@ -221,7 +284,11 @@ class BaseProbeNonTrainable:
         Load the probe state (parameters, not model weights).
         """
         # Use weights_only=False to allow loading numpy arrays and other objects
-        checkpoint = torch.load(path, map_location=self.device, weights_only=False)
+        checkpoint = torch.load(
+            path,
+            map_location=self.device,
+            weights_only=False,
+        )
         self.d_model = checkpoint['d_model']
         self.task_type = checkpoint['task_type']
         self.aggregation = checkpoint['aggregation']

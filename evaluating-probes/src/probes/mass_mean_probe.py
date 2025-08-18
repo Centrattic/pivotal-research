@@ -22,7 +22,12 @@ class MassMeanProbe(BaseProbeNonTrainable):
         **kwargs,
     ):
         # Mass-mean probes always use mean aggregation (no sequence aggregation needed)
-        super().__init__(d_model, device, task_type, aggregation="mass_mean")
+        super().__init__(
+            d_model,
+            device,
+            task_type,
+            aggregation="mass_mean",
+        )
         # IID functionality disabled due to numerical instability with small sample sizes
         # self.use_iid = use_iid
         self.use_iid = False  # Always use basic mass-mean
@@ -67,7 +72,10 @@ class MassMeanProbe(BaseProbeNonTrainable):
         # Process batches
         for i in range(n_batches):
             start_idx = i * batch_size
-            end_idx = min((i + 1) * batch_size, n_samples)
+            end_idx = min(
+                (i + 1) * batch_size,
+                n_samples,
+            )
 
             batch_X = X[start_idx:end_idx]
             batch_y = y[start_idx:end_idx]
@@ -88,7 +96,10 @@ class MassMeanProbe(BaseProbeNonTrainable):
                     print(f"Remapped labels: {unique_labels[0]} -> 0, {unique_labels[1]} -> 1")
 
             # Aggregate this batch (mean over sequence dimension)
-            batch_aggregated = self._aggregate_activations(batch_X, batch_mask)
+            batch_aggregated = self._aggregate_activations(
+                batch_X,
+                batch_mask,
+            )
 
             # Separate positive and negative samples
             pos_mask = batch_y == 1
@@ -138,33 +149,57 @@ class MassMeanProbe(BaseProbeNonTrainable):
     #     """
     #     # ... entire method commented out ...
 
-    def _compute_logits(self, processed_X: np.ndarray) -> np.ndarray:
+    def _compute_logits(
+        self,
+        processed_X: np.ndarray,
+    ) -> np.ndarray:
         """Compute logits for mass-mean probe using PyTorch for GPU acceleration."""
         if self.theta_mm is None:
             raise ValueError("Mass-mean direction not computed. Call fit() first.")
 
         # Convert to PyTorch tensors
-        X_tensor = torch.tensor(processed_X, dtype=torch.bfloat16, device=self.device)
-        theta_tensor = torch.tensor(self.theta_mm, dtype=torch.bfloat16, device=self.device)
+        X_tensor = torch.tensor(
+            processed_X,
+            dtype=torch.bfloat16,
+            device=self.device,
+        )
+        theta_tensor = torch.tensor(
+            self.theta_mm,
+            dtype=torch.bfloat16,
+            device=self.device,
+        )
 
         # IID functionality disabled due to numerical instability with small sample sizes
         # Always use basic version: θ_mm^T x
-        logits = torch.matmul(X_tensor, theta_tensor)
+        logits = torch.matmul(
+            X_tensor,
+            theta_tensor,
+        )
 
         # Convert bfloat16 to float32 only for numpy conversion
         return logits.float().cpu().numpy()
 
-    def _compute_predictions(self, processed_X: np.ndarray) -> np.ndarray:
+    def _compute_predictions(
+        self,
+        processed_X: np.ndarray,
+    ) -> np.ndarray:
         """Compute predictions for mass-mean probe."""
         logits = self._compute_logits(processed_X)
         return (logits > 0).astype(int)
 
-    def _compute_probabilities(self, processed_X: np.ndarray) -> np.ndarray:
+    def _compute_probabilities(
+        self,
+        processed_X: np.ndarray,
+    ) -> np.ndarray:
         """Compute probabilities for mass-mean probe."""
         logits = self._compute_logits(processed_X)
 
         # Use PyTorch sigmoid for GPU acceleration
-        logits_tensor = torch.tensor(logits, dtype=torch.bfloat16, device=self.device)
+        logits_tensor = torch.tensor(
+            logits,
+            dtype=torch.bfloat16,
+            device=self.device,
+        )
         # Convert bfloat16 to float32 only for numpy conversion
         probs = torch.sigmoid(logits_tensor).float().cpu().numpy()
 

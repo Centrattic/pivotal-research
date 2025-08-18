@@ -8,45 +8,63 @@ from src.data import Dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 
-def extract_imbalanced_csvs(
-    config_path,
-):
-    with open(config_path, 'r') as f:
+def extract_imbalanced_csvs(config_path):
+    with open(
+            config_path,
+            'r',
+    ) as f:
         config = yaml.safe_load(f)
     run_name = config['run_name']
     model_name = config['model_name']
-    device = config.get('device', 'cpu')
-    seed = int(config.get('seed', 42))
+    device = config.get(
+        'device',
+        'cpu',
+    )
+    seed = int(config.get(
+        'seed',
+        42,
+    ))
     results_dir = Path('results') / run_name / 'imbalanced_csvs'
-    results_dir.mkdir(parents=True, exist_ok=True)
+    results_dir.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
 
     model = AutoModelForCausalLM.from_pretrained(
         model_name,
         device_map="auto" if "cuda" in (device or "") else None,
-        torch_dtype=torch.float16 if (device and "cuda" in device) else torch.float32
+        torch_dtype=torch.float16 if (device and "cuda" in device) else torch.float32,
     )
     tokenizer = AutoTokenizer.from_pretrained(model_name)
 
     for experiment in config['experiments']:
         train_on = experiment['train_on']
-        rebuild_config = experiment.get('rebuild_config', {})
+        rebuild_config = experiment.get(
+            'rebuild_config',
+            {},
+        )
         for group_name, configs in rebuild_config.items():
             for rc in configs:
                 # Determine file suffix for saving
                 if 'class_counts' in rc:
                     suffix = '_'.join(
                         [f"class{cls}_{rc['class_counts'][cls]}" for cls in sorted(rc['class_counts'])]
-                    ) + f"_seed{rc.get('seed', seed)}"
+                    ) + f"_seed{rc.get('seed', seed,)}"
                 elif 'class_percents' in rc:
                     suffix = '_'.join(
                         [f"class{cls}_{int(rc['class_percents'][cls]*100)}pct" for cls in sorted(rc['class_percents'])]
                     )
-                    suffix += f"_total{rc['total_samples']}_seed{rc.get('seed', seed)}"
+                    suffix += f"_total{rc['total_samples']}_seed{rc.get('seed', seed,)}"
                 else:
                     continue
                 # Load original dataset
                 orig_ds = Dataset(
-                    train_on, model=model, tokenizer=tokenizer, model_name=model_name, device=device, seed=seed
+                    train_on,
+                    model=model,
+                    tokenizer=tokenizer,
+                    model_name=model_name,
+                    device=device,
+                    seed=seed,
                 )
                 # Build imbalanced split
                 ds = Dataset.rebuild_train_balanced_eval(
@@ -54,15 +72,27 @@ def extract_imbalanced_csvs(
                     train_class_counts=rc.get('class_counts'),
                     train_class_percents=rc.get('class_percents'),
                     train_total_samples=rc.get('total_samples'),
-                    seed=rc.get('seed', seed)
+                    seed=rc.get(
+                        'seed',
+                        seed,
+                    ),
                 )
                 # Save splits as CSV
                 train_df = ds.df.iloc[ds.train_indices]
                 val_df = ds.df.iloc[ds.val_indices]
                 test_df = ds.df.iloc[ds.test_indices]
-                train_df.to_csv(results_dir / f"{train_on}_{suffix}_train.csv", index=False)
-                val_df.to_csv(results_dir / f"{train_on}_{suffix}_val.csv", index=False)
-                test_df.to_csv(results_dir / f"{train_on}_{suffix}_test.csv", index=False)
+                train_df.to_csv(
+                    results_dir / f"{train_on}_{suffix}_train.csv",
+                    index=False,
+                )
+                val_df.to_csv(
+                    results_dir / f"{train_on}_{suffix}_val.csv",
+                    index=False,
+                )
+                test_df.to_csv(
+                    results_dir / f"{train_on}_{suffix}_test.csv",
+                    index=False,
+                )
                 print(f"Saved imbalanced CSVs for {train_on} ({suffix}) to {results_dir}")
 
 
@@ -72,7 +102,10 @@ parser = argparse.ArgumentParser(
     description="Extract imbalanced CSVs from config file using rebuild_train_balanced_eval."
 )
 parser.add_argument(
-    "-c", "--config", required=True, help="Config name (e.g. 'politician_exp') or path to config YAML file."
+    "-c",
+    "--config",
+    required=True,
+    help="Config name (e.g. 'politician_exp') or path to config YAML file.",
 )
 args = parser.parse_args()
 config_arg = args.config

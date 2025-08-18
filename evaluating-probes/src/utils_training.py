@@ -24,7 +24,10 @@ from configs.probes import (
 )
 
 
-def add_hyperparams_to_filename(base_filename: str, probe_config) -> str:
+def add_hyperparams_to_filename(
+    base_filename: str,
+    probe_config,
+) -> str:
     """Add hyperparameter values to filename if they differ from defaults."""
     hparam_suffix = ""
 
@@ -39,8 +42,14 @@ def add_hyperparams_to_filename(base_filename: str, probe_config) -> str:
     ]
 
     for hparam in hparams_to_check:
-        if hasattr(probe_config, hparam):
-            value = getattr(probe_config, hparam)
+        if hasattr(
+                probe_config,
+                hparam,
+        ):
+            value = getattr(
+                probe_config,
+                hparam,
+            )
             # Only add if it's not the default value
             if hparam == 'C' and value != 1.0:
                 hparam_suffix += f"_C{value}"
@@ -130,7 +139,10 @@ def extract_activations_for_dataset(
         if on_policy:
             # For on-policy: extract activations using the specified format
             logger.log(f"    - On-policy: extracting activations using format '{format_type}'...")
-            if hasattr(ds, 'question_texts') and ds.question_texts is not None:
+            if hasattr(
+                    ds,
+                    'question_texts',
+            ) and ds.question_texts is not None:
                 dataset_texts = ds.X.tolist()
                 question_texts = ds.question_texts.tolist()
                 _, newly_added = ds.act_manager.get_activations_for_texts(
@@ -225,7 +237,10 @@ def train_single_probe(
     # Create config name robustly: if the architecture name is already a known config, use it directly
     if job.architecture_name in PROBE_CONFIGS:
         config_name = job.architecture_name
-    elif hasattr(job.probe_config, 'aggregation'):
+    elif hasattr(
+            job.probe_config,
+            'aggregation',
+    ):
         config_name = f"{job.architecture_name}_{job.probe_config.aggregation}"
     else:
         config_name = job.architecture_name
@@ -257,7 +272,10 @@ def train_single_probe(
         probe_json_path = probe_save_dir / f"{probe_filename_with_hparams}_meta.json"
 
     # EARLY CHECK: If probe already exists and we're not rerunning, skip immediately
-    if config.get('cache_activations', True) and probe_state_path.exists() and not rerun:
+    if config.get(
+            'cache_activations',
+            True,
+    ) and probe_state_path.exists() and not rerun:
         logger.log(f"  - [SKIP] Probe already trained: {probe_state_path.name}")
         return
 
@@ -278,16 +296,25 @@ def train_single_probe(
 
         # Filter data for off-policy experiments if model_check was run
         if not job.on_policy and 'model_check' in config:
-            run_name = config.get('run_name', 'default_run')
+            run_name = config.get(
+                'run_name',
+                'default_run',
+            )
             for check in config['model_check']:
                 check_on = check['check_on']
-                if isinstance(check_on, list):
+                if isinstance(
+                        check_on,
+                        list,
+                ):
                     datasets_to_check = check_on
                 else:
                     datasets_to_check = [check_on] if check_on else []
 
                 if job.train_dataset in datasets_to_check:
-                    orig_ds.filter_data_by_model_check(run_name, check['name'])
+                    orig_ds.filter_data_by_model_check(
+                        run_name,
+                        check['name'],
+                    )
                     break
 
         # Check if this is LLM upsampling with new method
@@ -301,7 +328,10 @@ def train_single_probe(
             results_path = Path(results_dir)
             # parents[2] -> <run_name>
             run_name = results_path.parents[2].name if len(results_path.parents) >= 3 else str(results_path)
-            llm_csv_base_path = job.rebuild_config.get('llm_csv_base_path', f'results/{run_name}')
+            llm_csv_base_path = job.rebuild_config.get(
+                'llm_csv_base_path',
+                f'results/{run_name}',
+            )
 
             if n_real_neg is None or n_real_pos is None or upsampling_factor is None:
                 raise ValueError(
@@ -337,23 +367,42 @@ def train_single_probe(
             )
     else:
         logger.log(f"  [DEBUG] Using simple dataset creation")
-        train_ds = Dataset(job.train_dataset, model_name=config['model_name'], device=config['device'], seed=job.seed)
+        train_ds = Dataset(
+            job.train_dataset,
+            model_name=config['model_name'],
+            device=config['device'],
+            seed=job.seed,
+        )
 
         # Filter data for off-policy experiments if model_check was run
         if not job.on_policy and 'model_check' in config:
-            run_name = config.get('run_name', 'default_run')
+            run_name = config.get(
+                'run_name',
+                'default_run',
+            )
             for check in config['model_check']:
                 check_on = check['check_on']
-                if isinstance(check_on, list):
+                if isinstance(
+                        check_on,
+                        list,
+                ):
                     datasets_to_check = check_on
                 else:
                     datasets_to_check = [check_on] if check_on else []
 
                 if job.train_dataset in datasets_to_check:
-                    train_ds.filter_data_by_model_check(run_name, check['name'])
+                    train_ds.filter_data_by_model_check(
+                        run_name,
+                        check['name'],
+                    )
                     break
 
-        train_ds.split_data(train_size=job.train_size, val_size=job.val_size, test_size=job.test_size, seed=job.seed)
+        train_ds.split_data(
+            train_size=job.train_size,
+            val_size=job.val_size,
+            test_size=job.test_size,
+            seed=job.seed,
+        )
 
     # Get activations
     activation_type = get_activation_type_from_config(config_name)
@@ -378,20 +427,31 @@ def train_single_probe(
         train_acts, y_train = train_result
         train_masks = None
 
-    print(f"Train activations: {len(train_acts) if isinstance(train_acts, list) else train_acts.shape}")
+    print(f"Train activations: {len(train_acts) if isinstance(train_acts, list,) else train_acts.shape}")
 
     # Debug: verify alignment and class distribution before training
     try:
-        num_samples_X = len(train_acts) if isinstance(train_acts, list) else (
-            train_acts.shape[0] if hasattr(train_acts, 'shape') else None
-        )
+        num_samples_X = len(train_acts) if isinstance(
+            train_acts,
+            list,
+        ) else (train_acts.shape[0] if hasattr(
+            train_acts,
+            'shape',
+        ) else None)
         num_samples_y = len(y_train) if y_train is not None else None
         print(f"[DEBUG] Pre-fit sample counts — X: {num_samples_X}, y: {num_samples_y}")
         if num_samples_X is not None and num_samples_y is not None and num_samples_X != num_samples_y:
             print(f"[DEBUG] MISMATCH detected: X has {num_samples_X} samples while y has {num_samples_y}")
         # Class distribution in y_train
-        unique_classes, class_counts = np.unique(y_train, return_counts=True)
-        class_dist = {int(k): int(v) for k, v in zip(unique_classes.tolist(), class_counts.tolist())}
+        unique_classes, class_counts = np.unique(
+            y_train,
+            return_counts=True,
+        )
+        class_dist = {int(k): int(v)
+                      for k, v in zip(
+                          unique_classes.tolist(),
+                          class_counts.tolist(),
+                      )}
         print(f"[DEBUG] y_train class distribution: {class_dist}")
     except Exception as e:
         print(f"[DEBUG] Failed to compute pre-fit debug stats: {e}")
@@ -409,16 +469,23 @@ def train_single_probe(
             "sklearn_linear",
             d_model=get_model_d_model(config['model_name']),
             device=config['device'],
-            config=probe_config_dict
+            config=probe_config_dict,
         )
         logger.log(f"  [DEBUG] Created sklearn linear probe")
 
         logger.log(f"  [DEBUG] Fitting probe normally...")
         # Pass masks only if they exist (for pre-aggregated activations, masks=None)
         if train_masks is not None:
-            probe.fit(train_acts, y_train, train_masks)
+            probe.fit(
+                train_acts,
+                y_train,
+                train_masks,
+            )
         else:
-            probe.fit(train_acts, y_train)
+            probe.fit(
+                train_acts,
+                y_train,
+            )
         logger.log(f"  [DEBUG] Fitted probe normally")
 
     elif job.architecture_name == "attention":
@@ -428,10 +495,13 @@ def train_single_probe(
             "attention",
             d_model=get_model_d_model(config['model_name']),
             device=config['device'],
-            config=probe_config_dict
+            config=probe_config_dict,
         )
         logger.log(f"  [DEBUG] Fitting attention probe normally...")
-        probe.fit(train_acts, y_train)
+        probe.fit(
+            train_acts,
+            y_train,
+        )
 
     elif job.architecture_name == "sae" or job.architecture_name.startswith("sae"):
         # SAE probe
@@ -443,7 +513,11 @@ def train_single_probe(
         )
 
         logger.log(f"  [DEBUG] Fitting SAE probe normally...")
-        probe.fit(train_acts, y_train, train_masks)
+        probe.fit(
+            train_acts,
+            y_train,
+            train_masks,
+        )
 
     elif job.architecture_name == "mass_mean":
         # Mass mean probe (non-trainable)
@@ -451,10 +525,13 @@ def train_single_probe(
             "mass_mean",
             d_model=get_model_d_model(config['model_name']),
             device=config['device'],
-            config=probe_config_dict
+            config=probe_config_dict,
         )
         logger.log(f"  [DEBUG] Fitting mass mean probe...")
-        probe.fit(train_acts, y_train)
+        probe.fit(
+            train_acts,
+            y_train,
+        )
 
     elif job.architecture_name == "act_sim":
         # Activation similarity probe (non-trainable)
@@ -462,16 +539,22 @@ def train_single_probe(
             "act_sim",
             d_model=get_model_d_model(config['model_name']),
             device=config['device'],
-            config=probe_config_dict
+            config=probe_config_dict,
         )
         logger.log(f"  [DEBUG] Fitting activation similarity probe...")
-        probe.fit(train_acts, y_train)
+        probe.fit(
+            train_acts,
+            y_train,
+        )
 
     else:
         raise ValueError(f"Unknown architecture_name: {job.architecture_name}")
 
     # Save probe
-    probe_save_dir.mkdir(parents=True, exist_ok=True)
+    probe_save_dir.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
     probe.save_state(probe_state_path)
 
     # Save metadata/config
@@ -481,15 +564,22 @@ def train_single_probe(
         'layer': job.layer,
         'component': job.component,
         'architecture_name': job.architecture_name,
-        'aggregation': extract_aggregation_from_config(config_name, job.architecture_name) if hasattr(probe, 'aggregation') else None,
+        'aggregation': extract_aggregation_from_config(config_name, job.architecture_name,) if hasattr(probe, 'aggregation',) else None,
         'config_name': config_name,
         'rebuild_config': copy.deepcopy(job.rebuild_config),
         'probe_state_path': str(probe_state_path),
         'on_policy': job.on_policy,
     }
     # yapf: enable
-    with open(probe_json_path, 'w') as f:
-        json.dump(meta, f, indent=2)
+    with open(
+            probe_json_path,
+            'w',
+    ) as f:
+        json.dump(
+            meta,
+            f,
+            indent=2,
+        )
     logger.log(f"  - 🔥 Probe state saved to {probe_state_path.name}")
 
 
@@ -510,7 +600,10 @@ def evaluate_single_probe(
     # Create config name robustly: if the architecture name is already a known config, use it directly
     if job.architecture_name in PROBE_CONFIGS:
         config_name = job.architecture_name
-    elif hasattr(job.probe_config, 'aggregation'):
+    elif hasattr(
+            job.probe_config,
+            'aggregation',
+    ):
         config_name = f"{job.architecture_name}_{job.probe_config.aggregation}"
     else:
         config_name = job.architecture_name
@@ -550,9 +643,15 @@ def evaluate_single_probe(
         probe_state_path = trained_dir / f"{probe_filename_with_hparams}_state.npz"
         eval_results_path = results_dir / f"eval_on_{eval_dataset}__{probe_filename_with_hparams}_seed{job.seed}_{agg_name}_results.json"
 
-    if config.get('cache_activations', True) and eval_results_path.exists() and not rerun:
+    if config.get(
+            'cache_activations',
+            True,
+    ) and eval_results_path.exists() and not rerun:
         logger.log("  - 😋 Using cached evaluation result ")
-        with open(eval_results_path, "r") as f:
+        with open(
+                eval_results_path,
+                "r",
+        ) as f:
             return json.load(f)["metrics"]
 
     # Load probe
@@ -563,7 +662,7 @@ def evaluate_single_probe(
             "sklearn_linear",
             d_model=get_model_d_model(config['model_name']),
             device=config['device'],
-            config=probe_config_dict
+            config=probe_config_dict,
         )
 
     elif job.architecture_name == "attention":
@@ -571,7 +670,7 @@ def evaluate_single_probe(
             "attention",
             d_model=get_model_d_model(config['model_name']),
             device=config['device'],
-            config=probe_config_dict
+            config=probe_config_dict,
         )
     elif job.architecture_name == "sae" or job.architecture_name.startswith("sae"):
         probe = get_probe_architecture(
@@ -585,14 +684,14 @@ def evaluate_single_probe(
             "mass_mean",
             d_model=get_model_d_model(config['model_name']),
             device=config['device'],
-            config=probe_config_dict
+            config=probe_config_dict,
         )
     elif job.architecture_name == "act_sim":
         probe = get_probe_architecture(
             "act_sim",
             d_model=get_model_d_model(config['model_name']),
             device=config['device'],
-            config=probe_config_dict
+            config=probe_config_dict,
         )
     else:
         raise ValueError(f"Unknown architecture_name: {job.architecture_name}")
@@ -604,17 +703,27 @@ def evaluate_single_probe(
     if job.architecture_name == "sae":
         batch_size = probe_config_dict.get(
             'training_batch_size',
-            probe_config_dict.get('batch_size', 200),
+            probe_config_dict.get(
+                'batch_size',
+                200,
+            ),
         )
     else:
-        batch_size = probe_config_dict.get('batch_size', 200)
+        batch_size = probe_config_dict.get(
+            'batch_size',
+            200,
+        )
 
     # Prepare evaluation dataset (allow passing a prebuilt dataset for batching)
     if dataset is not None:
         eval_ds = dataset
     elif job.rebuild_config is not None:
         orig_ds = Dataset(
-            eval_dataset, model_name=config['model_name'], device=config['device'], seed=job.seed, only_test=only_test
+            eval_dataset,
+            model_name=config['model_name'],
+            device=config['device'],
+            seed=job.seed,
+            only_test=only_test,
         )
 
         # Check if this is LLM upsampling with new method
@@ -626,7 +735,10 @@ def evaluate_single_probe(
             # Determine run_name robustly from results dir: results/<run_name>/seed_<seed>/<experiment>/trained
             results_path = Path(results_dir)
             run_name = results_path.parents[2].name if len(results_path.parents) >= 3 else str(results_path)
-            llm_csv_base_path = job.rebuild_config.get('llm_csv_base_path', f'results/{run_name}')
+            llm_csv_base_path = job.rebuild_config.get(
+                'llm_csv_base_path',
+                f'results/{run_name}',
+            )
 
             if n_real_neg is None or n_real_pos is None or upsampling_factor is None:
                 raise ValueError(
@@ -696,16 +808,23 @@ def evaluate_single_probe(
         test_acts, y_test = test_result
         test_masks = None
 
-    print(f"Test activations: {len(test_acts) if isinstance(test_acts, list) else test_acts.shape}")
+    print(f"Test activations: {len(test_acts) if isinstance(test_acts, list,) else test_acts.shape}")
 
     # Calculate metrics
     logger.log(f"  - 🤗 Calculating metrics...")
     if job.architecture_name == "attention" or job.architecture_name == "act_sim":
         # Attention probes and activation similarity probes don't use masks
-        metrics = probe.score(test_acts, y_test)
+        metrics = probe.score(
+            test_acts,
+            y_test,
+        )
     else:
         # Other probes use masks
-        metrics = probe.score(test_acts, y_test, masks=test_masks)
+        metrics = probe.score(
+            test_acts,
+            y_test,
+            masks=test_masks,
+        )
 
     # Save metrics and per-datapoint scores/labels
     # Compute per-datapoint probe scores (logits) and labels
@@ -714,9 +833,15 @@ def evaluate_single_probe(
         test_scores = probe.predict_logits(test_acts)
     else:
         # Other probes use masks
-        test_scores = probe.predict_logits(test_acts, masks=test_masks)
+        test_scores = probe.predict_logits(
+            test_acts,
+            masks=test_masks,
+        )
     # Flatten if shape is (N, 1)
-    if hasattr(test_scores, 'shape') and len(test_scores.shape) == 2 and test_scores.shape[1] == 1:
+    if hasattr(
+            test_scores,
+            'shape',
+    ) and len(test_scores.shape) == 2 and test_scores.shape[1] == 1:
         test_scores = test_scores[:, 0]
     test_scores = test_scores.tolist()
     test_labels = y_test.tolist()
@@ -725,10 +850,20 @@ def evaluate_single_probe(
     output_dict = {"metrics": metrics, "scores": {"scores": test_scores, "labels": test_labels}}
 
     # Ensure the directory exists
-    eval_results_path.parent.mkdir(parents=True, exist_ok=True)
+    eval_results_path.parent.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
 
-    with open(eval_results_path, "w") as f:
-        json.dump(output_dict, f, indent=2)
+    with open(
+            eval_results_path,
+            "w",
+    ) as f:
+        json.dump(
+            output_dict,
+            f,
+            indent=2,
+        )
 
     # Log the results
     logger.log(f"  - ❤️‍🔥 Success! Metrics: {metrics}")
