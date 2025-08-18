@@ -5,18 +5,12 @@ from pathlib import Path
 import glob
 import re
 from src.visualize.utils_viz import (
-    plot_logit_diffs_from_csv,
-    plot_multi_folder_recall_at_fpr,
-    plot_multi_folder_auc_vs_n_class1,
-    plot_all_probe_loss_curves_in_folder,
-    plot_experiment_3_per_probe,
-    get_best_probes_by_type,
-    plot_experiment_2_unified,
     plot_experiment_unified,
     plot_probe_group_comparison,
     get_best_default_probes_by_type,
     default_probe_patterns,
     plot_scaling_law_across_runs,
+    plot_scaling_law_all_probes_aggregated,
 )
 from src.visualize import analysis
 
@@ -59,6 +53,12 @@ def main():
         parents=True,
         exist_ok=True,
     )
+    # Aggregated cross-run visualizations folder
+    agg_viz_root = Path('results') / '_aggregated' / 'visualizations'
+    agg_viz_root.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
     architectures = [a['name'] for a in config.get(
         'architectures',
         [],
@@ -68,86 +68,19 @@ def main():
         {0: 'Class0', 1: 'Class1'},
     )
 
-    # 1. Run logit diffs from CSV for any runthrough folder
-    for sub in os.listdir(results_dir):
-        if 'runthrough' in sub:
-            runthrough_dir = results_dir / sub
-            for file in os.listdir(runthrough_dir):
-                if file.endswith('.csv'):
-                    csv_path = runthrough_dir / file
-                    save_path = viz_root / f'logit_diff_hist_{sub}.png'
-                    if not save_path.exists() or args.force:
-                        plot_logit_diffs_from_csv(
-                            csv_path,
-                            class_names,
-                            save_path=save_path,
-                        )
-                    else:
-                        print(f"Skipping {save_path} (already exists, use --force to overwrite)")
-
-    # 2. Find experiment folders 2-, 3-, 4- for multi-folder plots
-    # Now we need to look inside seed folders
+    # 1. Identify experiment folders under the first seed
     exp_folders = {k: None for k in ['2', '3', '4']}
-
-    # Check the first seed to find experiment folders
     first_seed = args.seeds[0]
     seed_dir = results_dir / f"seed_{first_seed}"
     if seed_dir.exists():
         for sub in os.listdir(seed_dir):
             for k in exp_folders:
                 if sub.startswith(f'{k}-'):
-                    exp_folders[k] = sub  # Store just the folder name
+                    exp_folders[k] = sub
                     break
-
-    # Only keep those that exist
     exp_folders = {k: v for k, v in exp_folders.items() if v is not None}
 
-    # For each architecture, run multi-folder recall@fpr and auc_vs_n_class1
-    if exp_folders:
-        dataclass_folders = []
-        folder_labels = []
-        for k, folder_name in exp_folders.items():
-            # Check if dataclass_exps_* exists in the first seed
-            folder_path = seed_dir / folder_name
-            subfolders = [d for d in os.listdir(folder_path) if os.path.isdir(folder_path / d)]
-            dc = [d for d in subfolders if d.startswith('dataclass_exps_')]
-            tr = [d for d in subfolders if d.startswith('train_')]
-            if dc:
-                dataclass_folders.append(str(folder_path / dc[0]))
-                folder_labels.append(f"{k}-{folder_name}")
-            elif tr:
-                dataclass_folders.append(str(folder_path / tr[0]))
-                folder_labels.append(f"{k}-{folder_name}")
-
-        colors = [f"C{i}" for i in range(len(dataclass_folders))]
-        # Note: Individual architecture plots removed as requested
-
-    # 3. Plot probe loss curves (aggregated across seeds)
-    for k in ['1', '2', '3', '4']:
-        # Check in the first seed directory
-        if seed_dir.exists():
-            for sub in os.listdir(seed_dir):
-                if sub.startswith(f'{k}-'):
-                    exp_dir = seed_dir / sub
-                    # Try dataclass_exps_* first, fallback to train_*
-                    subfolders = [d for d in os.listdir(exp_dir) if os.path.isdir(exp_dir / d)]
-                    dc = [d for d in subfolders if d.startswith('dataclass_exps_')]
-                    tr = [d for d in subfolders if d.startswith('train_')]
-                    if dc:
-                        loss_folder = exp_dir / dc[0]
-                    elif tr:
-                        loss_folder = exp_dir / tr[0]
-                    else:
-                        continue
-                    save_path = viz_root / f'loss_curves_{sub}.png'
-                    if not save_path.exists() or args.force:
-                        plot_all_probe_loss_curves_in_folder(
-                            str(loss_folder),
-                            save_path=save_path,
-                            seeds=args.seeds,
-                        )
-                    else:
-                        print(f"Skipping {save_path} (already exists, use --force to overwrite)")
+    # 2. (removed) legacy CSV histograms and multi-folder plots for simplicity
 
     # 4. Experiment-specific visualizations (aggregated across seeds)
     # Check for experiments once, outside the architecture loop
@@ -291,31 +224,8 @@ def main():
     else:
         print(f"Experiment 2 not found")
 
-    # Create experiment 3 visualizations for each individual probe (aggregated across seeds)
-    if exp3_exists:
-        save_path_base = viz_root / f'experiment_3_per_probe.png'
-        if not save_path_base.exists() or args.force:
-            print(f"Creating experiment 3 visualizations for each individual probe (aggregated across seeds)")
-
-            # Get the training dataset from experiment 3 config
-            train_dataset = None
-            for exp in config.get(
-                    'experiments',
-                [],
-            ):
-                if exp.get('name') == '3-spam-pred-auc-llm-upsampling':
-                    train_dataset = exp.get('train_on')
-                    break
-
-            plot_experiment_3_per_probe(
-                results_dir,
-                save_path_base=save_path_base,
-                
-                seeds=args.seeds,
-                fpr_target=0.01,
-                train_dataset=train_dataset,
-            )
-    else:
+    # 3. (optional) Experiment 3 per-probe plots are omitted in the simplified pipeline
+    if not exp3_exists:
         print(f"Experiment 3 not found")
 
     # 5. New: Experiment 4 visualizations (mirrors experiment 2)
@@ -464,7 +374,7 @@ def main():
                 else:
                     print(f"Skipping {save_path} (already exists, use --force to overwrite)")
 
-    # 7. Scaling-law plots across Qwen runs for a representative default probe (linear_last)
+    # 6. Scaling-law plots across Qwen runs
     qwen_roots = []
     qwen_labels = []
     qwen_dirs = [
@@ -481,24 +391,31 @@ def main():
             qwen_roots.append(root)
             qwen_labels.append(label)
     if qwen_roots:
+        # Per-probe scaling law for a representative probe (linear_last)
         for metric in ['auc', 'recall_at_fpr']:
-            save_path = viz_root / f'scaling_linear_last_{metric}.png'
-            if (not save_path.exists()) or args.force:
+            agg_save_path = agg_viz_root / f'scaling_linear_last_{metric}.png'
+            if (not agg_save_path.exists()) or args.force:
                 plot_scaling_law_across_runs(
                     qwen_roots,
                     qwen_labels,
                     probe_pattern='linear_last',
-                    save_path=save_path,
+                    save_path=agg_save_path,
                     metric=metric,
                     fpr_target=0.01,
-                    
                     seeds=args.seeds,
                     exp_prefix='2-',
                     x_label=config.get('plot_labels', {}).get('x_label', None),
                     y_label=config.get('plot_labels', {}).get('y_label', None),
                 )
-            else:
-                print(f"Skipping {save_path} (already exists, use --force to overwrite)")
+        # Aggregated scaling laws for ALL default probes, saved only to aggregated folder
+        plot_scaling_law_all_probes_aggregated(
+            qwen_roots,
+            qwen_labels,
+            args.seeds,
+            exp_prefix='2-',
+            aggregated_out_dir=agg_viz_root,
+            fpr_target=0.01,
+        )
 
     # 8. Analysis CSVs for publication
     try:
@@ -507,13 +424,11 @@ def main():
             viz_root,
             seeds=args.seeds,
             exp_prefixes=['2-', '4-'],
-            filtered=args.filtered,
         )
         analysis.write_boost_and_best_tables(
             results_dir,
             viz_root,
             seeds=args.seeds,
-            filtered=args.filtered,
             fpr_target=0.01,
         )
     except Exception as e:

@@ -992,8 +992,6 @@ class Dataset:
                 original_dataset=original_dataset,
                 seed=seed,
             )
-        import copy
-        import pandas as pd
         np.random.seed(seed)
 
         df = original_dataset.df.copy()
