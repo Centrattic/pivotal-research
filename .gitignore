@@ -9,8 +9,7 @@ runpod_cli
 runpod_cli/*
 **/.ipynb_checkpoints
 evaluating-probes/src/.ipynb_checkpoints/*
-<<<<<<< Updated upstream
 .env
-=======
-**/*.env
->>>>>>> Stashed changes
+evaluating-probes/logs
+evaluating-probes/mask/* 
+evaluating-probes/sae_cache/*
