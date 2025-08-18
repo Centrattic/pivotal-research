@@ -140,7 +140,7 @@ experiments:
         - {class_counts: {0: 100, 1: 100}}
         - {class_counts: {0: 150, 1: 150}}
         - {class_counts: {0: 250, 1: 250}}
-        - {class_counts: {0: 500, 1: 500}}
+        # - {class_counts: {0: 500, 1: 500}}
         
 model_check:
   - name: spam-pred

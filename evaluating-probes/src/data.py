@@ -232,6 +232,7 @@ class Dataset:
                             model_name=self.model_name,
                             d_model=get_model_d_model(self.model_name),
                             cache_dir=cache_dir,
+                            device=self.device,
                         )
                         print(f"[DEBUG] Successfully created read-only activation manager")
                     except Exception as e:
@@ -765,6 +766,7 @@ class Dataset:
                         model_name=obj.model_name,
                         d_model=get_model_d_model(obj.model_name),
                         cache_dir=cache_dir,
+                        device=obj.device,
                     )
             except Exception as e:
                 print(f"Failed to initialize activation manager in from_dataframe: {e}")

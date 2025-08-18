@@ -27,6 +27,7 @@ class ActivationManager:
         model_name: str,
         d_model: int,
         cache_dir: Path,
+        device: str = "cuda:0",
     ):
         """
 		Create a read-only ActivationManager that can load existing caches without the full model.
@@ -35,7 +36,8 @@ class ActivationManager:
         instance = cls.__new__(cls)
         instance.model = None  # No model needed for reading
         instance.tokenizer = None  # No tokenizer needed for reading
-        instance.device = "cpu"  # Default device for reading
+        instance.model_name = model_name
+        instance.device = device  # Device to use if we lazily load
         instance.d_model = d_model
         instance.cache_dir = cache_dir
         instance.cache_dir.mkdir(
@@ -65,6 +67,11 @@ class ActivationManager:
         self.tokenizer.truncation_side = "right"
 
         self.device = device
+        # Best-effort record of model_name for potential debug
+        try:
+            self.model_name = getattr(getattr(model, 'config', None), 'name_or_path', None)
+        except Exception:
+            self.model_name = None
         self.d_model = d_model
         self.cache_dir = cache_dir
         self.cache_dir.mkdir(
@@ -129,6 +136,12 @@ class ActivationManager:
 
         # Extract missing activations
         if missing_texts:
+            loaded_here = False
+            if self.model is None or self.tokenizer is None:
+                # Lazily load the model to compute missing activations
+                print("[DEBUG] No model/tokenizer in ActivationManager; lazily loading to compute missing activations…")
+                self._lazy_load_model()
+                loaded_here = True
             print(f"[DEBUG] Extracting activations for {len(missing_texts)} missing texts")
             print(f"[DEBUG] Memory before extraction: {torch.cuda.memory_allocated() / 1024**3:.2f} GB")
             try:
@@ -167,6 +180,19 @@ class ActivationManager:
 
             self._compute_and_save_aggregations(layer, component, new_activations)
 
+            # If we loaded the model in this call, unload to free memory
+            if loaded_here:
+                try:
+                    print("[DEBUG] Unloading lazily loaded model/tokenizer…")
+                    del self.model
+                    del self.tokenizer
+                    self.model = None
+                    self.tokenizer = None
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
+                except Exception as _e:
+                    print(f"[DEBUG] Failed to unload lazily loaded model: {_e}")
+
         # We might need to compute aggregations for missing aggregated files anyway
         else:
             missing_aggregations = self._check_missing_aggregations(layer, component)
@@ -187,6 +213,39 @@ class ActivationManager:
             return result, newly_added_count
         else:
             return result
+
+    def _lazy_load_model(self):
+        """Load a causal LM and tokenizer using saved model_name for on-demand extraction."""
+        if getattr(self, 'model_name', None) is None:
+            raise ValueError("Cannot lazily load model: model_name is unknown")
+        try:
+            from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
+            model_name = self.model_name
+            device_map = getattr(self, 'device', 'cuda:0')
+            if model_name == "meta-llama/Llama-3.3-70B-Instruct":
+                bnb_config = BitsAndBytesConfig(
+                    load_in_4bit=True,
+                    bnb_4bit_quant_type="nf4",
+                    bnb_4bit_use_double_quant=True,
+                    bnb_4bit_compute_dtype=torch.float16,
+                )
+                self.model = AutoModelForCausalLM.from_pretrained(
+                    model_name,
+                    device_map=device_map,
+                    quantization_config=bnb_config,
+                )
+            else:
+                self.model = AutoModelForCausalLM.from_pretrained(
+                    model_name,
+                    device_map=device_map,
+                    torch_dtype=torch.float16,
+                )
+            self.tokenizer = AutoTokenizer.from_pretrained(model_name)
+            # Align tokenizer sides
+            self.tokenizer.padding_side = "right"
+            self.tokenizer.truncation_side = "right"
+        except Exception as e:
+            raise RuntimeError(f"Failed to lazily load model '{self.model_name}': {e}")
 
     def _extract_activations(
         self,
@@ -566,6 +625,46 @@ class ActivationManager:
                 raise
 
         print(f"[DEBUG] Completed all aggregation computations")
+
+    def count_missing_texts(
+        self,
+        texts: Iterable[str],
+        layer: int,
+        component: str,
+    ) -> int:
+        """Count how many of the provided texts are missing in the full activations cache.
+
+        This method only inspects metadata and does not attempt to compute activations.
+        It works in both read-only and full modes.
+        """
+        texts = list(texts)
+        metadata = self._load_metadata(layer, component)
+        existing_keys = set()
+        if metadata is not None and isinstance(metadata, dict) and "hash_to_idx" in metadata:
+            existing_keys = set(metadata["hash_to_idx"].keys())
+
+        missing = 0
+        for text in texts:
+            if self._hash(text) not in existing_keys:
+                missing += 1
+        return missing
+
+    def ensure_aggregations_exist(
+        self,
+        layer: int,
+        component: str,
+    ) -> None:
+        """Ensure aggregated activation files exist; compute them if missing.
+
+        This does not require a model; it derives aggregations from saved full activations.
+        """
+        try:
+            if self._check_missing_aggregations(layer, component):
+                print(f"[DEBUG] Aggregations missing for layer={layer}, component={component}; computing…")
+                self._compute_and_save_aggregations(layer, component)
+        except Exception as e:
+            print(f"[DEBUG] Failed to ensure aggregations exist for layer={layer}, component={component}: {e}")
+            raise
 
     def _check_missing_aggregations(self, layer: int, component: str) -> bool:
         """Check if any aggregated files are missing."""

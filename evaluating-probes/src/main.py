@@ -925,57 +925,14 @@ def main():
     run_llm_upsampling(config, logger)
 
     try:
-        # Step 3: Load model for activation extraction
-        logger.log(f"Loading model '{config['model_name']}' for activation extraction...")
-        device = config.get("device")
-        if config['model_name'] == "meta-llama/Llama-3.3-70B-Instruct":
-            bnb_config = BitsAndBytesConfig(
-                load_in_4bit=True,
-                bnb_4bit_quant_type="nf4",
-                bnb_4bit_use_double_quant=True,
-                bnb_4bit_compute_dtype=torch.float16,
-            )
-            model = AutoModelForCausalLM.from_pretrained(
-                config['model_name'],
-                device_map=config['device'],
-                quantization_config=bnb_config,
-            )
-        else:
-            model = AutoModelForCausalLM.from_pretrained(
-                config['model_name'],
-                device_map=config['device'],
-                torch_dtype=torch.float16,
-            )
-
-        tokenizer = AutoTokenizer.from_pretrained(config['model_name'])
-
-        # Step 4: Ensures activations are extracted
-        extract_all_activations(
-            config,
-            model,
-            tokenizer,
-            logger,
-            all_seeds,
-            results_dir,
-        )
-
-        # Unload model after activation extraction to free GPU memory
-        logger.log("\n" + "=" * 25 + " MODEL UNLOADING PHASE " + "=" * 25)
-        logger.log("Unloading model to free GPU memory for parallel processing...")
-        del model
-        del tokenizer
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-        logger.log("Model unloaded successfully")
-
-        # Step 5: Create all probe jobs
+        # Create all probe jobs
         logger.log("\n" + "=" * 25 + " JOB CREATION PHASE " + "=" * 25)
         all_probe_jobs = create_probe_jobs(config, all_seeds)
         logger.log(f"Created {len(all_probe_jobs)} probe jobs")
 
-        # Step 6: Process all probe jobs in batched mode
+        # Process all probe jobs in batched mode
         logger.log("\n" + "=" * 25 + " PROBE PROCESSING PHASE (BATCHED) " + "=" * 25)
-        logger.log(f"Processing {len(all_probe_jobs)} probe jobs in batched groups...")
+        logger.log(f"Processing {len(all_probe_jobs)} probe jobs in batched groups…")
 
         # Make results_dir available to helpers that expect it in config
         config['results_dir'] = str(results_dir)
@@ -989,8 +946,6 @@ def main():
         )
 
     finally:
-        if 'model' in locals():
-            del model
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
         logger.log("=" * 80)
