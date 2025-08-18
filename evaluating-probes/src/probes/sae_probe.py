@@ -251,7 +251,11 @@ class SAEProbe(BaseProbe):
             )
 
             # Try precise filenames to avoid downloading the whole repo
+            # First, check for a single monolithic file at repo root (e.g., Llama-3.3-70B-Instruct-SAE-l50.pt)
+            repo_basename = self.sae_release.split('/')[-1]
             filename_candidates = [
+                f"{repo_basename}.safetensors",
+                f"{repo_basename}.pt",
                 f"layer_{self.layer}.safetensors",
                 f"layer_{self.layer}/layer_{self.layer}.safetensors",
                 f"layer_{self.layer}.pt",
