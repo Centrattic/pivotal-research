@@ -6,6 +6,7 @@ from typing import List, Tuple, Iterable, Dict, Optional, Any, Union
 import json
 
 import numpy as np
+import zipfile
 import torch
 from tqdm import tqdm
 from transformers import PreTrainedModel, PreTrainedTokenizerBase
@@ -176,10 +177,17 @@ class ActivationManager:
                 print(f"[DEBUG] Saving full activations...")
                 existing_arrays: Dict[str, np.ndarray] = {}
                 if activations_path.exists():
-                    existing_arrays = dict(np.load(
-                        activations_path,
-                        allow_pickle=True,
-                    ))
+                    try:
+                        existing_arrays = dict(np.load(
+                            activations_path,
+                            allow_pickle=True,
+                        ))
+                    except zipfile.BadZipFile:
+                        print(f"[DEBUG] Corrupted activations file detected during save (BadZipFile): {activations_path}. Overwriting.")
+                        existing_arrays = {}
+                    except Exception as e:
+                        print(f"[DEBUG] Failed to read existing activations from {activations_path}: {e}. Overwriting.")
+                        existing_arrays = {}
                 all_activations = {**existing_arrays, **new_activations}
                 np.savez(
                     activations_path,
@@ -580,10 +588,13 @@ class ActivationManager:
                 )
 
             print(f"[DEBUG] Loading {activation_type} aggregated activations from {aggregated_path}")
-            aggregated_data = np.load(
-                aggregated_path,
-                mmap_mode='r',
-            )
+            try:
+                aggregated_data = np.load(
+                    aggregated_path,
+                    mmap_mode='r',
+                )
+            except zipfile.BadZipFile:
+                raise RuntimeError(f"Aggregated activations file is corrupted (BadZipFile): {aggregated_path}. Delete it to regenerate.")
 
             # Load in the order of texts
             aggregated_list = []
@@ -646,13 +657,17 @@ class ActivationManager:
             existing_aggregated: Dict[str, np.ndarray] = {}
             if aggregated_path.exists():
                 print(f"[DEBUG] Loading existing {aggregation} aggregated activations...")
-                existing_aggregated = dict(np.load(
-                    aggregated_path,
-                    allow_pickle=True,
-                ))
-                print(
-                    f"[DEBUG] Loaded existing {aggregation} aggregated activations: {len(existing_aggregated)} entries"
-                )
+                try:
+                    existing_aggregated = dict(np.load(
+                        aggregated_path,
+                        allow_pickle=True,
+                    ))
+                    print(
+                        f"[DEBUG] Loaded existing {aggregation} aggregated activations: {len(existing_aggregated)} entries"
+                    )
+                except zipfile.BadZipFile:
+                    print(f"[DEBUG] Corrupted aggregated file detected (BadZipFile): {aggregated_path}. Rebuilding from scratch.")
+                    existing_aggregated = {}
             else:
                 print(f"[DEBUG] No existing {aggregation} aggregated file found, creating new one")
 
@@ -817,11 +832,18 @@ class ActivationManager:
             return None
 
         # Load activations and find max length
-        all_activations = dict(np.load(
-            activations_path,
-            allow_pickle=True,
-            mmap_mode='r',
-        ))
+        try:
+            all_activations = dict(np.load(
+                activations_path,
+                allow_pickle=True,
+                mmap_mode='r',
+            ))
+        except zipfile.BadZipFile:
+            print(f"[DEBUG] Detected corrupted activations file (BadZipFile): {activations_path}. Ignoring for max_len.")
+            return None
+        except Exception as e:
+            print(f"[DEBUG] Failed to read activations for max_len from {activations_path}: {e}")
+            return None
         if not all_activations:
             return None
 

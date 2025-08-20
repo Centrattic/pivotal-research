@@ -51,8 +51,26 @@ log_line() {
     fi
 }
 
+child_pid=-1
+
+cleanup_children() {
+    # Best-effort: kill the whole process group of the last-started child and reap it
+    if [[ ${child_pid} -gt 0 ]]; then
+        # Send TERM to the child's process group first for graceful shutdown
+        kill -TERM -"${child_pid}" 2>/dev/null || true
+        # Short grace period
+        sleep 2
+        # Force kill if still alive
+        kill -KILL -"${child_pid}" 2>/dev/null || true
+        # Reap the child to avoid zombies
+        wait "${child_pid}" 2>/dev/null || true
+        child_pid=-1
+    fi
+}
+
 on_term() {
-    log_line "Caught termination signal. Exiting."
+    log_line "Caught termination signal. Killing child process group and exiting."
+    cleanup_children
     exit 130
 }
 
@@ -128,6 +146,7 @@ fi
 restarts=0
 
 trap 'on_term' INT TERM
+trap 'cleanup_children' EXIT
 
 while :; do
     # Set up per-restart log file if rotating; always append a fresh file per attempt
@@ -141,14 +160,22 @@ while :; do
 
     log_line "Starting (attempt $((restarts+1))) → ${CMD[*]}"
 
-    # Run the command and capture status; never exit the loop here
+    # Run the command in its own process group so we can cleanly kill all descendants
     if [[ -n "$LOG_CURRENT_FILE" ]]; then
-        stdbuf -oL -eL "${CMD[@]}" 2>&1 | tee -a "$LOG_CURRENT_FILE"
-        status=${PIPESTATUS[0]}
+        # Per-restart rotating logs: tee command output to file and terminal using process substitution
+        setsid "${CMD[@]}" > >(stdbuf -oL -eL tee -a "$LOG_CURRENT_FILE") 2>&1 &
+        child_pid=$!
+        wait "$child_pid"
+        status=$?
     else
-        "${CMD[@]}"
+        # Global logging (if enabled earlier via exec) or plain terminal output
+        setsid "${CMD[@]}" &
+        child_pid=$!
+        wait "$child_pid"
         status=$?
     fi
+    # Child finished; ensure variable reset (already reaped)
+    child_pid=-1
 
     # Diagnose common OOM kill exit code (137) and SIGKILL (-9)
     if [[ $status -eq 137 || $status -eq 9 ]]; then

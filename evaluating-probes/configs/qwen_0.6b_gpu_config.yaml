@@ -20,6 +20,14 @@ activation_extraction:
 architectures:
   - name: "attention"
     config_name: "attention"
+  - name: "sae"
+    config_name: "sae_qwen3_0.6b_mean"
+  - name: "sae"
+    config_name: "sae_qwen3_0.6b_max"
+  - name: "sae"
+    config_name: "sae_qwen3_0.6b_last"
+  - name: "sae"
+    config_name: "sae_qwen3_0.6b_softmax"
 
 # List of experiments to run
 experiments:
