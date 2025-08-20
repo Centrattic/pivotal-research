@@ -52,15 +52,27 @@ def extract_info_from_filename(filename: str) -> Dict[str, str]:
             info['num_negative_samples'] = int(llm_match.group(1))
             info['num_positive_samples'] = int(llm_match.group(2))
         else:
-            info['num_negative_samples'] = None
-            info['num_positive_samples'] = None
+            # Also check for posX pattern in LLM upsampling (matching old code)
+            pos_match = re.search(r'pos(\d+)_', filename)
+            if pos_match:
+                info['num_positive_samples'] = int(pos_match.group(1))
+                info['num_negative_samples'] = None  # Not specified in this pattern
+            else:
+                info['num_negative_samples'] = None
+                info['num_positive_samples'] = None
     
     # Extract LLM upsampling ratio (for experiment 3)
-    upsampling_match = re.search(r'_(\d+)x_', filename)
+    # Look for pattern like pos1_10x or pos2_20x (matching old code)
+    upsampling_match = re.search(r'pos(\d+)_([1-9]\d*)x', filename)
     if upsampling_match:
-        info['llm_upsampling_ratio'] = int(upsampling_match.group(1))
+        info['llm_upsampling_ratio'] = int(upsampling_match.group(2))
     else:
-        info['llm_upsampling_ratio'] = None
+        # Fallback to simpler pattern
+        upsampling_match = re.search(r'_(\d+)x_', filename)
+        if upsampling_match:
+            info['llm_upsampling_ratio'] = int(upsampling_match.group(1))
+        else:
+            info['llm_upsampling_ratio'] = None
     
     # Extract Qwen model size for scaling analysis
     qwen_size_match = re.search(r'qwen_([0-9.]+)b', filename, re.IGNORECASE)
