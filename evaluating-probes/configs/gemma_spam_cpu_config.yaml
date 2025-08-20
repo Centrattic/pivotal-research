@@ -31,6 +31,7 @@ architectures:
     config_name: "act_sim_last"
   - name: "act_sim"
     config_name: "act_sim_softmax"
+<<<<<<< Updated upstream
   # - name: "sae_16k_l0_408_mean"
   #   config_name: "sae_16k_l0_408_mean"
   # - name: "sae_16k_l0_408_max"
@@ -47,6 +48,24 @@ architectures:
   #   config_name: "sae_262k_l0_259_last"
   # - name: "sae_262k_l0_259_softmax"
   #   config_name: "sae_262k_l0_259_softmax"
+=======
+  - name: "sae"
+    config_name: "sae_16k_l0_408_mean"
+  - name: "sae"
+    config_name: "sae_16k_l0_408_max"
+  - name: "sae"
+    config_name: "sae_16k_l0_408_last"
+  - name: "sae"
+    config_name: "sae_16k_l0_408_softmax"
+  - name: "sae"
+    config_name: "sae_262k_l0_259_mean"
+  - name: "sae"
+    config_name: "sae_262k_l0_259_max"
+  - name: "sae"
+    config_name: "sae_262k_l0_259_last"
+  - name: "sae"
+    config_name: "sae_262k_l0_259_softmax"
+>>>>>>> Stashed changes
 
 # List of experiments to run
 experiments:

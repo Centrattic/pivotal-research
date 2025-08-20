@@ -6,10 +6,12 @@ New code should import from `viz_core` and `exp_plots` directly.
 from .exp_plots import (
     plot_experiment_unified,
     plot_probe_group_comparison,
-    plot_scaling_law_across_runs,
     get_best_default_probes_by_type,
+    plot_scaling_law_across_runs,
     plot_scaling_law_all_probes_aggregated,
     plot_llm_upsampling_per_probe,
+    plot_scaling_law_aggregated_across_probes,
+    plot_llm_upsampling_aggregated_across_probes,
 )
 
 from .viz_core import (
@@ -21,11 +23,16 @@ from .viz_core import (
     _get_scores_and_labels_from_result_file,
     is_default_probe_file,
     parse_llm_upsampling_from_filename,
+    map_probe_labels,
+    patterns_from_config,
+    labels_from_config,
 )
 
 __all__ = [
     'plot_experiment_unified',
-    'plot_probe_group_comparison',
+    'plot_probe_group_comparison', 
+    'get_best_default_probes_by_type',
+    'default_probe_patterns',
     'plot_scaling_law_across_runs',
     'plot_scaling_law_all_probes_aggregated',
     'get_best_default_probes_by_type',
@@ -38,6 +45,11 @@ __all__ = [
     '_get_scores_and_labels_from_result_file',
     'is_default_probe_file',
     'parse_llm_upsampling_from_filename',
+    'plot_scaling_law_aggregated_across_probes',
+    'plot_llm_upsampling_aggregated_across_probes',
+    'map_probe_labels',
+    'patterns_from_config',
+    'labels_from_config',
 ]
 
 

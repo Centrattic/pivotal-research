@@ -11,6 +11,12 @@ from src.visualize.utils_viz import (
     default_probe_patterns,
     plot_scaling_law_across_runs,
     plot_scaling_law_all_probes_aggregated,
+    plot_llm_upsampling_per_probe,
+    plot_scaling_law_aggregated_across_probes,
+    plot_llm_upsampling_aggregated_across_probes,
+    map_probe_labels,
+    patterns_from_config,
+    labels_from_config,
 )
 from src.visualize import analysis
 
@@ -34,6 +40,12 @@ def main():
         '--force',
         action='store_true',
         help='Overwrite existing visualizations (default: skip if they exist)',
+    )
+    parser.add_argument(
+        '-v',
+        '--verbose',
+        action='store_true',
+        help='Enable verbose debug logging',
     )
     args = parser.parse_args()
 
@@ -95,7 +107,7 @@ def main():
 
     # Create experiment 2 visualizations (aggregated across seeds)
     if exp2_exists:
-        print(f"Creating experiment 2 visualizations (aggregated across seeds)")
+        print(f"Creating experiment 2 visualizations (aggregated across seeds)", flush=True)
 
         # Get evaluation datasets from experiment 2 config - make it flexible
         eval_datasets = []
@@ -119,11 +131,11 @@ def main():
                 break
 
         if not eval_datasets:
-            print("No evaluation datasets found in experiment 2 config")
+            print("No evaluation datasets found in experiment 2 config", flush=True)
             return
 
-        # Define probe groups
-        patterns = default_probe_patterns()
+        # Define probe groups strictly from config architectures (aggregate across CPU/GPU configs handled by caller script if needed)
+        patterns = patterns_from_config(config.get('architectures', []))
 
         # Get probe names from config
         config_probes = []
@@ -139,21 +151,8 @@ def main():
                 ),
             ))
 
-        # Define probe label mapping for clearer legends - make it flexible
-        probe_labels = {}
-        for probe_name in config_probes:
-            if 'sklearn_linear' in probe_name:
-                agg_method = probe_name.split('_')[-1] if '_' in probe_name else 'mean'
-                probe_labels[probe_name] = f'Linear ({agg_method})'
-            elif 'act_sim' in probe_name:
-                agg_method = probe_name.split('_')[-1] if '_' in probe_name else 'mean'
-                probe_labels[probe_name] = f'Activation Similarity ({agg_method})'
-            elif 'attention' in probe_name:
-                probe_labels[probe_name] = 'Attention'
-            elif 'sae' in probe_name:
-                probe_labels[probe_name] = f'SAE ({probe_name})'
-            else:
-                probe_labels[probe_name] = probe_name
+        # Paper-friendly probe label mapping derived from architecture names
+        probe_labels = labels_from_config(config.get('architectures', []))
 
         # Define metrics
         metrics = ['auc', 'recall_at_fpr']
@@ -168,12 +167,13 @@ def main():
                 train_dataset = exp.get('train_on')
                 break
 
-        # Iterate over evaluation datasets and metrics
+        # Ensure train dataset is included for ID plots
+        if train_dataset is not None and train_dataset not in eval_datasets:
+            eval_datasets = list(eval_datasets) + [train_dataset]
+
+        # Iterate over evaluation datasets and metrics (include train set)
         for eval_dataset in eval_datasets:
-            # Skip train dataset here; train set plots are covered by other plots
-            if train_dataset is not None and eval_dataset == train_dataset:
-                continue
-            print(f"Processing evaluation dataset: {eval_dataset}")
+            print(f"Processing evaluation dataset: {eval_dataset}", flush=True)
 
             # Check if this is out-of-distribution evaluation
             is_ood = (train_dataset is not None and eval_dataset != train_dataset)
@@ -200,7 +200,7 @@ def main():
                 save_path = viz_root / filename
 
                 if not save_path.exists() or args.force:
-                    print(f"Creating best_probes comparison plot for {metric} on {eval_dataset}")
+                    print(f"Creating best_probes comparison plot for {metric} on {eval_dataset}", flush=True)
 
                     if best_list:
                         plot_experiment_unified(
@@ -217,16 +217,17 @@ def main():
                             probe_labels=probe_labels,
                             x_label=config.get('plot_labels', {}).get('x_label', None),
                             y_label=config.get('plot_labels', {}).get('y_label', None),
+                            verbose=args.verbose,
                         )
                 else:
-                    print(f"Skipping {save_path} (already exists, use --force to overwrite)")
+                    print(f"Skipping {save_path} (already exists, use --force to overwrite)", flush=True)
 
     else:
-        print(f"Experiment 2 not found")
+        print(f"Experiment 2 not found", flush=True)
 
     # 3. (optional) Experiment 3 per-probe plots are omitted in the simplified pipeline
     if not exp3_exists:
-        print(f"Experiment 3 not found")
+        print(f"Experiment 3 not found", flush=True)
 
     # 5. New: Experiment 4 visualizations (mirrors experiment 2)
     exp4_exists = False
@@ -237,7 +238,7 @@ def main():
                 break
 
     if exp4_exists:
-        print("Creating experiment 4 visualizations (aggregated across seeds)")
+        print("Creating experiment 4 visualizations (aggregated across seeds)", flush=True)
 
         # Gather eval datasets for exp4
         eval_datasets_exp4 = []
@@ -256,29 +257,17 @@ def main():
                 break
 
         # Probe label mapping similar to exp2
-        config_probes = []
-        for arch in config.get('architectures', []):
-            config_probes.append(arch.get('config_name', arch.get('name', '')))
+        config_probes = [a.get('name', '') for a in config.get('architectures', [])]
 
-        probe_labels_4 = {}
-        for probe_name in config_probes:
-            if 'sklearn_linear' in probe_name:
-                agg_method = probe_name.split('_')[-1] if '_' in probe_name else 'mean'
-                probe_labels_4[probe_name] = f'Linear ({agg_method})'
-            elif 'act_sim' in probe_name:
-                agg_method = probe_name.split('_')[-1] if '_' in probe_name else 'mean'
-                probe_labels_4[probe_name] = f'Activation Similarity ({agg_method})'
-            elif 'attention' in probe_name:
-                probe_labels_4[probe_name] = 'Attention'
-            elif 'sae' in probe_name:
-                probe_labels_4[probe_name] = f'SAE ({probe_name})'
-            else:
-                probe_labels_4[probe_name] = probe_name
+        arch_names_4 = [a.get('name', '') for a in config.get('architectures', [])]
+        probe_labels_4 = labels_from_config(config.get('architectures', []))
 
-        # Evaluate for each dataset (ID + OOD) and both metrics
+        # Ensure train dataset is included for ID plots
+        if train_dataset_exp4 is not None and train_dataset_exp4 not in eval_datasets_exp4:
+            eval_datasets_exp4 = list(eval_datasets_exp4) + [train_dataset_exp4]
+
+        # Evaluate for each dataset (ID + OOD) and both metrics (include train set)
         for eval_dataset in eval_datasets_exp4:
-            if train_dataset_exp4 is not None and eval_dataset == train_dataset_exp4:
-                continue
             is_ood = (train_dataset_exp4 is not None and eval_dataset != train_dataset_exp4)
             title = "OOD" if is_ood else "Varying number of positive training examples\nwith 3000 negative examples"
 
@@ -309,12 +298,13 @@ def main():
                             probe_labels=probe_labels_4,
                             x_label=config.get('plot_labels', {}).get('x_label', None),
                             y_label=config.get('plot_labels', {}).get('y_label', None),
+                            verbose=args.verbose,
                         )
                 else:
-                    print(f"Skipping {save_path} (already exists, use --force to overwrite)")
+                    print(f"Skipping {save_path} (already exists, use --force to overwrite)", flush=True)
 
         # Group comparisons for exp4 (ID only)
-        patterns = default_probe_patterns()
+        patterns = patterns_from_config(config.get('architectures', []))
         groups = {
             'sae': patterns['sae'],
             'lin_attn': patterns['linear'] + patterns['attention'],
@@ -338,11 +328,12 @@ def main():
                         require_default=True,
                         x_label=config.get('plot_labels', {}).get('x_label', None),
                         y_label=config.get('plot_labels', {}).get('y_label', None),
+                        verbose=args.verbose,
                     )
                 else:
-                    print(f"Skipping {save_path} (already exists, use --force to overwrite)")
+                    print(f"Skipping {save_path} (already exists, use --force to overwrite)", flush=True)
     else:
-        print("Experiment 4 not found")
+        print("Experiment 4 not found", flush=True)
 
     # 6. Group comparisons for experiment 2 (train set)
     if exp2_exists:
@@ -370,9 +361,10 @@ def main():
                         require_default=True,
                         x_label=config.get('plot_labels', {}).get('x_label', None),
                         y_label=config.get('plot_labels', {}).get('y_label', None),
+                        verbose=args.verbose,
                     )
                 else:
-                    print(f"Skipping {save_path} (already exists, use --force to overwrite)")
+                    print(f"Skipping {save_path} (already exists, use --force to overwrite)", flush=True)
 
     # 6. Scaling-law plots across Qwen runs
     qwen_roots = []
@@ -406,6 +398,7 @@ def main():
                     exp_prefix='2-',
                     x_label=config.get('plot_labels', {}).get('x_label', None),
                     y_label=config.get('plot_labels', {}).get('y_label', None),
+                    verbose=args.verbose,
                 )
         # Aggregated scaling laws for ALL default probes, saved only to aggregated folder
         plot_scaling_law_all_probes_aggregated(
@@ -415,7 +408,101 @@ def main():
             exp_prefix='2-',
             aggregated_out_dir=agg_viz_root,
             fpr_target=0.01,
+            verbose=args.verbose,
         )
+        
+        # NEW: Aggregated scaling law plots showing median across all probe types
+        for metric in ['auc', 'recall_at_fpr']:
+            agg_median_path = agg_viz_root / f'scaling_median_across_probes_{metric}.png'
+            if (not agg_median_path.exists()) or args.force:
+                plot_scaling_law_aggregated_across_probes(
+                    qwen_roots,
+                    qwen_labels,
+                    args.seeds,
+                    exp_prefix='2-',
+                    save_path=agg_median_path,
+                    metric=metric,
+                    fpr_target=0.01,
+                    verbose=args.verbose,
+                    x_label=config.get('plot_labels', {}).get('x_label', None),
+                    y_label=config.get('plot_labels', {}).get('y_label', None),
+                    probe_patterns=config_probes,
+                )
+            else:
+                print(f"Skipping {agg_median_path} (already exists, use --force to overwrite)", flush=True)
+
+    # 7. LLM upsampling plots (experiment 3) per probe pattern, per eval dataset
+    # Runs only if an exp3 folder exists
+    if exp3_exists:
+        print("Creating LLM upsampling plots per probe (exp3)", flush=True)
+        patterns = default_probe_patterns()
+        all_patterns = patterns['linear'] + patterns['sae'] + patterns['attention'] + patterns['act_sim']
+        # Determine available eval datasets under exp3 by scanning files quickly
+        eval_datasets_exp3 = set()
+        first_exp3_dir = None
+        if seed_dir.exists():
+            for sub in os.listdir(seed_dir):
+                if sub.startswith('3-'):
+                    first_exp3_dir = sub
+                    break
+        if first_exp3_dir is not None:
+            inner_candidates = ['test_eval', 'gen_eval']
+            for inner in inner_candidates:
+                inner_path = results_dir / f"seed_{first_seed}" / first_exp3_dir / inner
+                if not inner_path.exists():
+                    continue
+                for fn in os.listdir(inner_path):
+                    m = re.search(r'^eval_on_([^_]+(?:_[^_]+)*)__', fn)
+                    if m:
+                        eval_datasets_exp3.add(m.group(1))
+        if not eval_datasets_exp3:
+            eval_datasets_exp3 = {None}
+
+        for pat in all_patterns:
+            for metric in ['auc', 'recall_at_fpr']:
+                for ed in sorted(eval_datasets_exp3):
+                    suffix = (ed if ed else 'ALL')
+                    up_path = viz_root / f"experiment_3_upsampling_{pat}_{metric}_{suffix}.png"
+                    if (not up_path.exists()) or args.force:
+                        plot_llm_upsampling_per_probe(
+                            results_dir,
+                            probe_pattern=pat,
+                            save_path=up_path,
+                            metric=('auc' if metric == 'auc' else 'recall'),
+                            fpr_target=0.01,
+                            seeds=args.seeds,
+                            eval_dataset=ed,
+                            exp_prefix='3-',
+                            x_label=config.get('plot_labels', {}).get('x_label', None),
+                            y_label=config.get('plot_labels', {}).get('y_label', None),
+                            verbose=args.verbose,
+                            plot_title=(f"LLM upsampling — {pat} — eval={ed}" if ed else None),
+                        )
+                    else:
+                        print(f"Skipping {up_path} (already exists, use --force to overwrite)", flush=True)
+
+        # NEW: Aggregated LLM upsampling plots showing median across all probe types
+        print("Creating aggregated LLM upsampling plots (median across all probes)", flush=True)
+        for metric in ['auc', 'recall_at_fpr']:
+            for ed in sorted(eval_datasets_exp3):
+                suffix = (ed if ed else 'ALL')
+                agg_llm_path = agg_viz_root / f'llm_upsampling_median_across_probes_{metric}_{suffix}.png'
+                if (not agg_llm_path.exists()) or args.force:
+                    plot_llm_upsampling_aggregated_across_probes(
+                        results_dir,
+                        args.seeds,
+                        exp_prefix='3-',
+                        save_path=agg_llm_path,
+                        metric=metric,
+                        fpr_target=0.01,
+                        verbose=args.verbose,
+                        eval_dataset=ed,
+                        x_label=config.get('plot_labels', {}).get('x_label', None),
+                        y_label=config.get('plot_labels', {}).get('y_label', None),
+                        probe_patterns=config_probes,
+                    )
+                else:
+                    print(f"Skipping {agg_llm_path} (already exists, use --force to overwrite)", flush=True)
 
     # 8. Analysis CSVs for publication
     try:
@@ -432,7 +519,7 @@ def main():
             fpr_target=0.01,
         )
     except Exception as e:
-        print(f"Analysis failed with error: {e}")
+        print(f"Analysis failed with error: {e}", flush=True)
 
 
 main()

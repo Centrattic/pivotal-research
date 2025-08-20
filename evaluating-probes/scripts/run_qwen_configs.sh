@@ -13,7 +13,11 @@ CONFIGS=(
   # "qwen_1.7b_cpu"
   # "qwen_4b_cpu"
   # "qwen_8b_cpu"
+<<<<<<< Updated upstream
   # "qwen_14b_cpu"
+=======
+  "qwen_14b_cpu"
+>>>>>>> Stashed changes
   "qwen_32b_cpu"
   # "qwen_0.6b_gpu"
   # "qwen_1.7b_gpu"
