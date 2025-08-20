@@ -138,7 +138,7 @@ def plot_experiment_unified(
                 q75 = series.get('q75', [])
                 if not x_values:
                     continue
-                label = probe_labels.get(probe_name, probe_name)
+                label = probe_labels.get(probe_name, paper_label_for_probe(probe_name))
                 draw_iqr_line(plt.gca(), x_values, med, q25, q75, label, colors[idx])
                 if q25:
                     global_lower_bounds.append(min(q25))
@@ -231,15 +231,15 @@ def plot_experiment_unified(
             vals = all_data[x]
             medians.append(np.median(vals))
             if len(vals) > 1:
-                q25.append(np.percentile(vals, 25))
-                q75.append(np.percentile(vals, 75))
+                q25.append(np.percentile(vals, 5))
+                q75.append(np.percentile(vals, 95))
             else:
                 q25.append(vals[0])
                 q75.append(vals[0])
         if verbose:
             print(f"[unified]  points={len(x_values)}", flush=True)
 
-        label = probe_labels.get(probe_name, probe_name)
+        label = probe_labels.get(probe_name, paper_label_for_probe(probe_name))
         color = colors[probe_idx]
         ax = plt.gca()
         draw_iqr_line(ax, x_values, medians, q25, q75, label, color)
@@ -335,7 +335,7 @@ def plot_probe_group_comparison(
                 med = series.get('med', [])
                 q25 = series.get('q25', [])
                 q75 = series.get('q75', [])
-                draw_iqr_line(plt.gca(), x_vals, med, q25, q75, probe_labels.get(pattern, pattern), colors[idx])
+                draw_iqr_line(plt.gca(), x_vals, med, q25, q75, probe_labels.get(pattern, paper_label_for_probe(pattern)), colors[idx])
                 if q25:
                     global_lower_bounds.append(min(q25))
             if plot_title:
@@ -415,8 +415,8 @@ def plot_probe_group_comparison(
             vals = class1_to_values[x]
             medians.append(np.median(vals))
             if len(vals) > 1:
-                q25.append(np.percentile(vals, 25))
-                q75.append(np.percentile(vals, 75))
+                q25.append(np.percentile(vals, 5))
+                q75.append(np.percentile(vals, 95))
             else:
                 q25.append(vals[0])
                 q75.append(vals[0])
@@ -424,7 +424,7 @@ def plot_probe_group_comparison(
             print(f"[group] Pattern={pattern} points={len(x_vals)}", flush=True)
 
         color = colors[idx]
-        label = probe_labels.get(pattern, pattern)
+        label = probe_labels.get(pattern, paper_label_for_probe(pattern))
         draw_iqr_line(plt.gca(), x_vals, medians, q25, q75, label, color)
         if q25:
             global_lower_bounds.append(min(q25))
@@ -589,8 +589,8 @@ def plot_scaling_law_across_runs(
             vals = class1_to_values[x]
             medians.append(np.median(vals))
             if len(vals) > 1:
-                q25.append(np.percentile(vals, 25))
-                q75.append(np.percentile(vals, 75))
+                q25.append(np.percentile(vals, 5))
+                q75.append(np.percentile(vals, 95))
             else:
                 q25.append(vals[0])
                 q75.append(vals[0])
@@ -643,6 +643,8 @@ def plot_scaling_law_all_probes_aggregated(
     aggregated_out_dir: Path,
     fpr_target: float = 0.01,
     verbose: bool = False,
+    probe_patterns: Optional[Dict[str, List[str]]] = None,
+    generate_per_probe_plots: bool = False,
 ):
     """
     Generate scaling law plots for ALL default probe patterns across runs and
@@ -653,39 +655,44 @@ def plot_scaling_law_all_probes_aggregated(
     os.makedirs(aggregated_out_dir, exist_ok=True)
 
     patterns = []
-    for plist in default_probe_patterns().values():
-        patterns.extend(plist)
+    if probe_patterns is None:
+        for plist in default_probe_patterns().values():
+            patterns.extend(plist)
+    else:
+        for plist in probe_patterns.values():
+            patterns.extend(plist)
     # Deduplicate while preserving order
     seen = set()
     patterns = [p for p in patterns if not (p in seen or seen.add(p))]
 
-    for pattern in patterns:
-        # AUC plot
-        auc_path = aggregated_out_dir / f"scaling_{pattern}_auc.png"
-        plot_scaling_law_across_runs(
-            run_roots=run_roots,
-            run_labels=run_labels,
-            probe_pattern=pattern,
-            save_path=str(auc_path),
-            metric='auc',
-            fpr_target=fpr_target,
-            seeds=seeds,
-            exp_prefix=exp_prefix,
-            verbose=verbose,
-        )
-        # Recall@FPR plot
-        rec_path = aggregated_out_dir / f"scaling_{pattern}_recall_at_{int(fpr_target*10000)}ppm_fpr.png"
-        plot_scaling_law_across_runs(
-            run_roots=run_roots,
-            run_labels=run_labels,
-            probe_pattern=pattern,
-            save_path=str(rec_path),
-            metric='recall',
-            fpr_target=fpr_target,
-            seeds=seeds,
-            exp_prefix=exp_prefix,
-            verbose=verbose,
-        )
+    if generate_per_probe_plots:
+        for pattern in patterns:
+            # AUC plot
+            auc_path = aggregated_out_dir / f"scaling_{pattern}_auc.png"
+            plot_scaling_law_across_runs(
+                run_roots=run_roots,
+                run_labels=run_labels,
+                probe_pattern=pattern,
+                save_path=str(auc_path),
+                metric='auc',
+                fpr_target=fpr_target,
+                seeds=seeds,
+                exp_prefix=exp_prefix,
+                verbose=verbose,
+            )
+            # Recall@FPR plot
+            rec_path = aggregated_out_dir / f"scaling_{pattern}_recall_at_{int(fpr_target*10000)}ppm_fpr.png"
+            plot_scaling_law_across_runs(
+                run_roots=run_roots,
+                run_labels=run_labels,
+                probe_pattern=pattern,
+                save_path=str(rec_path),
+                metric='recall',
+                fpr_target=fpr_target,
+                seeds=seeds,
+                exp_prefix=exp_prefix,
+                verbose=verbose,
+            )
 
     # After per-probe scaling plots, add n=1 heatmaps across probes and sizes
     try:
@@ -697,6 +704,19 @@ def plot_scaling_law_all_probes_aggregated(
             aggregated_out_dir=aggregated_out_dir,
             fpr_target=fpr_target,
             verbose=verbose,
+            probe_patterns=probe_patterns,
+        )
+        # OOD heatmaps for 87_is_spam
+        plot_n1_heatmaps_across_runs(
+            run_roots=run_roots,
+            run_labels=run_labels,
+            seeds=seeds,
+            exp_prefix=exp_prefix,
+            aggregated_out_dir=aggregated_out_dir,
+            fpr_target=fpr_target,
+            verbose=verbose,
+            probe_patterns=probe_patterns,
+            eval_dataset='87_is_spam',
         )
     except Exception as e:
         if verbose:
@@ -850,8 +870,8 @@ def plot_llm_upsampling_per_probe(
             vals = inner_map[x]
             medians.append(np.median(vals))
             if len(vals) > 1:
-                q25.append(np.percentile(vals, 25))
-                q75.append(np.percentile(vals, 75))
+                q25.append(np.percentile(vals, 5))
+                q75.append(np.percentile(vals, 95))
             else:
                 q25.append(vals[0])
                 q75.append(vals[0])
@@ -861,8 +881,8 @@ def plot_llm_upsampling_per_probe(
             print(f"[llm]   files for factor {factor} (n={len(ff)}):", flush=True)
             for path in ff:
                 print(f"      {path}", flush=True)
-        label = (f"no upsampling" if factor == 1 else f"upsample x{factor}")
-        draw_iqr_line(plt.gca(), x_vals, medians, q25, q75, label, colors[idx])
+        # Do not use legend labels; color encodes factor
+        draw_iqr_line(plt.gca(), x_vals, medians, q25, q75, None, colors[idx])
         if q25:
             global_lower_bounds.append(min(q25))
         to_cache[str(factor)] = {
@@ -887,7 +907,14 @@ def plot_llm_upsampling_per_probe(
     plt.ylabel(wrap_text_for_plot(y_label), fontsize=12)
     plt.xlabel(wrap_text_for_plot(x_label), fontsize=12)
     plt.xscale('log')
-    plt.legend(fontsize=10)
+    # Replace legend with a colorbar for upsampling factors
+    import matplotlib as mpl
+    sm = mpl.cm.ScalarMappable(cmap=plt.cm.Reds, norm=mpl.colors.Normalize(vmin=min(sorted_factors), vmax=max(sorted_factors)))
+    sm.set_array([])
+    cbar = plt.colorbar(sm, ax=plt.gca())
+    cbar.set_label('LLM upsampling factor', fontsize=10)
+    cbar.set_ticks([1, 2, 3, 4, 5, 10, 20])
+    cbar.set_ticklabels(['1', '2', '3', '4', '5', '10', '20'])
     plt.grid(True, alpha=0.3)
     plt.tight_layout()
     autoset_ylim_from_bands(plt.gca(), global_lower_bounds, pad=0.05)
@@ -912,40 +939,75 @@ def plot_n1_heatmaps_across_runs(
     aggregated_out_dir: Path,
     fpr_target: float = 0.01,
     verbose: bool = False,
+    probe_patterns: Optional[Dict[str, List[str]]] = None,
+    eval_dataset: Optional[str] = None,
 ):
-    """Two heatmaps (AUC and Recall@FPR) for n=1 across default probes and model sizes.
-    Rows: probe patterns; Columns: model sizes.
+    """Two heatmaps (AUC and Recall@FPR) for n=1 across probe groups and model sizes.
+    Rows are grouped (merged) by normalized paper labels, e.g.,
+    SAE (mean/max/last/softmax) are lumped across model-specific SAE configs.
+    Columns are model sizes (one per run in run_labels).
     """
     import os
     import re
-    patterns = []
-    for plist in default_probe_patterns().values():
-        patterns.extend(plist)
+    # Build flat list of patterns then group them by normalized label
+    patterns: List[str] = []
+    if probe_patterns is None:
+        for plist in default_probe_patterns().values():
+            patterns.extend(plist)
+    else:
+        for plist in probe_patterns.values():
+            patterns.extend(plist)
+    # Dedup
     seen = set()
     patterns = [p for p in patterns if not (p in seen or seen.add(p))]
 
-    auc_mat = np.full((len(patterns), len(run_roots)), np.nan, dtype=float)
-    rec_mat = np.full((len(patterns), len(run_roots)), np.nan, dtype=float)
+    # Helper to normalize labels so SAE variants across models collapse
+    def _normalize_label(label: str) -> str:
+        if label.startswith('SAE ('):
+            # Map any model/width-specific SAE label to pool-only label
+            if 'mean' in label:
+                return 'SAE (mean pool)'
+            if 'max' in label:
+                return 'SAE (max pool)'
+            if 'last token' in label or 'last' in label:
+                return 'SAE (last token)'
+            if 'softmax' in label:
+                return 'SAE (softmax)'
+            return 'SAE'
+        return label
+
+    # Group patterns by normalized paper label
+    from .viz_core import paper_label_for_probe
+    grouped: Dict[str, List[str]] = {}
+    for pat in patterns:
+        lab = _normalize_label(paper_label_for_probe(pat))
+        grouped.setdefault(lab, []).append(pat)
+
+    group_labels = list(grouped.keys())
+    auc_mat = np.full((len(group_labels), len(run_roots)), np.nan, dtype=float)
+    rec_mat = np.full((len(group_labels), len(run_roots)), np.nan, dtype=float)
 
     for c_idx, (root, label) in enumerate(zip(run_roots, run_labels)):
         exp_dirs = find_experiment_folders(root, seeds[0], exp_prefix)
         if not exp_dirs:
             continue
         exp_dir = exp_dirs[0]
-        for r_idx, pattern in enumerate(patterns):
-            files = collect_eval_result_files_for_pattern(
-                root, seeds, exp_dir.name, evaluation_dirs=None, pattern=pattern, eval_dataset=None, require_default=True
-            )
-            files = [f for f in files if re.search(r'class1_1(?!\d)', f)]
+        for r_idx, (g_label, pat_list) in enumerate(grouped.items()):
             vals_auc: List[float] = []
             vals_rec: List[float] = []
-            for f in files:
-                try:
-                    scores, labels = get_scores_and_labels(f)
-                    vals_auc.append(auc_metric(labels, scores))
-                    vals_rec.append(recall_at_fpr(labels, scores, fpr_target))
-                except Exception:
-                    continue
+            # Union of files across all patterns in the group
+            for pattern in pat_list:
+                files = collect_eval_result_files_for_pattern(
+                    root, seeds, exp_dir.name, evaluation_dirs=None, pattern=pattern, eval_dataset=eval_dataset, require_default=True
+                )
+                files = [f for f in files if re.search(r'class1_1(?!\d)', f)]
+                for f in files:
+                    try:
+                        scores, labels = get_scores_and_labels(f)
+                        vals_auc.append(auc_metric(labels, scores))
+                        vals_rec.append(recall_at_fpr(labels, scores, fpr_target))
+                    except Exception:
+                        continue
             if vals_auc:
                 auc_mat[r_idx, c_idx] = float(np.median(vals_auc))
             if vals_rec:
@@ -954,18 +1016,29 @@ def plot_n1_heatmaps_across_runs(
     os.makedirs(aggregated_out_dir, exist_ok=True)
     # Try to cache heatmap matrices
     cache = _load_cache(aggregated_out_dir)
-    cache_key_auc = f"heatmap_n1_auc|exp:{exp_prefix}|seeds:{','.join(seeds)}|runs:{','.join(run_labels)}|fpr:{fpr_target}"
-    cache_key_rec = f"heatmap_n1_rec|exp:{exp_prefix}|seeds:{','.join(seeds)}|runs:{','.join(run_labels)}|fpr:{fpr_target}"
+    eval_suffix = f"|eval:{eval_dataset}" if eval_dataset else ""
+    # Bump schema to invalidate old cached matrices that used un-grouped labels
+    schema_suffix = "|schema:v2_grouped_rows"
+    cache_key_auc = f"heatmap_n1_auc|exp:{exp_prefix}|seeds:{','.join(seeds)}|runs:{','.join(run_labels)}|fpr:{fpr_target}{eval_suffix}{schema_suffix}"
+    cache_key_rec = f"heatmap_n1_rec|exp:{exp_prefix}|seeds:{','.join(seeds)}|runs:{','.join(run_labels)}|fpr:{fpr_target}{eval_suffix}{schema_suffix}"
     cached_auc = cache.get(cache_key_auc)
     cached_rec = cache.get(cache_key_rec)
     if cached_auc is not None and cached_rec is not None:
         auc_mat = np.array(cached_auc, dtype=float)
         rec_mat = np.array(cached_rec, dtype=float)
+    # Optionally drop rows that are all-NaN to avoid empty stripes
+    def _drop_all_nan_rows(mat: np.ndarray, labels: List[str]) -> Tuple[np.ndarray, List[str]]:
+        keep_idx = [i for i in range(mat.shape[0]) if not np.all(np.isnan(mat[i, :]))]
+        if not keep_idx:
+            return mat, labels
+        return mat[keep_idx, :], [labels[i] for i in keep_idx]
+
     def _heatmap(mat: np.ndarray, title: str, out_path: Path):
         plt.figure(figsize=(6, 4))
-        im = plt.imshow(mat, aspect='auto', interpolation='nearest', vmin=0.0, vmax=1.0, cmap='viridis')
+        data, labels_rows = _drop_all_nan_rows(mat, group_labels)
+        im = plt.imshow(data, aspect='auto', interpolation='nearest', vmin=0.0, vmax=1.0, cmap='viridis')
         plt.colorbar(im, fraction=0.046, pad=0.04)
-        plt.yticks(ticks=list(range(len(patterns))), labels=[paper_label_for_probe(p) for p in patterns], fontsize=8)
+        plt.yticks(ticks=list(range(len(labels_rows))), labels=labels_rows, fontsize=8)
         plt.xticks(ticks=list(range(len(run_labels))), labels=run_labels)
         from .viz_core import wrap_text_for_plot
         plt.title(wrap_text_for_plot(title), fontsize=12)
@@ -973,8 +1046,10 @@ def plot_n1_heatmaps_across_runs(
         plt.savefig(out_path, dpi=150)
         plt.close()
 
-    _heatmap(auc_mat, 'AUC (n=1)', aggregated_out_dir / 'heatmap_n1_auc.png')
-    _heatmap(rec_mat, f'Recall at {fpr_target*100}% FPR (n=1)', aggregated_out_dir / f'heatmap_n1_recall_at_{int(fpr_target*10000)}ppm_fpr.png')
+    # Generate appropriate filenames based on eval_dataset
+    suffix = f"_ood_{eval_dataset}" if eval_dataset else ""
+    _heatmap(auc_mat, f'AUC (n=1){suffix}', aggregated_out_dir / f'heatmap_n1_auc{suffix}.png')
+    _heatmap(rec_mat, f'Recall at {fpr_target*100}% FPR (n=1){suffix}', aggregated_out_dir / f'heatmap_n1_recall_at_{int(fpr_target*10000)}ppm_fpr{suffix}.png')
     # Save to cache for next time
     cache = _load_cache(aggregated_out_dir)
     cache[cache_key_auc] = auc_mat.tolist()
@@ -994,6 +1069,7 @@ def plot_scaling_law_aggregated_across_probes(
     x_label: Optional[str] = None,
     y_label: Optional[str] = None,
     probe_patterns: Optional[Dict[str, List[str]]] = None,
+    eval_dataset: Optional[str] = None,
 ):
     """
     Generate scaling law plot showing median scores across ALL probe types.
@@ -1032,7 +1108,8 @@ def plot_scaling_law_aggregated_across_probes(
     cache_key = None
     if cache_dir is not None:
         cache = _load_cache(cache_dir)
-        cache_key = f"scaling_agg|metric:{metric}|fpr:{fpr_target}|exp:{exp_prefix}|seeds:{','.join(seeds)}|runs:{','.join(run_labels)}|patterns:{','.join(patterns)}"
+        eval_suffix = f"|eval:{eval_dataset}" if eval_dataset else ""
+        cache_key = f"scaling_agg|metric:{metric}|fpr:{fpr_target}|exp:{exp_prefix}|seeds:{','.join(seeds)}|runs:{','.join(run_labels)}|patterns:{','.join(patterns)}{eval_suffix}"
         if cache_key in cache:
             if verbose:
                 print(f"[scaling_agg] Using cached data for {cache_key}", flush=True)
@@ -1052,7 +1129,10 @@ def plot_scaling_law_aggregated_across_probes(
             if x_label is None:
                 x_label = "Number of positive examples in the train set"
             
-            plt.title("Scaling across positive samples — Median across all probe types", fontsize=14)
+            if eval_dataset:
+                plt.title(f"Scaling across Qwen model sizes — OOD ({eval_dataset})", fontsize=14)
+            else:
+                plt.title("Scaling across Qwen model sizes", fontsize=14)
             plt.ylabel(y_label, fontsize=12)
             plt.xlabel(x_label, fontsize=12)
             plt.xscale('log')
@@ -1091,7 +1171,7 @@ def plot_scaling_law_aggregated_across_probes(
             
             files = collect_eval_result_files_for_pattern(
                 root, seeds, exp_dir.name, evaluation_dirs=None, 
-                pattern=pattern, eval_dataset=None, require_default=True
+                pattern=pattern, eval_dataset=eval_dataset, require_default=True
             )
             
             if verbose:
@@ -1134,8 +1214,14 @@ def plot_scaling_law_aggregated_across_probes(
             continue
             
         medians = []
+        # Optional detailed accounting for how many values contribute to each median
+        if verbose:
+            total_vals = sum(len(v) for v in class1_to_all_scores.values())
+            print(f"[scaling_agg] {label}: total contributing values across probes = {total_vals}", flush=True)
         for x in x_vals:
             vals = class1_to_all_scores[x]
+            if verbose:
+                print(f"[scaling_agg] {label}: n_pos={x} count={len(vals)}", flush=True)
             medians.append(np.median(vals))
         
         if verbose:
@@ -1153,7 +1239,10 @@ def plot_scaling_law_aggregated_across_probes(
     if x_label is None:
         x_label = "Number of positive examples in the train set"
     
-    plt.title("Scaling across positive samples — Median across all probe types", fontsize=14)
+    if eval_dataset:
+        plt.title(f"Scaling across Qwen model sizes — OOD ({eval_dataset})", fontsize=14)
+    else:
+        plt.title("Scaling across Qwen model sizes", fontsize=14)
     plt.ylabel(y_label, fontsize=12)
     plt.xlabel(x_label, fontsize=12)
     plt.xscale('log')
@@ -1245,7 +1334,7 @@ def plot_llm_upsampling_aggregated_across_probes(
             if x_label is None:
                 x_label = "Number of positive examples in the train set"
             
-            plt.title("LLM upsampling — Median across all probe types", fontsize=14)
+            plt.title("LLM upsampling", fontsize=14)
             plt.ylabel(y_label, fontsize=12)
             plt.xlabel(x_label, fontsize=12)
             plt.xscale('log')
@@ -1351,8 +1440,8 @@ def plot_llm_upsampling_aggregated_across_probes(
             print(f"[llm_agg] factor={factor}: {len(x_vals)} sample counts, {len(medians)} medians", flush=True)
         
         color = colors[idx]
-        label = "no upsampling" if factor == 1 else f"upsample x{factor}"
-        plt.plot(x_vals, medians, 'o-', color=color, label=label, linewidth=2, markersize=6)
+        # Do not use legend labels; color encodes factor
+        plt.plot(x_vals, medians, 'o-', color=color, linewidth=2, markersize=6)
         
         # Store for caching
         all_factor_data[str(factor)] = {'x': x_vals, 'medians': medians}
@@ -1363,11 +1452,18 @@ def plot_llm_upsampling_aggregated_across_probes(
     if x_label is None:
         x_label = "Number of positive examples in the train set"
     
-    plt.title("LLM upsampling — Median across all probe types", fontsize=14)
+    plt.title("LLM upsampling", fontsize=14)
     plt.ylabel(y_label, fontsize=12)
     plt.xlabel(x_label, fontsize=12)
     plt.xscale('log')
-    plt.legend(fontsize=10)
+    # Replace legend with a colorbar for upsampling factors
+    import matplotlib as mpl
+    sm = mpl.cm.ScalarMappable(cmap=plt.cm.Reds, norm=mpl.colors.Normalize(vmin=min(sorted_factors), vmax=max(sorted_factors)))
+    sm.set_array([])
+    cbar = plt.colorbar(sm, ax=plt.gca())
+    cbar.set_label('LLM upsampling factor', fontsize=10)
+    cbar.set_ticks([1, 2, 3, 4, 5, 10, 20])
+    cbar.set_ticklabels(['1', '2', '3', '4', '5', '10', '20'])
     plt.grid(True, alpha=0.3)
     plt.tight_layout()
     

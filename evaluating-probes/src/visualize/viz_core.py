@@ -42,12 +42,7 @@ def get_scores_and_labels(result_path: str):
                 if label_key in d:
                     return np.array(d[score_key]), np.array(d[label_key])
 
-    # As a last resort, if predictions are present, treat them as scores (0/1)
-    for pred_key in ['predictions', 'preds', 'y_pred']:
-        if pred_key in d and any(k in d for k in ['labels', 'y_true', 'targets', 'y']):
-            labels = d.get('labels') or d.get('y_true') or d.get('targets') or d.get('y')
-            preds = d[pred_key]
-            return np.array(preds), np.array(labels)
+    # Do NOT fall back to hard predictions for ROC/Recall metrics; require real-valued scores
 
     raise ValueError(f"Could not parse scores/labels from {result_path}")
 
@@ -66,8 +61,24 @@ def extract_eval_and_train_from_filename(path_str: str) -> Tuple[Optional[str], 
 def default_probe_patterns() -> Dict[str, List[str]]:
     """Canonical default patterns used when config-specific patterns are unavailable."""
     return {
-        'linear': ['linear_last', 'linear_max', 'linear_mean', 'linear_softmax'],
-        'sae': ['sae_16k_l0_408', 'sae_262k_l0_259', 'sae_mean', 'sae_last', 'sae_max'],
+        'linear': [
+            'linear_last', 'linear_max', 'linear_mean', 'linear_softmax',
+            'sklearn_linear_last', 'sklearn_linear_max', 'sklearn_linear_mean', 'sklearn_linear_softmax',
+        ],
+        'sae': [
+            # Gemma lens presets
+            'sae_16k_l0_408', 'sae_262k_l0_259',
+            # Generic SAE aggregations (model-agnostic)
+            'sae_mean', 'sae_last', 'sae_max', 'sae_softmax',
+            # LLaMA 3.3 70B variants
+            'sae_llama33b_mean', 'sae_llama33b_last', 'sae_llama33b_max', 'sae_llama33b_softmax',
+            # Qwen3 family variants
+            'sae_qwen3_0.6b_last', 'sae_qwen3_0.6b_mean', 'sae_qwen3_0.6b_max', 'sae_qwen3_0.6b_softmax',
+            'sae_qwen3_1.7b_last', 'sae_qwen3_1.7b_mean', 'sae_qwen3_1.7b_max', 'sae_qwen3_1.7b_softmax',
+            'sae_qwen3_4b_last', 'sae_qwen3_4b_mean', 'sae_qwen3_4b_max', 'sae_qwen3_4b_softmax',
+            'sae_qwen3_8b_last', 'sae_qwen3_8b_mean', 'sae_qwen3_8b_max', 'sae_qwen3_8b_softmax',
+            'sae_qwen3_14b_last', 'sae_qwen3_14b_mean', 'sae_qwen3_14b_max', 'sae_qwen3_14b_softmax',
+        ],
         'attention': ['attention'],
         'act_sim': ['act_sim_last', 'act_sim_max', 'act_sim_mean'],
     }
@@ -101,27 +112,44 @@ def labels_from_config(architectures: List[Dict]) -> Dict[str, str]:
     """Map architecture names to publication-ready labels."""
     labels: Dict[str, str] = {}
     for arch in architectures:
-        name = arch.get('name') or arch.get('config_name') or ''
-        labels[name] = paper_label_for_probe(name)
+        # Prefer config_name (captures aggregation/details), then fall back to name
+        cfg_name = arch.get('config_name') or arch.get('name') or ''
+        labels[cfg_name] = paper_label_for_probe(cfg_name)
     return labels
 
 def is_default_probe_file(filepath: str, probe_type: str) -> bool:
     name = os.path.basename(filepath)
     lowered = name.lower()
     if probe_type in ('linear', 'sae'):
-        # For linear and SAE, default C=1.0 is omitted from filenames.
-        # If any explicit C is present, treat as non-default.
-        if re.search(r'(^|[_-])c\d', lowered):
-            return False
+        # For linear and SAE, default C=1.0 is allowed whether omitted or explicitly present.
+        m_c = re.search(r'(^|[_-])c([0-9eE\.+-]+)', lowered)
+        if m_c:
+            try:
+                c_val = float(m_c.group(2))
+                if abs(c_val - 1.0) > 1e-9:
+                    return False
+            except Exception:
+                # Unknown C value format; treat as non-default to be safe
+                return False
         # SAE default includes topk=3584; allow either omitted or explicitly topk3584.
         if probe_type == 'sae':
             m_topk = re.search(r'topk(\d+)', lowered)
             if m_topk and m_topk.group(1) != '3584':
                 return False
     elif probe_type == 'attention':
-        # For attention, default lr=5e-4 and wd=0.0 are omitted from filenames.
-        # If any lr or wd is explicitly present, treat as non-default.
-        if re.search(r'(^|[_-])lr[0-9eE\.-]+', lowered) or re.search(r'(^|[_-])wd[0-9eE\.-]+', lowered):
+        # For attention, treat lr=5e-4 and wd=0.0 as defaults (allowed when explicitly present).
+        m_lr = re.search(r'(^|[_-])lr([0-9eE\.+-]+)', lowered)
+        m_wd = re.search(r'(^|[_-])wd([0-9eE\.+-]+)', lowered)
+        try:
+            if m_lr:
+                lr_val = float(m_lr.group(2))
+                if abs(lr_val - 5e-4) > 1e-12:
+                    return False
+            if m_wd:
+                wd_val = float(m_wd.group(2))
+                if abs(wd_val - 0.0) > 1e-12:
+                    return False
+        except Exception:
             return False
     return True
 
@@ -231,11 +259,24 @@ def _get_scores_and_labels_from_result_file(result_path: str):
 def auc(labels: np.ndarray, scores: np.ndarray) -> float:
     from sklearn.metrics import roc_auc_score
     from scipy.special import expit
-    return float(roc_auc_score(labels, expit(scores)))
+    # If scores already look like probabilities in [0, 1], use as-is; otherwise apply sigmoid
+    try:
+        s_min = float(np.min(scores))
+        s_max = float(np.max(scores))
+        scores_prob = scores if (s_min >= 0.0 and s_max <= 1.0) else expit(scores)
+    except Exception:
+        scores_prob = expit(scores)
+    return float(roc_auc_score(labels, scores_prob))
 
 def recall_at_fpr(labels: np.ndarray, scores: np.ndarray, fpr_target: float) -> float:
     from scipy.special import expit
-    s = expit(scores)
+    # Use probabilities directly if scores in [0,1], otherwise apply sigmoid
+    try:
+        s_min = float(np.min(scores))
+        s_max = float(np.max(scores))
+        s = scores if (s_min >= 0.0 and s_max <= 1.0) else expit(scores)
+    except Exception:
+        s = expit(scores)
     thresholds = np.unique(s)[::-1]
     best = 0.0
     for thresh in thresholds:
@@ -281,17 +322,67 @@ def autoset_ylim_from_bands(ax, all_lower: List[float], pad: float = 0.05):
 
 # Human-readable labels for paper figures
 _PAPER_LABEL_MAP: Dict[str, str] = {
-    'linear_last': 'Linear (Last aggregation)',
-    'linear_max': 'Linear (Max aggregation)',
-    'linear_mean': 'Linear (Mean aggregation)',
-    'linear_softmax': 'Linear (Softmax aggregation)',
+    'linear_last': 'Linear (last token)',
+    'linear_max': 'Linear (max token)',
+    'linear_mean': 'Linear (mean pool)',
+    'linear_softmax': 'Linear (softmax pool)',
+    'sklearn_linear_last': 'Linear (last token)',
+    'sklearn_linear_max': 'Linear (max token)',
+    'sklearn_linear_mean': 'Linear (mean pool)',
+    'sklearn_linear_softmax': 'Linear (softmax pool)',
     'attention': 'Attention',
-    'act_sim_last': 'Activation Similarity (Last)',
-    'act_sim_max': 'Activation Similarity (Max)',
-    'act_sim_mean': 'Activation Similarity (Mean)',
+    'act_sim_last': 'Cosine similarity (last token)',
+    'act_sim_max': 'Cosine similarity (max token)',
+    'act_sim_mean': 'Cosine similarity (mean pool)',
+    'act_sim_softmax': 'Cosine similarity (softmax pool)',
+    # SAE Lens (Gemma) presets
+    'sae_16k_l0_408_last': 'SAE (width=16k, L0=408, last token)',
+    'sae_16k_l0_408_mean': 'SAE (width=16k, L0=408, mean pool)',
+    'sae_16k_l0_408_max': 'SAE (width=16k, L0=408, max token)',
+    'sae_16k_l0_408_softmax': 'SAE (width=16k, L0=408, softmax pool)',
+    'sae_262k_l0_259_last': 'SAE (width=262k, L0=259, last token)',
+    'sae_262k_l0_259_mean': 'SAE (width=262k, L0=259, mean pool)',
+    'sae_262k_l0_259_max': 'SAE (width=262k, L0=259, max token)',
+    'sae_262k_l0_259_softmax': 'SAE (width=262k, L0=259, softmax pool)',
+    # SAE LLaMA 3.3 70B
+    'sae_llama33b_last': 'SAE (Llama-3.3-70B, last token)',
+    'sae_llama33b_mean': 'SAE (Llama-3.3-70B, mean pool)',
+    'sae_llama33b_max': 'SAE (Llama-3.3-70B, max pool)',
+    'sae_llama33b_softmax': 'SAE (Llama-3.3-70B, softmax)',
+    # Qwen3 family
+    'sae_qwen3_0.6b_last': 'SAE (Qwen3 0.6B, last token)',
+    'sae_qwen3_0.6b_mean': 'SAE (Qwen3 0.6B, mean pool)',
+    'sae_qwen3_0.6b_max': 'SAE (Qwen3 0.6B, max pool)',
+    'sae_qwen3_0.6b_softmax': 'SAE (Qwen3 0.6B, softmax)',
+    'sae_qwen3_1.7b_last': 'SAE (Qwen3 1.7B, last token)',
+    'sae_qwen3_1.7b_mean': 'SAE (Qwen3 1.7B, mean pool)',
+    'sae_qwen3_1.7b_max': 'SAE (Qwen3 1.7B, max pool)',
+    'sae_qwen3_1.7b_softmax': 'SAE (Qwen3 1.7B, softmax)',
+    'sae_qwen3_4b_last': 'SAE (Qwen3 4B, last token)',
+    'sae_qwen3_4b_mean': 'SAE (Qwen3 4B, mean pool)',
+    'sae_qwen3_4b_max': 'SAE (Qwen3 4B, max pool)',
+    'sae_qwen3_4b_softmax': 'SAE (Qwen3 4B, softmax)',
+    'sae_qwen3_8b_last': 'SAE (Qwen3 8B, last token)',
+    'sae_qwen3_8b_mean': 'SAE (Qwen3 8B, mean pool)',
+    'sae_qwen3_8b_max': 'SAE (Qwen3 8B, max pool)',
+    'sae_qwen3_8b_softmax': 'SAE (Qwen3 8B, softmax)',
+    'sae_qwen3_14b_last': 'SAE (Qwen3 14B, last token)',
+    'sae_qwen3_14b_mean': 'SAE (Qwen3 14B, mean pool)',
+    'sae_qwen3_14b_max': 'SAE (Qwen3 14B, max pool)',
+    'sae_qwen3_14b_softmax': 'SAE (Qwen3 14B, softmax)',
+    # Mass-mean
+    'mass_mean': 'Mass Mean',
+    'default_mass_mean': 'Mass Mean',
+    'mass_mean_iid': 'Mass Mean (IID)',
+    # Defaults aliases
+    'default_sklearn_linear': 'Error',
+    'default_act_sim': 'Error',
 }
 
 def paper_label_for_probe(probe_name: str) -> str:
+    # First, attempt an exact mapping from known config names
+    if probe_name in _PAPER_LABEL_MAP:
+        return _PAPER_LABEL_MAP[probe_name]
     lowered = probe_name.lower()
     # Linear variants
     if 'linear_softmax' in lowered:

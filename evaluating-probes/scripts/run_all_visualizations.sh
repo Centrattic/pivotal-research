@@ -7,7 +7,7 @@ set -euo pipefail
 #     [--force] \
 #     [--configs "cfg1 cfg2 ..."] \
 #     [--verbose] \
-#     [--stage all|families|aggregated]
+#     [--stage all|individual|aggregated]
 #
 # Notes:
 # - By default, seeds 42..51 are used. Override with --seeds.
@@ -128,9 +128,18 @@ for C in "${CONFIGS[@]}"; do
   FAMILY_MAP["$fam"]=1
 done
 
+# Families to include for individual stage
+FAMILIES_WHITELIST=("llama_mask" "gemma_spam")
+
 run_config() {
   local CFG="$1"
   local SEEDS_FOR_CFG="$SEEDS_STR"
+  # Skip Qwen only when explicitly requested by stage logic
+  if [[ "${SKIP_QWEN:-0}" == "1" && ( "$CFG" == qwen_* || "$CFG" == *qwen* ) ]]; then
+    echo "==> Skipping Qwen config (per-family stage): $CFG"
+    return 0
+  fi
+  # Use reduced seed set for Qwen runs if not skipped
   if [[ "$CFG" == qwen_* || "$CFG" == *qwen* ]]; then
     SEEDS_FOR_CFG="$QWEN_SEEDS"
   fi
@@ -147,29 +156,45 @@ run_family() {
   local CFG_CPU="${FAM}_cpu"
   if [[ -f "configs/${CFG_GPU}_config.yaml" ]]; then
     run_config "$CFG_GPU"
-  fi
-  if [[ -f "configs/${CFG_CPU}_config.yaml" ]]; then
+  elif [[ -f "configs/${CFG_CPU}_config.yaml" ]]; then
     run_config "$CFG_CPU"
   fi
 }
 
-if [[ "$STAGE" == "families" || "$STAGE" == "all" ]]; then
-  echo "--- Running per-family visualizations (merged CPU+GPU) ---"
+if [[ "$STAGE" == "individual" || "$STAGE" == "all" ]]; then
+  echo "--- Running individual run visualizations (llama_mask + gemma_spam) ---"
+  # Skip Qwen explicitly for this stage
+  SKIP_QWEN=1
   for FAM in "${!FAMILY_MAP[@]}"; do
+    if [[ " ${FAMILIES_WHITELIST[*]} " != *" $FAM "* ]]; then
+      continue
+    fi
     run_family "$FAM"
   done
+  unset SKIP_QWEN
 fi
 
 if [[ "$STAGE" == "aggregated" || "$STAGE" == "all" ]]; then
-  echo "--- Running aggregated cross-run visualizations ---"
-  # For aggregated figures, we only need to run one representative config per family
-  for FAM in "${!FAMILY_MAP[@]}"; do
-    if [[ -f "configs/${FAM}_gpu_config.yaml" ]]; then
-      run_config "${FAM}_gpu"
-    elif [[ -f "configs/${FAM}_cpu_config.yaml" ]]; then
-      run_config "${FAM}_cpu"
+  echo "--- Running aggregated cross-run visualizations (heatmaps + scaling/LLM upsampling medians) ---"
+  # IMPORTANT: Run aggregated plots exactly ONCE to avoid overwriting the same files repeatedly.
+  # Prefer a Qwen config since aggregated figures scan results/spam_qwen_* folders.
+  AGG_CFG=""
+  if [[ -f "configs/qwen_0.6b_gpu_config.yaml" ]]; then
+    AGG_CFG="qwen_0.6b_gpu"
+  else
+    # Find any qwen_* config as a fallback
+    CAND=$(ls configs/qwen_*_config.yaml 2>/dev/null | head -n1 || true)
+    if [[ -n "$CAND" ]]; then
+      AGG_CFG=$(basename "$CAND" | sed 's/_config.yaml$//')
     fi
-  done
+  fi
+  # If no Qwen configs found, just pick the first provided CONFIGS entry
+  if [[ -z "$AGG_CFG" ]]; then
+    AGG_CFG="${CONFIGS[0]}"
+  fi
+  echo "Running aggregated figures with config: $AGG_CFG"
+  # shellcheck disable=SC2086
+  python -m src.visualize.run_all_viz -c "$AGG_CFG" --aggregated --seeds $SEEDS_STR $FORCE_FLAG $VERBOSE_FLAG
 fi
 
 echo "Done. Family results are under results/<run_name>/visualizations; aggregated under results/_aggregated/visualizations."
