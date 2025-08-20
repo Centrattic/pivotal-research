@@ -17,7 +17,6 @@ if torch.cuda.is_available():
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from src.data import Dataset
-from src.visualize.utils_viz import *
 import os
 from tqdm import tqdm
 

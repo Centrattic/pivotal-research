@@ -7,7 +7,7 @@ import numpy as np
 
 def load_metrics_data() -> pd.DataFrame:
     """Load the metrics index CSV file."""
-    csv_path = Path("src/visualizations/metrics_index.csv")
+    csv_path = Path("src/visualize/metrics_index.csv")
     return pd.read_csv(csv_path)
 
 
@@ -39,6 +39,35 @@ def extract_info_from_filename(filename: str) -> Dict[str, str]:
     train_match = re.search(r'train_on_([^_]+(?:_[^_]+)*?)_', filename)
     if train_match:
         info['train_dataset'] = train_match.group(1)
+    
+    # Extract training sample counts from class0_X_class1_Y pattern
+    class_match = re.search(r'class0_(\d+)_class1_(\d+)', filename)
+    if class_match:
+        info['num_negative_samples'] = int(class_match.group(1))
+        info['num_positive_samples'] = int(class_match.group(2))
+    else:
+        # For LLM upsampling experiments, look for llm_negX_posY pattern
+        llm_match = re.search(r'llm_neg(\d+)_pos(\d+)', filename)
+        if llm_match:
+            info['num_negative_samples'] = int(llm_match.group(1))
+            info['num_positive_samples'] = int(llm_match.group(2))
+        else:
+            info['num_negative_samples'] = None
+            info['num_positive_samples'] = None
+    
+    # Extract LLM upsampling ratio (for experiment 3)
+    upsampling_match = re.search(r'_(\d+)x_', filename)
+    if upsampling_match:
+        info['llm_upsampling_ratio'] = int(upsampling_match.group(1))
+    else:
+        info['llm_upsampling_ratio'] = None
+    
+    # Extract Qwen model size for scaling analysis
+    qwen_size_match = re.search(r'qwen_([0-9.]+)b', filename, re.IGNORECASE)
+    if qwen_size_match:
+        info['qwen_model_size'] = float(qwen_size_match.group(1))
+    else:
+        info['qwen_model_size'] = None
     
     # Extract probe name and determine architecture type
     probe_architecture = None
@@ -174,6 +203,10 @@ def get_data_for_visualization(
     
     # Add hyperparameter columns
     for key in ['C', 'topk', 'lr', 'weight_decay']:
+        df[key] = [meta.get(key) for meta in metadata_list]
+    
+    # Add additional metadata columns
+    for key in ['num_negative_samples', 'num_positive_samples', 'llm_upsampling_ratio', 'qwen_model_size']:
         df[key] = [meta.get(key) for meta in metadata_list]
     
     # Apply filters

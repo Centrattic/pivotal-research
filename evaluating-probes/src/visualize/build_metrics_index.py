@@ -60,7 +60,7 @@ def main():
     parser = argparse.ArgumentParser(description='Index AUC and Recall@FPR for all results JSONs under specified run_names.')
     parser.add_argument('-r', '--run-names', nargs='+', required=True, help='One or more run_name folders under results/.')
     parser.add_argument('--fpr', type=float, default=0.01, help='Target FPR for recall metric (default: 0.01).')
-    parser.add_argument('-o', '--output', default='src/visualizations/metrics_index.csv', help='Output CSV path.')
+    parser.add_argument('-o', '--output', default='src/visualize/metrics_index.csv', help='Output CSV path.')
     parser.add_argument('-v', '--verbose', action='store_true', help='Verbose logging.')
     parser.add_argument('-j', '--jobs', type=int, default=-1, help='Number of parallel jobs (default: -1 for all cores).')
     parser.add_argument('--force', action='store_true', help='Force reprocessing of all files, ignoring existing CSV.')
