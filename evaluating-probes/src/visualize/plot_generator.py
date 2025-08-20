@@ -798,7 +798,7 @@ def plot_probe_subplots_unified(experiment: str, eval_dataset: str, save_path: P
     # Define the probe names we want to include (same as other subplots)
     probe_names = [
         'act_sim_last', 'act_sim_max', 'act_sim_mean', 'act_sim_softmax',
-        'linear_last', 'linear_max', 'linear_mean', 'linear_softmax',
+        'sklearn_linear_last', 'sklearn_linear_max', 'sklearn_linear_mean', 'sklearn_linear_softmax',
         'sae_last', 'sae_max', 'sae_mean', 'sae_softmax'
     ]
     
@@ -1110,8 +1110,12 @@ def plot_scaling_law_subplots_recall(eval_dataset: str, save_path: Path):
     plot_scaling_law_subplots_unified(eval_dataset, save_path, 'recall')
 
 
-def generate_all_visualizations():
-    """Generate all visualizations and save them to appropriate directories."""
+def generate_all_visualizations(skip_existing: bool = False):
+    """Generate all visualizations and save them to appropriate directories.
+    
+    Args:
+        skip_existing: If True, skip generating plots that already exist
+    """
     # Create output directories
     main_dir = Path("visualizations/main")
     other_dir = Path("visualizations/other")
