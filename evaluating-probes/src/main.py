@@ -271,15 +271,16 @@ def generate_hyperparameter_sweep(
     # top_k=3584 always included in the filename as a default
 
     # Defaults
-    C_VALUES = [1.0]
+    # C_VALUES = [1.0]
     LR_VALUES = [5e-4]
     WEIGHT_DECAY_VALUES = [0.0]
-    TOP_K_VALUES = [3584]
+    # TOP_K_VALUES = [3584]
 
-    # C_VALUES = [1e-5, 1e-4, 1e-3, 1e-2, 1e-1, 1e0, 1e1, 1e2, 1e3, 1e4, 1e5]
+    C_VALUES = [1e-3, 1e-2, 1e-1, 1e0, 1e1, 1e2, 1e3, 1e4] # all we have time for
     # LR_VALUES = [1e-5, 2e-5, 5e-5, 1e-4, 2e-4, 5e-4, 1e-3, 2e-3, 5e-3]
     # WEIGHT_DECAY_VALUES = [0.0, 1e-6, 5e-6, 1e-5, 5e-5, 1e-4, 5e-4, 1e-3, 5e-3]
-    # TOP_K_VALUES = [128, 256, 512, 1024, 2048, 3584, 4096, 8192]
+    TOP_K_VALUES = [128, 256, 512, 1024, 3584, 4096, 8192]
+    # Sweep over top k values
 
     sweep_configs = []
 
