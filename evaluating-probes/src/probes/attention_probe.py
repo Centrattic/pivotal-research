@@ -129,6 +129,8 @@ class AttentionProbe(BaseProbe):
         metric: str = 'acc',
         probe_save_dir: Path = None,
         probe_filename_base: str = None,
+        lr_values: List[float] = None,
+        weight_decay_values: List[float] = None,
     ) -> dict:
         """
         Find best hyperparameters by training multiple probes simultaneously on each batch.
@@ -136,16 +138,18 @@ class AttentionProbe(BaseProbe):
         Saves all probes to hyperparameter_sweep folder and selects best based on training loss.
         """
         # Define hyperparameter search space
-        lr_values = np.logspace(
-            -5,
-            -2,
-            8,
-        )  # 8 learning rates from 1e-5 to 1e-2
-        weight_decay_values = np.logspace(
-            -6,
-            -2,
-            5,
-        )  # 5 weight decay values from 1e-6 to 1e-2
+        if lr_values is None:
+            lr_values = np.logspace(
+                -5,
+                -2,
+                6,
+            )  # 8 learning rates from 1e-5 to 1e-2
+        if weight_decay_values is None:
+            weight_decay_values = np.logspace(
+                -6,
+                -2,
+                5,
+            )  # 5 weight decay values from 1e-6 to 1e-2
 
         # Create all combinations
         hyperparam_combinations = []
@@ -316,10 +320,6 @@ class AttentionProbe(BaseProbe):
 
         # Save best probe per weight decay if directory provided
         if probe_save_dir is not None and probe_filename_base is not None:
-            # Create hyperparameter_sweep subfolder
-            sweep_dir = probe_save_dir / "hyperparameter_sweep"
-            sweep_dir.mkdir(exist_ok=True)
-
             # Group by weight decay and find best for each
             wd_to_results = {}
             for i, (lr, weight_decay) in enumerate(hyperparam_combinations):
@@ -327,7 +327,7 @@ class AttentionProbe(BaseProbe):
                     wd_to_results[weight_decay] = []
                 wd_to_results[weight_decay].append((i, lr, final_losses[i]))
 
-            # Save best probe for each weight decay
+            # Save best probe for each weight decay directly in the main directory
             for weight_decay, results in wd_to_results.items():
                 # Find best (lowest loss) for this weight decay
                 best_idx, best_lr, best_loss = min(
@@ -350,19 +350,10 @@ class AttentionProbe(BaseProbe):
                     ".",
                     "p",
                 )
-                probe_filename = f"{probe_filename_base}_best_lr_{lr_str}_wd_{wd_str}_state.pt"
-                probe_path = sweep_dir / probe_filename
+                probe_filename = f"{probe_filename_base}_lr_{lr_str}_wd_{wd_str}_state.npz"
+                probe_path = probe_save_dir / probe_filename
 
                 # Save the best probe for this weight decay
-                # Convert to float32 for saving to avoid bfloat16 compatibility issues
-                # original_dtype = next(probes[best_idx].model.parameters()).dtype
-                # if original_dtype != torch.float32:
-                #     probes[best_idx].model = probes[best_idx].model.to(torch.float32)
-                #     probes[best_idx].save_state(probe_path)
-                #     # Convert back to original dtype
-                #     probes[best_idx].model = probes[best_idx].model.to(original_dtype)
-                # else:
-                #     # Already float32, save directly
                 probes[best_idx].save_state(probe_path)
 
                 if verbose:

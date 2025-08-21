@@ -58,7 +58,7 @@ def _mask_secret(
 
 
 def _print_env_vars():
-    keys = ["OPENAI_API_KEY", "OMP_NUM_THREADS", "CUDA_VISIBLE_DEVICES", "EP_BATCHED_NJOBS"]
+    keys = ["OPENAI_API_KEY", "OMP_NUM_THREADS", "CUDA_VISIBLE_DEVICES", "EP_CPU_NJOBS", "EP_GPU_NJOBS"]
     print(
         "\n=== DEBUG: Environment Variables ===",
     )
@@ -136,21 +136,38 @@ from src.utils import resample_params_to_str
 from src.model_check.main import run_model_check
 from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 try:
-    # Keep BLAS/OMP-backed libs on a single thread even inside processes
+    # Keep BLAS/OMP-backed libs on a limited number of threads
     from threadpoolctl import threadpool_limits  # type: ignore
+    # Allow override via environment variable, default to 1 for CPU-intensive ops
+    cpu_jobs = int(os.environ.get("EP_CPU_NJOBS", "15"))
+    # For process parallelism, we want to limit threads within each process
+    # If cpu_jobs > 1, it will be used for process parallelism, so limit threads to 1
+    thread_limit = 1 if cpu_jobs > 1 else cpu_jobs
     threadpool_limits(
-        1,
+        thread_limit,
+    )
+    # Also limit PyTorch intra-op and inter-op threads
+    torch.set_num_threads(
+        thread_limit,
+    )
+    torch.set_num_interop_threads(
+        thread_limit,
     )
 except Exception:
     pass
+
+# Configure GPU job limits
 try:
-    # Also limit PyTorch intra-op and inter-op threads explicitly
-    torch.set_num_threads(
-        1,
-    )
-    torch.set_num_interop_threads(
-        1,
-    )
+    # Set CUDA job limits for GPU operations
+    # Allow override via environment variable, default to 1 for GPU-intensive ops
+    gpu_jobs = int(os.environ.get("EP_GPU_NJOBS", "1"))
+    if torch.cuda.is_available():
+        # Set CUDA device properties to limit concurrent operations
+        for i in range(torch.cuda.device_count()):
+            torch.cuda.set_device(i)
+            # Note: PyTorch doesn't have direct thread control for CUDA,
+            # but we can set environment variables that affect CUDA concurrency
+            os.environ["CUDA_LAUNCH_BLOCKING"] = "1" if gpu_jobs == 1 else "0"
 except Exception:
     pass
 
@@ -277,10 +294,9 @@ def generate_hyperparameter_sweep(
     # TOP_K_VALUES = [3584]
 
     C_VALUES = [1e-3, 1e-2, 1e-1, 1e0, 1e1, 1e2, 1e3, 1e4] # all we have time for
-    # LR_VALUES = [1e-5, 2e-5, 5e-5, 1e-4, 2e-4, 5e-4, 1e-3, 2e-3, 5e-3]
-    # WEIGHT_DECAY_VALUES = [0.0, 1e-6, 5e-6, 1e-5, 5e-5, 1e-4, 5e-4, 1e-3, 5e-3]
     TOP_K_VALUES = [128, 256, 512, 1024, 3584, 4096, 8192]
     # Sweep over top k values
+    # LR and weight decay handled by find_best_fit and attention
 
     sweep_configs = []
 
@@ -296,18 +312,13 @@ def generate_hyperparameter_sweep(
                 base_config,
             )
     elif architecture_name == "attention":
-        # Sweep over both learning rate and weight decay
-        for lr in LR_VALUES:
-            for weight_decay in WEIGHT_DECAY_VALUES:
-                base_config = create_probe_config(
-                    architecture_name,
-                    config_name,
-                )
-                base_config.lr = lr
-                base_config.weight_decay = weight_decay
-                sweep_configs.append(
-                    base_config,
-                )
+        # For attention probes, we only create the default config
+        # The find_best_fit function will handle hyperparameter sweeping internally
+        # This avoids creating multiple jobs and instead does efficient batch training
+        sweep_configs = [create_probe_config(
+            architecture_name,
+            config_name,
+        )]
     elif architecture_name == "sae" or architecture_name.startswith("sae", ):
         # SAE uses sklearn LogisticRegression; sweep C and number of selected SAE features
         for C in C_VALUES:
@@ -1099,7 +1110,8 @@ def run_batched_jobs(
     # Use process-based parallelism and cap concurrency conservatively to avoid oversubscription
     # Allow overrides via env vars
     # Use a safe default of 1 job if the environment variable is not set
-    env_n = int(os.environ.get("EP_BATCHED_NJOBS", "1"))
+    # This controls the number of parallel processes (CPU parallelism)
+    env_n = int(os.environ.get("EP_CPU_NJOBS", "15"))
     backend = os.environ.get(
         "EP_BATCHED_BACKEND",
         "loky",

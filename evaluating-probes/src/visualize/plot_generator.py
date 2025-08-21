@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import List, Dict, Optional, Tuple
 import seaborn as sns
 from scipy import stats
+import re
 from .data_loader import (
     get_data_for_visualization,
     get_probe_names,
@@ -38,6 +39,10 @@ def get_probe_label(probe_name: str) -> str:
         'sae_max': 'SAE (max)',
         'sae_mean': 'SAE (mean)',
         'sae_softmax': 'SAE (softmax)',
+        'sae2_last': 'SAE2 (last)',
+        'sae2_max': 'SAE2 (max)',
+        'sae2_mean': 'SAE2 (mean)',
+        'sae2_softmax': 'SAE2 (softmax)',
         'sklearn_linear_last': 'Linear (last)',
         'sklearn_linear_max': 'Linear (max)',
         'sklearn_linear_mean': 'Linear (mean)',
@@ -45,6 +50,56 @@ def get_probe_label(probe_name: str) -> str:
         'attention': 'Attention',
     }
     return label_map.get(probe_name, probe_name)
+
+
+def load_probe_config():
+    """Load probe configuration from JSON file."""
+    try:
+        import json
+        config_path = Path("src/visualize/probe_config.json")
+        if config_path.exists():
+            with open(config_path, 'r') as f:
+                return json.load(f)
+        else:
+            print(f"Warning: Probe config file not found at {config_path}")
+            return {}
+    except Exception as e:
+        print(f"Warning: Could not load probe config: {e}")
+        return {}
+
+
+def get_detailed_probe_label(probe_name: str, run_name: str = None) -> str:
+    """
+    Get detailed probe label with SAE width and L0 information.
+    Falls back to basic label if config not available.
+    """
+    # Load probe configuration
+    config = load_probe_config()
+    
+    # If no config or not an SAE probe, use basic label
+    if not config or 'sae' not in probe_name:
+        return get_probe_label(probe_name)
+    
+    # Try to find the model in the config
+    model_key = None
+    if run_name:
+        if 'gemma' in run_name.lower():
+            model_key = 'gemma_9b'
+        elif 'qwen' in run_name.lower():
+            # Extract model size from run name
+            size_match = re.search(r'qwen_([0-9.]+)b', run_name, re.IGNORECASE)
+            if size_match:
+                size = size_match.group(1)
+                model_key = f'qwen_{size}b'
+    
+    # If we found a model key and it has this probe, use the detailed label
+    if model_key and model_key in config.get('probe_configs', {}):
+        probe_configs = config['probe_configs'][model_key]
+        if probe_name in probe_configs:
+            return probe_configs[probe_name]['label']
+    
+    # Fallback to basic label
+    return get_probe_label(probe_name)
 
 
 def wrap_text(text: str, max_length: int = 30) -> str:
@@ -796,14 +851,38 @@ def plot_probe_subplots_unified(experiment: str, eval_dataset: str, save_path: P
         return
     
     # Define the probe names we want to include (same as other subplots)
-    probe_names = [
-        'act_sim_last', 'act_sim_max', 'act_sim_mean', 'act_sim_softmax',
-        'sklearn_linear_last', 'sklearn_linear_max', 'sklearn_linear_mean', 'sklearn_linear_softmax',
-        'sae_last', 'sae_max', 'sae_mean', 'sae_softmax'
-    ]
+    # For subplots, we need to determine if this is a Gemma experiment
+    # Check if any run names contain 'gemma'
+    run_names = get_run_names()
+    gemma_runs = [run for run in run_names if 'gemma' in run.lower()]
     
-    # Create 3x4 subplot grid
-    fig, axes = plt.subplots(3, 4, figsize=(16, 12))
+    # Check if this specific experiment has Gemma data
+    experiment_runs = [run for run in run_names if experiment in run]
+    experiment_has_gemma = any('gemma' in run.lower() for run in experiment_runs)
+    
+    if experiment_has_gemma:
+        # Gemma has 16 probes total (4 act_sim + 4 linear + 8 SAE)
+        probe_names = [
+            'act_sim_last', 'act_sim_max', 'act_sim_mean', 'act_sim_softmax',
+            'sklearn_linear_last', 'sklearn_linear_max', 'sklearn_linear_mean', 'sklearn_linear_softmax',
+            'sae_last', 'sae_max', 'sae_mean', 'sae_softmax',
+            'sae2_last', 'sae2_max', 'sae2_mean', 'sae2_softmax'
+        ]
+    else:
+        # Qwen and other models have 12 probes total (4 act_sim + 4 linear + 4 SAE)
+        probe_names = [
+            'act_sim_last', 'act_sim_max', 'act_sim_mean', 'act_sim_softmax',
+            'sklearn_linear_last', 'sklearn_linear_max', 'sklearn_linear_mean', 'sklearn_linear_softmax',
+            'sae_last', 'sae_max', 'sae_mean', 'sae_softmax'
+        ]
+    
+    # Create subplot grid based on number of probes
+    if len(probe_names) == 16:
+        # Gemma: 4x4 grid for 16 probes
+        fig, axes = plt.subplots(4, 4, figsize=(16, 16))
+    else:
+        # Qwen: 3x4 grid for 12 probes
+        fig, axes = plt.subplots(3, 4, figsize=(16, 12))
     axes = axes.flatten()
     
     # Define colors for each probe type
@@ -825,7 +904,7 @@ def plot_probe_subplots_unified(experiment: str, eval_dataset: str, save_path: P
     
     all_y_values = []  # Collect all y values for proper ylim
     
-    for i, probe in enumerate(probe_names[:12]):  # Limit to 12 probes
+    for i, probe in enumerate(probe_names):  # Use all probes
         ax = axes[i]
         
         # Get data for this probe
@@ -851,14 +930,14 @@ def plot_probe_subplots_unified(experiment: str, eval_dataset: str, save_path: P
                 color = 'black'
             
             ax.plot(x_values, y_means, 'o-', color=color, markersize=4, linewidth=1.5)
-            ax.set_title(wrap_text(get_probe_label(probe), 25))
+            ax.set_title(wrap_text(get_detailed_probe_label(probe), 25))
             ax.set_xlabel('Training Size')
             ax.set_ylabel(ylabel)
             ax.set_xscale('log')
             ax.grid(True, alpha=0.3)
         else:
             ax.text(0.5, 0.5, 'No data', ha='center', va='center', transform=ax.transAxes)
-            ax.set_title(wrap_text(get_probe_label(probe), 25))
+            ax.set_title(wrap_text(get_detailed_probe_label(probe), 25))
     
     # Set proper ylim based on actual data
     if all_y_values:
@@ -868,7 +947,8 @@ def plot_probe_subplots_unified(experiment: str, eval_dataset: str, save_path: P
             ax.set_ylim(y_min, y_max)
     
     # Hide unused subplots
-    for i in range(len(probe_names), 12):
+    max_subplots = 16 if len(probe_names) == 16 else 12
+    for i in range(len(probe_names), max_subplots):
         axes[i].set_visible(False)
     
     plt.suptitle(f'Experiment {experiment}: Individual Probe Performance {title_suffix}\nEval Dataset: {wrap_text(eval_dataset)}', 
@@ -894,14 +974,38 @@ def plot_llm_upsampling_subplots_unified(eval_dataset: str, save_path: Path, met
         return
     
     # Define the probe names we want to include (same as heatmaps)
-    probe_names = [
-        'act_sim_last', 'act_sim_max', 'act_sim_mean', 'act_sim_softmax',
-        'linear_last', 'linear_max', 'linear_mean', 'linear_softmax',
-        'sae_last', 'sae_max', 'sae_mean', 'sae_softmax'
-    ]
+    # For subplots, we need to determine if this is a Gemma experiment
+    # Check if any run names contain 'gemma'
+    run_names = get_run_names()
+    gemma_runs = [run for run in run_names if 'gemma' in run.lower()]
     
-    # Create 3x4 subplot grid
-    fig, axes = plt.subplots(3, 4, figsize=(16, 12))
+    # Check if this specific experiment (LLM upsampling) has Gemma data
+    experiment_runs = [run for run in run_names if '3-' in run]  # Experiment 3 is LLM upsampling
+    experiment_has_gemma = any('gemma' in run.lower() for run in experiment_runs)
+    
+    if experiment_has_gemma:
+        # Gemma has 16 probes total (4 act_sim + 4 linear + 8 SAE)
+        probe_names = [
+            'act_sim_last', 'act_sim_max', 'act_sim_mean', 'act_sim_softmax',
+            'sklearn_linear_last', 'sklearn_linear_max', 'sklearn_linear_mean', 'sklearn_linear_softmax',
+            'sae_last', 'sae_max', 'sae_mean', 'sae_softmax',
+            'sae2_last', 'sae2_max', 'sae2_mean', 'sae2_softmax'
+        ]
+    else:
+        # Qwen and other models have 12 probes total (4 act_sim + 4 linear + 4 SAE)
+        probe_names = [
+            'act_sim_last', 'act_sim_max', 'act_sim_mean', 'act_sim_softmax',
+            'sklearn_linear_last', 'sklearn_linear_max', 'sklearn_linear_mean', 'sklearn_linear_softmax',
+            'sae_last', 'sae_max', 'sae_mean', 'sae_softmax'
+        ]
+    
+    # Create subplot grid based on number of probes
+    if len(probe_names) == 16:
+        # Gemma: 4x4 grid for 16 probes
+        fig, axes = plt.subplots(4, 4, figsize=(16, 16))
+    else:
+        # Qwen: 3x4 grid for 12 probes
+        fig, axes = plt.subplots(3, 4, figsize=(16, 12))
     axes = axes.flatten()
     
     # Set metric-specific parameters
@@ -916,7 +1020,7 @@ def plot_llm_upsampling_subplots_unified(eval_dataset: str, save_path: Path, met
     else:
         raise ValueError(f"Unsupported metric: {metric}. Use 'auc' or 'recall'.")
     
-    for i, probe in enumerate(probe_names[:12]):  # Limit to 12 probes
+    for i, probe in enumerate(probe_names):  # Use all probes
         ax = axes[i]
         
         # Get data for this probe
@@ -940,7 +1044,7 @@ def plot_llm_upsampling_subplots_unified(eval_dataset: str, save_path: Path, met
                     ax.plot(x_values, y_medians, 'o-', color=colors[j], 
                            label=f'{ratio}x', markersize=3, linewidth=1)
             
-            ax.set_title(wrap_text(get_probe_label(probe), 25))
+            ax.set_title(wrap_text(get_detailed_probe_label(probe), 25))
             ax.set_xlabel('Positive Samples')
             ax.set_ylabel(ylabel)
             
@@ -964,10 +1068,11 @@ def plot_llm_upsampling_subplots_unified(eval_dataset: str, save_path: Path, met
                 ax.legend(title='Upsampling', fontsize=8)
         else:
             ax.text(0.5, 0.5, 'No data', ha='center', va='center', transform=ax.transAxes)
-            ax.set_title(wrap_text(get_probe_label(probe), 25))
+            ax.set_title(wrap_text(get_detailed_probe_label(probe), 25))
     
     # Hide unused subplots
-    for i in range(len(probe_names), 12):
+    max_subplots = 16 if len(probe_names) == 16 else 12
+    for i in range(len(probe_names), max_subplots):
         axes[i].set_visible(False)
     
     plt.suptitle(f'LLM Upsampling: Individual Probe Performance {title_suffix}\nEval Dataset: {wrap_text(eval_dataset)}', 
@@ -990,13 +1095,14 @@ def plot_scaling_law_subplots_unified(eval_dataset: str, save_path: Path, metric
         return
     
     # Define the probe names we want to include (same as heatmaps)
+    # For scaling law, we only have Qwen models, so we use 12 probes
     probe_names = [
         'act_sim_last', 'act_sim_max', 'act_sim_mean', 'act_sim_softmax',
-        'linear_last', 'linear_max', 'linear_mean', 'linear_softmax',
+        'sklearn_linear_last', 'sklearn_linear_max', 'sklearn_linear_mean', 'sklearn_linear_softmax',
         'sae_last', 'sae_max', 'sae_mean', 'sae_softmax'
     ]
     
-    # Create 3x4 subplot grid
+    # Create 3x4 subplot grid for Qwen models
     fig, axes = plt.subplots(3, 4, figsize=(16, 12))
     axes = axes.flatten()
     
@@ -1012,7 +1118,7 @@ def plot_scaling_law_subplots_unified(eval_dataset: str, save_path: Path, metric
     else:
         raise ValueError(f"Unsupported metric: {metric}. Use 'auc' or 'recall'.")
     
-    for i, probe in enumerate(probe_names[:12]):  # Limit to 12 probes
+    for i, probe in enumerate(probe_names):  # Use all probes
         ax = axes[i]
         
         # Collect data for this probe across all Qwen models
@@ -1050,7 +1156,7 @@ def plot_scaling_law_subplots_unified(eval_dataset: str, save_path: Path, metric
             
             ax.plot(unique_sizes, medians, 'o-', color='red', linewidth=2, markersize=6, label='Median')
             
-            ax.set_title(wrap_text(get_probe_label(probe), 25))
+            ax.set_title(wrap_text(get_detailed_probe_label(probe), 25))
             ax.set_xlabel('Model Size (B)')
             ax.set_ylabel(ylabel)
             
@@ -1066,10 +1172,11 @@ def plot_scaling_law_subplots_unified(eval_dataset: str, save_path: Path, metric
                 ax.legend(fontsize=8)
         else:
             ax.text(0.5, 0.5, 'No data', ha='center', va='center', transform=ax.transAxes)
-            ax.set_title(wrap_text(get_probe_label(probe), 25))
+            ax.set_title(wrap_text(get_detailed_probe_label(probe), 25))
     
     # Hide unused subplots
-    for i in range(len(probe_names), 12):
+    max_subplots = 12  # Scaling law only has Qwen models
+    for i in range(len(probe_names), max_subplots):
         axes[i].set_visible(False)
     
     plt.suptitle(f'Scaling Law: Individual Probe Performance {title_suffix}\nEval Dataset: {wrap_text(eval_dataset)}', 
@@ -1130,131 +1237,115 @@ def generate_all_visualizations(skip_existing: bool = False):
     # Generate main plots (experiment 2 and 4 best probes)
     for eval_dataset in eval_datasets:
         # Experiment 2 best probes - AUC
-        plot_experiment_2_best_probes_auc(
-            eval_dataset, 
-            main_dir / f"experiment_2_best_probes_auc_{eval_dataset}.png"
-        )
+        save_path = main_dir / f"experiment_2_best_probes_auc_{eval_dataset}.png"
+        if not skip_existing or not save_path.exists():
+            plot_experiment_2_best_probes_auc(eval_dataset, save_path)
         
         # Experiment 2 best probes - Recall
-        plot_experiment_2_best_probes_recall(
-            eval_dataset, 
-            main_dir / f"experiment_2_best_probes_recall_{eval_dataset}.png"
-        )
+        save_path = main_dir / f"experiment_2_best_probes_recall_{eval_dataset}.png"
+        if not skip_existing or not save_path.exists():
+            plot_experiment_2_best_probes_recall(eval_dataset, save_path)
         
         # Experiment 4 best probes - AUC
-        plot_experiment_4_best_probes_auc(
-            eval_dataset, 
-            main_dir / f"experiment_4_best_probes_auc_{eval_dataset}.png"
-        )
+        save_path = main_dir / f"experiment_4_best_probes_auc_{eval_dataset}.png"
+        if not skip_existing or not save_path.exists():
+            plot_experiment_4_best_probes_auc(eval_dataset, save_path)
         
         # Experiment 4 best probes - Recall
-        plot_experiment_4_best_probes_recall(
-            eval_dataset, 
-            main_dir / f"experiment_4_best_probes_recall_{eval_dataset}.png"
-        )
+        save_path = main_dir / f"experiment_4_best_probes_recall_{eval_dataset}.png"
+        if not skip_existing or not save_path.exists():
+            plot_experiment_4_best_probes_recall(eval_dataset, save_path)
         
         # LLM upsampling aggregated - AUC
-        plot_llm_upsampling_aggregated_auc(
-            eval_dataset, 
-            main_dir / f"llm_upsampling_aggregated_auc_{eval_dataset}.png"
-        )
+        save_path = main_dir / f"llm_upsampling_aggregated_auc_{eval_dataset}.png"
+        if not skip_existing or not save_path.exists():
+            plot_llm_upsampling_aggregated_auc(eval_dataset, save_path)
         
         # LLM upsampling aggregated - Recall
-        plot_llm_upsampling_aggregated_recall(
-            eval_dataset, 
-            main_dir / f"llm_upsampling_aggregated_recall_{eval_dataset}.png"
-        )
+        save_path = main_dir / f"llm_upsampling_aggregated_recall_{eval_dataset}.png"
+        if not skip_existing or not save_path.exists():
+            plot_llm_upsampling_aggregated_recall(eval_dataset, save_path)
         
         # Scaling law aggregated - AUC
-        plot_scaling_law_aggregated_auc(
-            eval_dataset, 
-            main_dir / f"scaling_law_aggregated_auc_{eval_dataset}.png"
-        )
+        save_path = main_dir / f"scaling_law_aggregated_auc_{eval_dataset}.png"
+        if not skip_existing or not save_path.exists():
+            plot_scaling_law_aggregated_auc(eval_dataset, save_path)
         
         # Scaling law aggregated - Recall
-        plot_scaling_law_aggregated_recall(
-            eval_dataset, 
-            main_dir / f"scaling_law_aggregated_recall_{eval_dataset}.png"
-        )
+        save_path = main_dir / f"scaling_law_aggregated_recall_{eval_dataset}.png"
+        if not skip_existing or not save_path.exists():
+            plot_scaling_law_aggregated_recall(eval_dataset, save_path)
     
     print("Generating other visualizations (subplots)...")
     
     # Generate subplot visualizations
     for eval_dataset in eval_datasets:
         # Experiment 2 subplots
-        plot_probe_subplots_auc(
-            '2-', eval_dataset, 
-            other_dir / f"experiment_2_subplots_auc_{eval_dataset}.png"
-        )
+        save_path = other_dir / f"experiment_2_subplots_auc_{eval_dataset}.png"
+        if not skip_existing or not save_path.exists():
+            plot_probe_subplots_auc('2-', eval_dataset, save_path)
         
         # Experiment 2 subplots
-        plot_probe_subplots_recall(
-            '2-', eval_dataset, 
-            other_dir / f"experiment_2_subplots_recall_{eval_dataset}.png"
-        )
+        save_path = other_dir / f"experiment_2_subplots_recall_{eval_dataset}.png"
+        if not skip_existing or not save_path.exists():
+            plot_probe_subplots_recall('2-', eval_dataset, save_path)
         
         # Experiment 4 subplots
-        plot_probe_subplots_auc(
-            '4-', eval_dataset, 
-            other_dir / f"experiment_4_subplots_auc_{eval_dataset}.png"
-        )
+        save_path = other_dir / f"experiment_4_subplots_auc_{eval_dataset}.png"
+        if not skip_existing or not save_path.exists():
+            plot_probe_subplots_auc('4-', eval_dataset, save_path)
         
         # Experiment 4 subplots
-        plot_probe_subplots_recall(
-            '4-', eval_dataset, 
-            other_dir / f"experiment_4_subplots_recall_{eval_dataset}.png"
-        )
+        save_path = other_dir / f"experiment_4_subplots_recall_{eval_dataset}.png"
+        if not skip_existing or not save_path.exists():
+            plot_probe_subplots_recall('4-', eval_dataset, save_path)
         
         # LLM upsampling subplots
-        plot_llm_upsampling_subplots_auc(
-            eval_dataset, 
-            other_dir / f"llm_upsampling_subplots_auc_{eval_dataset}.png"
-        )
+        save_path = other_dir / f"llm_upsampling_subplots_auc_{eval_dataset}.png"
+        if not skip_existing or not save_path.exists():
+            plot_llm_upsampling_subplots_auc(eval_dataset, save_path)
         
         # LLM upsampling subplots
-        plot_llm_upsampling_subplots_recall(
-            eval_dataset, 
-            other_dir / f"llm_upsampling_subplots_recall_{eval_dataset}.png"
-        )
+        save_path = other_dir / f"llm_upsampling_subplots_recall_{eval_dataset}.png"
+        if not skip_existing or not save_path.exists():
+            plot_llm_upsampling_subplots_recall(eval_dataset, save_path)
         
         # Scaling law subplots - AUC
-        plot_scaling_law_subplots_auc(
-            eval_dataset, 
-            other_dir / f"scaling_law_subplots_auc_{eval_dataset}.png"
-        )
+        save_path = other_dir / f"scaling_law_subplots_auc_{eval_dataset}.png"
+        if not skip_existing or not save_path.exists():
+            plot_scaling_law_subplots_auc(eval_dataset, save_path)
         
         # Scaling law subplots - Recall
-        plot_scaling_law_subplots_recall(
-            eval_dataset, 
-            other_dir / f"scaling_law_subplots_recall_{eval_dataset}.png"
-        )
+        save_path = other_dir / f"scaling_law_subplots_recall_{eval_dataset}.png"
+        if not skip_existing or not save_path.exists():
+            plot_scaling_law_subplots_recall(eval_dataset, save_path)
     
     print("Generating heatmap visualizations...")
     
     for eval_dataset in eval_datasets:
         # Scaling Law Heatmap - AUC
-        plot_scaling_law_heatmap_auc(
-            eval_dataset,
-            main_dir / f"scaling_law_heatmap_auc_{eval_dataset}.png"
-        )
+        save_path = main_dir / f"scaling_law_heatmap_auc_{eval_dataset}.png"
+        if not skip_existing or not save_path.exists():
+            # TODO: Recreate heatmap functions
+            print(f"Skipping heatmap generation - functions need to be recreated")
         
         # Scaling Law Heatmap - Recall
-        plot_scaling_law_heatmap_recall(
-            eval_dataset,
-            main_dir / f"scaling_law_heatmap_recall_{eval_dataset}.png"
-        )
+        save_path = main_dir / f"scaling_law_heatmap_recall_{eval_dataset}.png"
+        if not skip_existing or not save_path.exists():
+            # TODO: Recreate heatmap functions
+            print(f"Skipping heatmap generation - functions need to be recreated")
         
         # LLM Upsampling Heatmap - AUC
-        plot_llm_upsampling_heatmap_auc(
-            eval_dataset,
-            main_dir / f"llm_upsampling_heatmap_auc_{eval_dataset}.png"
-        )
+        save_path = main_dir / f"llm_upsampling_heatmap_auc_{eval_dataset}.png"
+        if not skip_existing or not save_path.exists():
+            # TODO: Recreate heatmap functions
+            print(f"Skipping heatmap generation - functions need to be recreated")
         
         # LLM Upsampling Heatmap - Recall
-        plot_llm_upsampling_heatmap_recall(
-            eval_dataset,
-            main_dir / f"llm_upsampling_heatmap_recall_{eval_dataset}.png"
-        )
+        save_path = main_dir / f"llm_upsampling_heatmap_recall_{eval_dataset}.png"
+        if not skip_existing or not save_path.exists():
+            # TODO: Recreate heatmap functions
+            print(f"Skipping heatmap generation - functions need to be recreated")
     
     print("All visualizations generated successfully!")
     print(f"Main plots saved to: {main_dir}")
@@ -1271,7 +1362,7 @@ def get_probe_names_for_model(run_name: str) -> list:
         # Gemma has 8 SAE probes (2 different SAEs for each aggregation)
         probe_names = [
             'act_sim_last', 'act_sim_max', 'act_sim_mean', 'act_sim_softmax',
-            'linear_last', 'linear_max', 'linear_mean', 'linear_softmax',
+            'sklearn_linear_last', 'sklearn_linear_max', 'sklearn_linear_mean', 'sklearn_linear_softmax',
             'sae_last', 'sae_max', 'sae_mean', 'sae_softmax',
             'sae2_last', 'sae2_max', 'sae2_mean', 'sae2_softmax'  # Second SAE variant
         ]
@@ -1279,7 +1370,31 @@ def get_probe_names_for_model(run_name: str) -> list:
         # Qwen and other models have 4 SAE probes
         probe_names = [
             'act_sim_last', 'act_sim_max', 'act_sim_mean', 'act_sim_softmax',
-            'linear_last', 'linear_max', 'linear_mean', 'linear_softmax',
+            'sklearn_linear_last', 'sklearn_linear_max', 'sklearn_linear_mean', 'sklearn_linear_softmax',
+            'sae_last', 'sae_max', 'sae_mean', 'sae_softmax'
+        ]
+    return probe_names
+
+
+def get_probe_names_for_subplots(run_name: str = None) -> list:
+    """
+    Get probe names for subplot visualizations.
+    For Gemma models, we show 16 probes (4 act_sim + 4 linear + 8 SAE).
+    For Qwen models, we show 12 probes (4 act_sim + 4 linear + 4 SAE).
+    """
+    if run_name and 'gemma' in run_name.lower():
+        # Gemma has 16 probes total
+        probe_names = [
+            'act_sim_last', 'act_sim_max', 'act_sim_mean', 'act_sim_softmax',
+            'sklearn_linear_last', 'sklearn_linear_max', 'sklearn_linear_mean', 'sklearn_linear_softmax',
+            'sae_last', 'sae_max', 'sae_mean', 'sae_softmax',
+            'sae2_last', 'sae2_max', 'sae2_mean', 'sae2_softmax'
+        ]
+    else:
+        # Qwen and other models have 12 probes total
+        probe_names = [
+            'act_sim_last', 'act_sim_max', 'act_sim_mean', 'act_sim_softmax',
+            'sklearn_linear_last', 'sklearn_linear_max', 'sklearn_linear_mean', 'sklearn_linear_softmax',
             'sae_last', 'sae_max', 'sae_mean', 'sae_softmax'
         ]
     return probe_names

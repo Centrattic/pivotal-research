@@ -497,11 +497,26 @@ def train_single_probe(
             device=config['device'],
             config=probe_config_dict,
         )
-        logger.log(f"  [DEBUG] Fitting attention probe normally...")
-        probe.fit(
-            train_acts,
-            y_train,
+
+        # Always run hyperparameter sweep; saves all best-per-weight-decay probes under trained/
+        logger.log(f"  [DEBUG] Using find_best_fit for attention probe hyperparameter optimization (always)")
+
+        probe_save_dir_for_sweep = probe_save_dir
+        probe_filename_base_for_sweep = probe_filename_base
+
+        _ = probe.find_best_fit(
+            X_train=train_acts,
+            y_train=y_train,
+            masks_train=train_masks,
+            epochs=job.probe_config.epochs,
+            verbose=job.probe_config.verbose,
+            probe_save_dir=probe_save_dir_for_sweep,
+            probe_filename_base=probe_filename_base_for_sweep,
+            lr_values=None, # use defaults in method
+            weight_decay_values=None, # use defaults in method
         )
+
+        # We do not rename or overwrite probe_state_path here; evaluation will scan all saved states
 
     elif job.architecture_name == "sae" or job.architecture_name.startswith("sae"):
         # SAE probe
@@ -573,6 +588,14 @@ def train_single_probe(
         'probe_state_path': str(probe_state_path),
         'on_policy': job.on_policy,
     }
+    
+    # Add best hyperparameters for attention probes that used find_best_fit
+    if job.architecture_name == "attention" and hasattr(job.probe_config, 'lr') and job.probe_config.lr != 5e-4:
+        meta['best_hyperparameters'] = {
+            'lr': job.probe_config.lr,
+            'weight_decay': job.probe_config.weight_decay,
+            'final_loss': getattr(probe, 'loss_history', [])[-1] if hasattr(probe, 'loss_history') and probe.loss_history else None,
+        }
     # yapf: enable
     with open(
             probe_json_path,
@@ -636,26 +659,31 @@ def evaluate_single_probe(
     experiment_dir = results_dir.parent  # e.g., .../seed_42/<experiment>
     trained_dir = experiment_dir / "trained"
 
-    if job.rebuild_config is not None:
-        suffix = rebuild_suffix(job.rebuild_config)
-        # Rebuild states are saved directly under trained/
-        probe_state_path = trained_dir / f"{probe_filename_with_hparams}_{suffix}_state.npz"
-        eval_results_path = results_dir / f"eval_on_{eval_dataset}__{probe_filename_with_hparams}_{suffix}_seed{job.seed}_{agg_name}_results.json"
-    else:
-        # Normal training states are saved directly under trained/
-        probe_state_path = trained_dir / f"{probe_filename_with_hparams}_state.npz"
-        eval_results_path = results_dir / f"eval_on_{eval_dataset}__{probe_filename_with_hparams}_seed{job.seed}_{agg_name}_results.json"
+    # Attention special-case: evaluate all swept attention probe states present in trained/
+    attention_eval_many = (job.architecture_name == "attention")
 
-    if config.get(
-            'cache_activations',
-            True,
-    ) and eval_results_path.exists() and not rerun:
-        logger.log("  - 😋 Using cached evaluation result ")
-        with open(
-                eval_results_path,
-                "r",
-        ) as f:
-            return json.load(f)["metrics"]
+    if not attention_eval_many:
+        if job.rebuild_config is not None:
+            suffix = rebuild_suffix(job.rebuild_config)
+            # Rebuild states are saved directly under trained/
+            probe_state_path = trained_dir / f"{probe_filename_with_hparams}_{suffix}_state.npz"
+            eval_results_path = results_dir / f"eval_on_{eval_dataset}__{probe_filename_with_hparams}_{suffix}_seed{job.seed}_{agg_name}_results.json"
+        else:
+            # Normal training states are saved directly under trained/
+            probe_state_path = trained_dir / f"{probe_filename_with_hparams}_state.npz"
+            eval_results_path = results_dir / f"eval_on_{eval_dataset}__{probe_filename_with_hparams}_seed{job.seed}_{agg_name}_results.json"
+
+    if not attention_eval_many:
+        if config.get(
+                'cache_activations',
+                True,
+        ) and eval_results_path.exists() and not rerun:
+            logger.log("  - 😋 Using cached evaluation result ")
+            with open(
+                    eval_results_path,
+                    "r",
+            ) as f:
+                return json.load(f)["metrics"]
 
     # Load probe
     probe_config_dict = asdict(job.probe_config)
@@ -702,7 +730,9 @@ def evaluate_single_probe(
     else:
         raise ValueError(f"Unknown architecture_name: {job.architecture_name}")
 
-    probe.load_state(probe_state_path)
+    # For attention sweeps, we'll iterate over all saved states; otherwise load a single state
+    if not attention_eval_many:
+        probe.load_state(probe_state_path)
 
     # Get batch_size from probe config for evaluation
     # For SAE probes, use training_batch_size; for others, use batch_size
@@ -798,51 +828,48 @@ def evaluate_single_probe(
     # Get activation extraction format from config
     format_type = config['activation_extraction']['format_type']
 
-    # Get activations using the unified method
-    test_result = eval_ds.get_test_set_activations(
-        job.layer,
-        job.component,
-        format_type,
-        activation_type=activation_type,
-        on_policy=job.on_policy,
-    )
+    # Get activations using the unified method (val vs test based on only_test)
+    if only_test:
+        acts_result = eval_ds.get_test_set_activations(
+            job.layer,
+            job.component,
+            format_type,
+            activation_type=activation_type,
+            on_policy=job.on_policy,
+        )
+    else:
+        acts_result = eval_ds.get_val_set_activations(
+            job.layer,
+            job.component,
+            format_type,
+            activation_type=activation_type,
+            on_policy=job.on_policy,
+        )
 
     # Handle different return formats (with/without masks)
-    if len(test_result) == 3:
-        test_acts, test_masks, y_test = test_result
+    if len(acts_result) == 3:
+        test_acts, test_masks, y_test = acts_result
     else:
-        test_acts, y_test = test_result
+        test_acts, y_test = acts_result
         test_masks = None
 
     print(f"Test activations: {len(test_acts) if isinstance(test_acts, list,) else test_acts.shape}")
 
     # Calculate metrics
     logger.log(f"  - 🤗 Calculating metrics...")
-    if job.architecture_name == "attention" or job.architecture_name == "act_sim":
-        # Attention probes and activation similarity probes don't use masks
-        metrics = probe.score(
-            test_acts,
-            y_test,
-        )
-    else:
-        # Other probes use masks
-        metrics = probe.score(
-            test_acts,
-            y_test,
-            masks=test_masks,
-        )
+    def _score_probe(p: Any) -> Dict[str, Any]:
+        if job.architecture_name == "attention" or job.architecture_name == "act_sim":
+            return p.score(test_acts, y_test)
+        else:
+            return p.score(test_acts, y_test, masks=test_masks)
 
     # Save metrics and per-datapoint scores/labels
     # Compute per-datapoint probe scores (logits) and labels
-    if job.architecture_name == "attention" or job.architecture_name == "act_sim":
-        # Attention probes and activation similarity probes don't use masks
-        test_scores = probe.predict_logits(test_acts)
-    else:
-        # Other probes use masks
-        test_scores = probe.predict_logits(
-            test_acts,
-            masks=test_masks,
-        )
+    def _predict_scores(p: Any):
+        if job.architecture_name == "attention" or job.architecture_name == "act_sim":
+            return p.predict_logits(test_acts)
+        else:
+            return p.predict_logits(test_acts, masks=test_masks)
     # Flatten if shape is (N, 1)
     if hasattr(
             test_scores,
@@ -861,15 +888,43 @@ def evaluate_single_probe(
         exist_ok=True,
     )
 
-    with open(
-            eval_results_path,
-            "w",
-    ) as f:
-        json.dump(
-            output_dict,
-            f,
-            indent=2,
-        )
+    if not attention_eval_many:
+        with open(
+                eval_results_path,
+                "w",
+        ) as f:
+            json.dump(
+                output_dict,
+                f,
+                indent=2,
+            )
+        # Log the results
+        logger.log(f"  - ❤️‍🔥 Success! Metrics: {metrics}")
+        return
+
+    # Attention sweep: iterate all saved attention states in trained/ and write individual eval files
+    # Pattern: <probe_filename_base>_lr_*_wd_*_state.npz
+    base_glob = f"{probe_filename_base}_lr_*_wd_*_state.npz"
+    for state_path in sorted(trained_dir.glob(base_glob)):
+        try:
+            probe.load_state(state_path)
+            metrics = _score_probe(probe)
+            scores_arr = _predict_scores(probe)
+            if hasattr(scores_arr, 'shape') and len(scores_arr.shape) == 2 and scores_arr.shape[1] == 1:
+                scores_arr = scores_arr[:, 0]
+            scores_list = scores_arr.tolist()
+            labels_list = y_test.tolist()
+
+            # Compose eval filename including lr/wd token from state name
+            stem = state_path.stem.replace("_state", "")
+            eval_path = results_dir / f"eval_on_{eval_dataset}__{stem}_seed{job.seed}_{agg_name}_results.json"
+            payload = {"metrics": metrics, "scores": {"scores": scores_list, "labels": labels_list}}
+            with open(eval_path, "w") as f:
+                json.dump(payload, f, indent=2)
+            logger.log(f"  - ✅ Evaluated {state_path.name}")
+        except Exception as e:
+            logger.log(f"  - ⚠️ Skipped {state_path.name} due to error: {e}")
+    return
 
     # Log the results
     logger.log(f"  - ❤️‍🔥 Success! Metrics: {metrics}")

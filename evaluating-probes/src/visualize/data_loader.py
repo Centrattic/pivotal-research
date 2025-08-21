@@ -95,15 +95,40 @@ def extract_info_from_filename(filename: str) -> Dict[str, str]:
             info['probe_name'] = 'act_sim_softmax'
     elif 'sae' in filename:
         probe_architecture = 'sae'
-        # For SAE probes, extract just the aggregation method
-        if 'sae_last' in filename:
-            info['probe_name'] = 'sae_last'
-        elif 'sae_max' in filename:
-            info['probe_name'] = 'sae_max'
-        elif 'sae_mean' in filename:
-            info['probe_name'] = 'sae_mean'
-        elif 'sae_softmax' in filename:
-            info['probe_name'] = 'sae_softmax'
+        # For SAE probes, we need to distinguish between different SAE variants
+        # Check if this is a Gemma experiment (which has 2 different SAEs)
+        if 'gemma' in filename.lower():
+            # Gemma has 2 different SAEs - check for the second variant
+            if 'sae2_' in filename or 'sae_262k' in filename:
+                # Second SAE variant for Gemma
+                if 'sae_last' in filename:
+                    info['probe_name'] = 'sae2_last'
+                elif 'sae_max' in filename:
+                    info['probe_name'] = 'sae2_max'
+                elif 'sae_mean' in filename:
+                    info['probe_name'] = 'sae2_mean'
+                elif 'sae_softmax' in filename:
+                    info['probe_name'] = 'sae2_softmax'
+            else:
+                # First SAE variant for Gemma
+                if 'sae_last' in filename:
+                    info['probe_name'] = 'sae_last'
+                elif 'sae_max' in filename:
+                    info['probe_name'] = 'sae_max'
+                elif 'sae_mean' in filename:
+                    info['probe_name'] = 'sae_mean'
+                elif 'sae_softmax' in filename:
+                    info['probe_name'] = 'sae_softmax'
+        else:
+            # Qwen and other models have only one SAE variant
+            if 'sae_last' in filename:
+                info['probe_name'] = 'sae_last'
+            elif 'sae_max' in filename:
+                info['probe_name'] = 'sae_max'
+            elif 'sae_mean' in filename:
+                info['probe_name'] = 'sae_mean'
+            elif 'sae_softmax' in filename:
+                info['probe_name'] = 'sae_softmax'
     elif 'sklearn_linear' in filename:
         probe_architecture = 'sklearn_linear'
         if 'sklearn_linear_last' in filename:
@@ -227,15 +252,27 @@ def get_data_for_visualization(
     
     if probe_name is not None:
         if 'sae' in probe_name:
-            # For SAE probes, match the aggregation method
-            if 'last' in probe_name:
-                df = df[df['filename'].str.contains('sae.*_last_')]
-            elif 'max' in probe_name:
-                df = df[df['filename'].str.contains('sae.*_max_')]
-            elif 'mean' in probe_name:
-                df = df[df['filename'].str.contains('sae.*_mean_')]
-            elif 'softmax' in probe_name:
-                df = df[df['filename'].str.contains('sae.*_softmax_')]
+            # For SAE probes, match the specific probe name
+            if 'sae2_' in probe_name:
+                # Second SAE variant (for Gemma)
+                if 'last' in probe_name:
+                    df = df[df['filename'].str.contains('sae.*_last_') & df['filename'].str.contains('sae2_|sae_262k')]
+                elif 'max' in probe_name:
+                    df = df[df['filename'].str.contains('sae.*_max_') & df['filename'].str.contains('sae2_|sae_262k')]
+                elif 'mean' in probe_name:
+                    df = df[df['filename'].str.contains('sae.*_mean_') & df['filename'].str.contains('sae2_|sae_262k')]
+                elif 'softmax' in probe_name:
+                    df = df[df['filename'].str.contains('sae.*_softmax_') & df['filename'].str.contains('sae2_|sae_262k')]
+            else:
+                # First SAE variant (for Gemma) or only SAE variant (for Qwen)
+                if 'last' in probe_name:
+                    df = df[df['filename'].str.contains('sae.*_last_') & ~df['filename'].str.contains('sae2_|sae_262k')]
+                elif 'max' in probe_name:
+                    df = df[df['filename'].str.contains('sae.*_max_') & ~df['filename'].str.contains('sae2_|sae_262k')]
+                elif 'mean' in probe_name:
+                    df = df[df['filename'].str.contains('sae.*_mean_') & ~df['filename'].str.contains('sae2_|sae_262k')]
+                elif 'softmax' in probe_name:
+                    df = df[df['filename'].str.contains('sae.*_softmax_') & ~df['filename'].str.contains('sae2_|sae_262k')]
         else:
             df = df[df['filename'].str.contains(probe_name)]
     

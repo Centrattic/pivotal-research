@@ -4,9 +4,44 @@ import csv
 from typing import List, Set
 from tqdm import tqdm
 from joblib import Parallel, delayed
+import json
+import numpy as np
 
-# Reuse robust readers/metrics from viz_core
-from .viz_core import get_scores_and_labels, auc as auc_metric, recall_at_fpr
+# Functions from old viz_core that are needed
+def get_scores_and_labels(result_path: str):
+    with open(result_path, 'r') as f:
+        d = json.load(f)
+    if 'scores' in d and isinstance(d['scores'], dict) and 'scores' in d['scores']:
+        return np.array(d['scores']['scores']), np.array(d['scores']['labels'])
+    if 'filtered_scores' in d:
+        return np.array(d['filtered_scores']['scores']), np.array(d['filtered_scores']['labels'])
+    if 'all_scores' in d:
+        return np.array(d['all_scores']['scores']), np.array(d['all_scores']['labels'])
+    if 'scores' in d and isinstance(d['scores'], list):
+        return np.array(d['scores']), np.array(d.get('labels', []))
+    raise ValueError(f"Could not parse scores/labels from {result_path}")
+
+def auc(labels: np.ndarray, scores: np.ndarray) -> float:
+    from sklearn.metrics import roc_auc_score
+    from scipy.special import expit
+    return float(roc_auc_score(labels, expit(scores)))
+
+def recall_at_fpr(labels: np.ndarray, scores: np.ndarray, fpr_target: float) -> float:
+    from scipy.special import expit
+    s = expit(scores)
+    thresholds = np.unique(s)[::-1]
+    best = 0.0
+    for thresh in thresholds:
+        preds = (s >= thresh).astype(int)
+        tp = np.sum((preds == 1) & (labels == 1))
+        fn = np.sum((preds == 0) & (labels == 1))
+        fp = np.sum((preds == 1) & (labels == 0))
+        tn = np.sum((preds == 0) & (labels == 0))
+        fpr = fp / (fp + tn) if (fp + tn) > 0 else 0.0
+        rec = tp / (tp + fn) if (tp + fn) > 0 else 0.0
+        if fpr <= fpr_target and rec > best:
+            best = rec
+    return float(best)
 
 def enumerate_result_files(results_root: Path, run_name: str) -> List[Path]:
     run_root = results_root / run_name
@@ -46,7 +81,7 @@ def process_file(path: Path, repo_root: Path, fpr: float, verbose: bool):
     """Process a single result file and return metrics."""
     try:
         scores, labels = get_scores_and_labels(str(path))
-        auc_val = auc_metric(labels, scores)
+        auc_val = auc(labels, scores)
         rec_val = recall_at_fpr(labels, scores, fpr)
         # Filename must start with results/...
         rel = path.relative_to(repo_root)
