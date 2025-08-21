@@ -132,6 +132,7 @@ class SAEProbe(BaseProbe):
         training_batch_size: int = 64,
         # sklearn hyperparams
         solver: str = "liblinear",
+        penalty: str = "l1",
         C: float = 1.0,
         max_iter: int = 1500,
         class_weight: str = "balanced",
@@ -166,12 +167,14 @@ class SAEProbe(BaseProbe):
 
         # sklearn components
         self.solver = solver
+        self.penalty = penalty
         self.C = C
         self.max_iter = max_iter
         self.class_weight = class_weight
         self.random_state = random_state
         self.sklearn_model = LogisticRegression(
             solver=self.solver,
+            penalty=self.penalty,
             C=self.C,
             max_iter=self.max_iter,
             class_weight=self.class_weight,
@@ -722,6 +725,7 @@ class SAEProbe(BaseProbe):
             encoding_batch_size=self.encoding_batch_size,
             training_batch_size=self.training_batch_size,
             solver=self.solver,
+            penalty=self.penalty,
             C=self.C,
             max_iter=self.max_iter,
             class_weight=self.class_weight,
@@ -773,6 +777,10 @@ class SAEProbe(BaseProbe):
             'solver',
             self.solver,
         ))
+        self.penalty = str(state.get(
+            'penalty',
+            getattr(self, 'penalty', 'l2'),
+        ))
         self.C = float(state.get(
             'C',
             self.C,
@@ -793,6 +801,7 @@ class SAEProbe(BaseProbe):
         # Recreate sklearn model with hyperparams
         self.sklearn_model = LogisticRegression(
             solver=self.solver,
+            penalty=self.penalty,
             C=self.C,
             max_iter=self.max_iter,
             class_weight=self.class_weight,

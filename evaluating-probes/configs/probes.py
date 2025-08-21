@@ -73,6 +73,7 @@ class SAEProbeConfig(ProbeConfig):
 
     # Sklearn LogisticRegression hyperparameters
     solver: str = "liblinear" 
+    penalty: str = "l1"  # L1 regularization for SAE probes
     C: float = 1.0  # Inverse of regularization strength
     max_iter: int = 1500
     class_weight: str = "balanced"  # balanced, None

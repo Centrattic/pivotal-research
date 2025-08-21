@@ -294,7 +294,7 @@ def generate_hyperparameter_sweep(
     # TOP_K_VALUES = [3584]
 
     C_VALUES = [1e-3, 1e-2, 1e-1, 1e0, 1e1, 1e2, 1e3, 1e4] # all we have time for
-    TOP_K_VALUES = [128, 256, 512, 1024, 2048, 4096, 8192]
+    TOP_K_VALUES = [128, 256, 512, 1024, 2048, 3584, 4096, 8192]
     # Sweep over top k values
     # LR and weight decay handled by find_best_fit and attention
 

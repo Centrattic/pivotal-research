@@ -875,14 +875,16 @@ def evaluate_single_probe(
     if not attention_eval_many:
         metrics = _score_probe(probe)
         test_scores = _predict_scores(probe)
-    # Flatten if shape is (N, 1)
-    if hasattr(
-            test_scores,
-            'shape',
-    ) and len(test_scores.shape) == 2 and test_scores.shape[1] == 1:
-        test_scores = test_scores[:, 0]
-    test_scores = test_scores.tolist()
-    test_labels = y_test.tolist()
+    # Flatten/sanitize scores only for single-probe path
+    if not attention_eval_many:
+        # Flatten if shape is (N, 1)
+        if hasattr(
+                test_scores,
+                'shape',
+        ) and len(test_scores.shape) == 2 and test_scores.shape[1] == 1:
+            test_scores = test_scores[:, 0]
+        test_scores = test_scores.tolist()
+        test_labels = y_test.tolist()
 
     # Build output structure
     if not attention_eval_many:
