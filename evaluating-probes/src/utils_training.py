@@ -271,13 +271,22 @@ def train_single_probe(
         probe_state_path = probe_save_dir / f"{probe_filename_with_hparams}_state.npz"
         probe_json_path = probe_save_dir / f"{probe_filename_with_hparams}_meta.json"
 
-    # EARLY CHECK: If probe already exists and we're not rerunning, skip immediately
+    # EARLY CHECK: Skip only when appropriate
     if config.get(
             'cache_activations',
             True,
-    ) and probe_state_path.exists() and not rerun:
-        logger.log(f"  - [SKIP] Probe already trained: {probe_state_path.name}")
-        return
+    ) and not rerun:
+        if job.architecture_name == "attention":
+            # For attention sweeps, skip training only if swept files already exist
+            sweep_pattern = f"{probe_filename_base}_lr_*_wd_*_state.npz"
+            has_swept = any(probe_save_dir.glob(sweep_pattern))
+            if has_swept:
+                logger.log(f"  - [SKIP] Attention sweep already present in {probe_save_dir} (pattern: {sweep_pattern})")
+                return
+        else:
+            if probe_state_path.exists():
+                logger.log(f"  - [SKIP] Probe already trained: {probe_state_path.name}")
+                return
 
     logger.log("  - Training new probe …")
 
