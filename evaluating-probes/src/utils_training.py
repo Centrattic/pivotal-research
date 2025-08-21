@@ -891,10 +891,16 @@ def evaluate_single_probe(
         output_dict = {"metrics": metrics, "scores": {"scores": test_scores, "labels": test_labels}}
 
     # Ensure the directory exists
-    eval_results_path.parent.mkdir(
-        parents=True,
-        exist_ok=True,
-    )
+    if not attention_eval_many:
+        eval_results_path.parent.mkdir(
+            parents=True,
+            exist_ok=True,
+        )
+    else:
+        results_dir.mkdir(
+            parents=True,
+            exist_ok=True,
+        )
 
     if not attention_eval_many:
         with open(
