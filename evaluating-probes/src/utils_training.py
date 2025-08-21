@@ -870,6 +870,11 @@ def evaluate_single_probe(
             return p.predict_logits(test_acts)
         else:
             return p.predict_logits(test_acts, masks=test_masks)
+    
+    # Compute metrics and scores for the single-probe path upfront
+    if not attention_eval_many:
+        metrics = _score_probe(probe)
+        test_scores = _predict_scores(probe)
     # Flatten if shape is (N, 1)
     if hasattr(
             test_scores,
@@ -880,7 +885,8 @@ def evaluate_single_probe(
     test_labels = y_test.tolist()
 
     # Build output structure
-    output_dict = {"metrics": metrics, "scores": {"scores": test_scores, "labels": test_labels}}
+    if not attention_eval_many:
+        output_dict = {"metrics": metrics, "scores": {"scores": test_scores, "labels": test_labels}}
 
     # Ensure the directory exists
     eval_results_path.parent.mkdir(
