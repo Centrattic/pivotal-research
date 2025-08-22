@@ -63,6 +63,7 @@ def extract_info_from_filename(filename: str) -> Dict[str, str]:
                 if 'attention' in filename:
                     # For attention probes, we need to look for different patterns
                     # Let's check for patterns like class0_X_class1_Y in the filename
+                    # This should work for both old and new attention probe patterns
                     attention_class_match = re.search(r'class0_(\d+)_class1_(\d+)', filename)
                     if attention_class_match:
                         info['num_negative_samples'] = int(attention_class_match.group(1))
@@ -388,15 +389,19 @@ def filter_linear_probes_c_1_0(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def filter_default_attention_probes(df: pd.DataFrame) -> pd.DataFrame:
-    """Filter DataFrame to only include default attention probes (without wd_ and lr_ parameters)."""
+    """Filter DataFrame to only include default attention probes (no wd_/lr_ parameters OR specific default values)."""
     # Filter for attention probes
     attention_df = df[df['probe_name'].str.contains('attention', na=False)]
     
-    # Filter for default attention probes (no wd_ and lr_ parameters)
-    # Default attention probes don't have explicit wd_ and lr_ in filename
+    # Filter for default attention probes:
+    # 1. No wd_ and lr_ parameters in filename, OR
+    # 2. Specific default values: lr_6p31e-04_wd_0p00e00
     filtered_df = attention_df[
-        (~attention_df['filename'].str.contains('wd_', na=False)) &  # No weight decay parameter
-        (~attention_df['filename'].str.contains('lr_', na=False))    # No learning rate parameter
+        (
+            (~attention_df['filename'].str.contains('wd_', na=False)) &  # No weight decay parameter
+            (~attention_df['filename'].str.contains('lr_', na=False))    # No learning rate parameter
+        ) |
+        (attention_df['filename'].str.contains('lr_6p31e-04_wd_0p00e00', na=False))  # Specific default values
     ]
     
     return filtered_df
