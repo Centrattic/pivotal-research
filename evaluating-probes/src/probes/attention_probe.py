@@ -41,19 +41,21 @@ class AttentionProbeNet(nn.Module):
         # x: (batch, seq, d_model) - all positions are valid, let attention learn importance
         attn_scores = self.context_query(x).squeeze(-1) / self.scale
         # No masking - let attention learn which positions are important
+        
+        # Handle softmax computation robustly
         if x.device.type == 'cpu':
+            # On CPU, use float32 for numerical stability
             attn_weights = torch.softmax(
                 attn_scores.float(),
                 dim=-1,
             ).to(attn_scores.dtype)
         else:
+            # On GPU, can use bfloat16
             attn_weights = torch.softmax(
                 attn_scores,
                 dim=-1,
             )
-        token_logits = self.classifier(x).squeeze(-1)
-        # No masking of token logits - let the model learn
-
+        
         # Compute weighted context (promote to float32 on CPU for op support)
         if x.device.type == 'cpu':
             context = torch.einsum(
@@ -67,6 +69,8 @@ class AttentionProbeNet(nn.Module):
                 attn_weights,
                 x,
             )
+        
+        # Final classification
         sequence_logits = self.classifier(context).squeeze(-1)
 
         return sequence_logits
@@ -143,7 +147,7 @@ class AttentionProbe(BaseProbe):
                 -5,
                 -2,
                 6,
-            )  # 8 learning rates from 1e-5 to 1e-2
+            )  # 6 learning rates from 1e-5 to 1e-2
         if weight_decay_values is None:
             weight_decay_values = np.logspace(
                 -6,
@@ -173,7 +177,7 @@ class AttentionProbe(BaseProbe):
             y_train,
             dtype=torch.float32,
             device=self.device,
-        )  # Keep labels as float32 for loss
+        )  # Keep labels as float32 for loss computation
 
         # Create dataset and dataloader (no masks needed for attention probe)
         dataset = torch.utils.data.TensorDataset(
@@ -318,25 +322,12 @@ class AttentionProbe(BaseProbe):
                 print(f"  lr={lr:.2e}, wd={weight_decay:.2e}: final_loss={final_losses[i]:.6f}{marker}")
             print(f"  * = weight_decay=0.0 (preferred for selection)")
 
-        # Save best probe per weight decay if directory provided
+        # Save ALL probes if directory provided (not just best per weight decay)
         if probe_save_dir is not None and probe_filename_base is not None:
-            # Group by weight decay and find best for each
-            wd_to_results = {}
+            # Save all hyperparameter combinations for evaluation
             for i, (lr, weight_decay) in enumerate(hyperparam_combinations):
-                if weight_decay not in wd_to_results:
-                    wd_to_results[weight_decay] = []
-                wd_to_results[weight_decay].append((i, lr, final_losses[i]))
-
-            # Save best probe for each weight decay directly in the main directory
-            for weight_decay, results in wd_to_results.items():
-                # Find best (lowest loss) for this weight decay
-                best_idx, best_lr, best_loss = min(
-                    results,
-                    key=lambda x: x[2],
-                )
-
-                # Create filename with best learning rate for this weight decay
-                lr_str = f"{best_lr:.2e}".replace(
+                # Create filename with current hyperparameters
+                lr_str = f"{lr:.2e}".replace(
                     "+",
                     "",
                 ).replace(
@@ -353,11 +344,22 @@ class AttentionProbe(BaseProbe):
                 probe_filename = f"{probe_filename_base}_lr_{lr_str}_wd_{wd_str}_state.npz"
                 probe_path = probe_save_dir / probe_filename
 
-                # Save the best probe for this weight decay
-                probes[best_idx].save_state(probe_path)
+                # Save the probe state
+                probes[i].save_state(probe_path)
 
-                if verbose:
-                    print(f"  Saved best probe for wd={weight_decay:.2e}: lr={best_lr:.2e}, loss={best_loss:.6f}")
+                # Save individual train log for this hyperparameter combination
+                train_log_filename = f"{probe_filename_base}_lr_{lr_str}_wd_{wd_str}_state_train_log.json"
+                train_log_path = probe_save_dir / train_log_filename
+                
+                train_log_data = {
+                    "loss_history": loss_histories[i]
+                }
+                
+                with open(train_log_path, 'w') as f:
+                    json.dump(train_log_data, f, indent=2)
+
+                if verbose and i % 5 == 0:  # Print every 5th to avoid spam
+                    print(f"  Saved probe {i+1}/{len(probes)}: lr={lr:.2e}, wd={weight_decay:.2e}, loss={final_losses[i]:.6f}")
 
         # Update current probe with best parameters
         self.model = best_probe.model
@@ -369,16 +371,15 @@ class AttentionProbe(BaseProbe):
 
             # Create summary of best learning rate for each weight decay
             best_per_wd = {}
-            for weight_decay, results in wd_to_results.items():
-                best_idx, best_lr, best_loss = min(
-                    results,
-                    key=lambda x: x[2],
-                )
-                best_per_wd[f"wd_{weight_decay:.2e}"] = {
-                    'best_lr': best_lr, 'best_loss': best_loss, 'all_lrs':
-                    {f"lr_{lr:.2e}": loss
-                     for _, lr, loss in results}
-                }
+            for weight_decay in weight_decay_values:
+                wd_results = [(i, lr, final_losses[i]) for i, (lr, wd) in enumerate(hyperparam_combinations) if wd == weight_decay]
+                if wd_results:
+                    best_idx, best_lr, best_loss = min(wd_results, key=lambda x: x[2])
+                    best_per_wd[f"wd_{weight_decay:.2e}"] = {
+                        'best_lr': best_lr, 'best_loss': best_loss, 'all_lrs':
+                        {f"lr_{lr:.2e}": loss
+                         for _, lr, loss in wd_results}
+                    }
 
             best_params = {
                 'selected_lr': best_lr, 'selected_weight_decay': best_weight_decay, 'selected_final_loss': best_loss,

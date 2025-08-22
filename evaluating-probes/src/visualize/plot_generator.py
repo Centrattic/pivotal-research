@@ -170,25 +170,32 @@ def apply_main_plot_filters(df: pd.DataFrame) -> pd.DataFrame:
     - For linear probes: only C=1.0 (or no C specified)
     - For attention probes: only default probes (no wd_ and lr_ parameters)
     """
-    # For now, let's temporarily disable all filtering to see if that's the issue
-    # This will help us identify if the filtering is causing the problem
-    print("WARNING: Temporarily disabled all filtering to debug the issue!")
-    return df
+    # Split data by probe type to apply specific filters
+    gemma_df = df[df['run_name'].str.contains('gemma', case=False, na=False)]
+    non_gemma_df = df[~df['run_name'].str.contains('gemma', case=False, na=False)]
     
-    # # Apply Gemma SAE topk=1024 filter to Gemma data only
-    # filtered_gemma_df = filter_gemma_sae_topk_1024(gemma_df)
+    # Apply Gemma SAE topk=1024 filter to Gemma data only
+    filtered_gemma_df = filter_gemma_sae_topk_1024(gemma_df)
     
-    # # Combine filtered Gemma data with non-Gemma data
-    # combined_df = pd.concat([filtered_gemma_df, non_gemma_df], ignore_index=True)
+    # Combine filtered Gemma data with non-Gemma data
+    combined_df = pd.concat([filtered_gemma_df, non_gemma_df], ignore_index=True)
     
-    # # Apply linear probe C=1.0 filter only to linear probes, keep other probe types
-    # linear_probes = combined_df[combined_df['probe_name'].str.contains('sklearn_linear', na=False)]
-    # other_probes = combined_df[~combined_df['probe_name'].str.contains('sklearn_linear', na=False)]
+    # Split by probe type for specific filtering
+    linear_probes = combined_df[combined_df['probe_name'].str.contains('sklearn_linear', na=False)]
+    attention_probes = combined_df[combined_df['probe_name'].str.contains('attention', na=False)]
+    other_probes = combined_df[
+        (~combined_df['probe_name'].str.contains('sklearn_linear', na=False)) & 
+        (~combined_df['probe_name'].str.contains('attention', na=False))
+    ]
     
-    # filtered_linear_probes = filter_linear_probes_c_1_0(linear_probes)
-    # filtered_df = pd.concat([filtered_linear_probes, other_probes], ignore_index=True)
+    # Apply specific filters
+    filtered_linear_probes = filter_linear_probes_c_1_0(linear_probes)
+    filtered_attention_probes = filter_default_attention_probes(attention_probes)
     
-    # return filtered_df
+    # Combine all filtered data
+    filtered_df = pd.concat([filtered_linear_probes, filtered_attention_probes, other_probes], ignore_index=True)
+    
+    return filtered_df
 
 
 def calculate_confidence_interval(data: List[float], confidence: float = 0.9) -> Tuple[float, float]:
@@ -241,22 +248,13 @@ def plot_experiment_2_best_probes_auc(eval_dataset: str, save_path: Path):
         return
     
     # Debug: Print data before filtering
+    print(f"\n=== EXPERIMENT 2 AUC PLOT DEBUG for {eval_dataset} ===")
     print(f"Before filtering - Total rows: {len(df)}")
     print(f"Before filtering - Probe types: {df['probe_name'].value_counts().to_dict()}")
     
     # Debug: Check sample counts
-    print(f"Sample counts - num_positive_samples: {df['num_positive_samples'].value_counts().head(10).to_dict()}")
-    print(f"Sample counts - num_negative_samples: {df['num_negative_samples'].value_counts().head(10).to_dict()}")
-    
-    # Debug: Check some attention probe filenames
-    attention_probes = df[df['probe_name'] == 'attention']
-    if not attention_probes.empty:
-        print(f"Attention probe filenames (first 5):")
-        for filename in attention_probes['filename'].head(5):
-            print(f"  {filename}")
-        print(f"Attention probe sample counts:")
-        print(f"  num_positive_samples: {attention_probes['num_positive_samples'].value_counts().to_dict()}")
-        print(f"  num_negative_samples: {attention_probes['num_negative_samples'].value_counts().to_dict()}")
+    print(f"Before filtering - num_positive_samples: {df['num_positive_samples'].value_counts().head(10).to_dict()}")
+    print(f"Before filtering - num_negative_samples: {df['num_negative_samples'].value_counts().head(10).to_dict()}")
     
     # Apply main plot filters (Gemma SAE topk=1024, linear C=1.0)
     df = apply_main_plot_filters(df)
@@ -268,10 +266,8 @@ def plot_experiment_2_best_probes_auc(eval_dataset: str, save_path: Path):
     # Debug: Print data after filtering
     print(f"After filtering - Total rows: {len(df)}")
     print(f"After filtering - Probe types: {df['probe_name'].value_counts().to_dict()}")
-    
-    # Debug: Check sample counts after filtering
-    print(f"After filtering - num_positive_samples: {df['num_positive_samples'].value_counts().head(10).to_dict()}")
-    print(f"After filtering - num_negative_samples: {df['num_negative_samples'].value_counts().head(10).to_dict()}")
+    print(f"After filtering - num_positive_samples: {df['num_positive_samples'].value_counts().to_dict()}")
+    print(f"After filtering - num_negative_samples: {df['num_negative_samples'].value_counts().to_dict()}")
     
     # Get best probes from each category
     best_probes = get_best_probes_by_category(df)
@@ -279,6 +275,17 @@ def plot_experiment_2_best_probes_auc(eval_dataset: str, save_path: Path):
     if not best_probes:
         print(f"No valid probes found for experiment 2, eval_dataset={eval_dataset}")
         return
+    
+    # Debug: Print best probes and their data counts
+    print(f"Best probes selected: {best_probes}")
+    for probe in best_probes:
+        probe_data = df[df['probe_name'] == probe]
+        print(f"  {probe}: {len(probe_data)} data rows")
+        if not probe_data.empty:
+            print(f"    Sample counts: {probe_data['num_positive_samples'].value_counts().to_dict()}")
+            print(f"    Seeds: {probe_data['seed'].value_counts().to_dict()}")
+    
+    print("=== END DEBUG ===\n")
     
     # Create plot
     fig, ax = plt.subplots(figsize=(8, 6))
@@ -369,6 +376,13 @@ def plot_experiment_2_best_probes_recall(eval_dataset: str, save_path: Path):
         print(f"No data found for experiment 2, eval_dataset={eval_dataset}")
         return
     
+    # Debug: Print data before filtering
+    print(f"\n=== EXPERIMENT 2 RECALL PLOT DEBUG for {eval_dataset} ===")
+    print(f"Before filtering - Total rows: {len(df)}")
+    print(f"Before filtering - Probe types: {df['probe_name'].value_counts().to_dict()}")
+    print(f"Before filtering - num_positive_samples: {df['num_positive_samples'].value_counts().head(10).to_dict()}")
+    print(f"Before filtering - num_negative_samples: {df['num_negative_samples'].value_counts().head(10).to_dict()}")
+    
     # Apply main plot filters (Gemma SAE topk=1024, linear C=1.0)
     df = apply_main_plot_filters(df)
     
@@ -376,12 +390,29 @@ def plot_experiment_2_best_probes_recall(eval_dataset: str, save_path: Path):
         print(f"No data found after applying filters for experiment 2, eval_dataset={eval_dataset}")
         return
     
+    # Debug: Print data after filtering
+    print(f"After filtering - Total rows: {len(df)}")
+    print(f"After filtering - Probe types: {df['probe_name'].value_counts().to_dict()}")
+    print(f"After filtering - num_positive_samples: {df['num_positive_samples'].value_counts().to_dict()}")
+    print(f"After filtering - num_negative_samples: {df['num_negative_samples'].value_counts().to_dict()}")
+    
     # Get best probes from each category
     best_probes = get_best_probes_by_category(df)
     
     if not best_probes:
         print(f"No valid probes found for experiment 2, eval_dataset={eval_dataset}")
         return
+    
+    # Debug: Print best probes and their data counts
+    print(f"Best probes selected: {best_probes}")
+    for probe in best_probes:
+        probe_data = df[df['probe_name'] == probe]
+        print(f"  {probe}: {len(probe_data)} data rows")
+        if not probe_data.empty:
+            print(f"    Sample counts: {probe_data['num_positive_samples'].value_counts().to_dict()}")
+            print(f"    Seeds: {probe_data['seed'].value_counts().to_dict()}")
+    
+    print("=== END DEBUG ===\n")
     
     # Create plot
     fig, ax = plt.subplots(figsize=(8, 6))
@@ -559,6 +590,13 @@ def plot_experiment_4_best_probes_recall(eval_dataset: str, save_path: Path):
         print(f"No data found for experiment 4, eval_dataset={eval_dataset}")
         return
     
+    # Debug: Print data before filtering
+    print(f"\n=== EXPERIMENT 4 RECALL PLOT DEBUG for {eval_dataset} ===")
+    print(f"Before filtering - Total rows: {len(df)}")
+    print(f"Before filtering - Probe types: {df['probe_name'].value_counts().to_dict()}")
+    print(f"Before filtering - num_positive_samples: {df['num_positive_samples'].value_counts().head(10).to_dict()}")
+    print(f"Before filtering - num_negative_samples: {df['num_negative_samples'].value_counts().head(10).to_dict()}")
+    
     # Apply main plot filters (Gemma SAE topk=1024, linear C=1.0)
     df = apply_main_plot_filters(df)
     
@@ -566,12 +604,29 @@ def plot_experiment_4_best_probes_recall(eval_dataset: str, save_path: Path):
         print(f"No data found after applying filters for experiment 4, eval_dataset={eval_dataset}")
         return
     
+    # Debug: Print data after filtering
+    print(f"After filtering - Total rows: {len(df)}")
+    print(f"After filtering - Probe types: {df['probe_name'].value_counts().to_dict()}")
+    print(f"After filtering - num_positive_samples: {df['num_positive_samples'].value_counts().to_dict()}")
+    print(f"After filtering - num_negative_samples: {df['num_negative_samples'].value_counts().to_dict()}")
+    
     # Get best probes from each category
     best_probes = get_best_probes_by_category(df)
     
     if not best_probes:
         print(f"No valid probes found for experiment 4, eval_dataset={eval_dataset}")
         return
+    
+    # Debug: Print best probes and their data counts
+    print(f"Best probes selected: {best_probes}")
+    for probe in best_probes:
+        probe_data = df[df['probe_name'] == probe]
+        print(f"  {probe}: {len(probe_data)} data rows")
+        if not probe_data.empty:
+            print(f"    Sample counts: {probe_data['num_positive_samples'].value_counts().to_dict()}")
+            print(f"    Seeds: {probe_data['seed'].value_counts().to_dict()}")
+    
+    print("=== END DEBUG ===\n")
     
     # Create plot
     fig, ax = plt.subplots(figsize=(8, 6))
