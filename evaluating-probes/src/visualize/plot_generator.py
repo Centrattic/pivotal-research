@@ -12,7 +12,8 @@ from .data_loader import (
     get_eval_datasets,
     get_run_names,
     filter_gemma_sae_topk_1024,
-    filter_linear_probes_c_1_0
+    filter_linear_probes_c_1_0,
+    filter_default_attention_probes
 )
 
 
@@ -165,16 +166,29 @@ def get_best_probes_by_category(df: pd.DataFrame) -> List[str]:
 def apply_main_plot_filters(df: pd.DataFrame) -> pd.DataFrame:
     """
     Apply filters for main plots:
-    - For Gemma SAEs: only topk=1024
+    - For Gemma SAEs: only topk=1024 (exclude 262k SAEs)
     - For linear probes: only C=1.0 (or no C specified)
+    - For attention probes: only default probes (no wd_ and lr_ parameters)
     """
-    # Apply Gemma SAE topk=1024 filter
-    df = filter_gemma_sae_topk_1024(df)
-    
-    # Apply linear probe C=1.0 filter
-    df = filter_linear_probes_c_1_0(df)
-    
+    # For now, let's temporarily disable all filtering to see if that's the issue
+    # This will help us identify if the filtering is causing the problem
+    print("WARNING: Temporarily disabled all filtering to debug the issue!")
     return df
+    
+    # # Apply Gemma SAE topk=1024 filter to Gemma data only
+    # filtered_gemma_df = filter_gemma_sae_topk_1024(gemma_df)
+    
+    # # Combine filtered Gemma data with non-Gemma data
+    # combined_df = pd.concat([filtered_gemma_df, non_gemma_df], ignore_index=True)
+    
+    # # Apply linear probe C=1.0 filter only to linear probes, keep other probe types
+    # linear_probes = combined_df[combined_df['probe_name'].str.contains('sklearn_linear', na=False)]
+    # other_probes = combined_df[~combined_df['probe_name'].str.contains('sklearn_linear', na=False)]
+    
+    # filtered_linear_probes = filter_linear_probes_c_1_0(linear_probes)
+    # filtered_df = pd.concat([filtered_linear_probes, other_probes], ignore_index=True)
+    
+    # return filtered_df
 
 
 def calculate_confidence_interval(data: List[float], confidence: float = 0.9) -> Tuple[float, float]:
@@ -226,12 +240,38 @@ def plot_experiment_2_best_probes_auc(eval_dataset: str, save_path: Path):
         print(f"No data found for experiment 2, eval_dataset={eval_dataset}")
         return
     
+    # Debug: Print data before filtering
+    print(f"Before filtering - Total rows: {len(df)}")
+    print(f"Before filtering - Probe types: {df['probe_name'].value_counts().to_dict()}")
+    
+    # Debug: Check sample counts
+    print(f"Sample counts - num_positive_samples: {df['num_positive_samples'].value_counts().head(10).to_dict()}")
+    print(f"Sample counts - num_negative_samples: {df['num_negative_samples'].value_counts().head(10).to_dict()}")
+    
+    # Debug: Check some attention probe filenames
+    attention_probes = df[df['probe_name'] == 'attention']
+    if not attention_probes.empty:
+        print(f"Attention probe filenames (first 5):")
+        for filename in attention_probes['filename'].head(5):
+            print(f"  {filename}")
+        print(f"Attention probe sample counts:")
+        print(f"  num_positive_samples: {attention_probes['num_positive_samples'].value_counts().to_dict()}")
+        print(f"  num_negative_samples: {attention_probes['num_negative_samples'].value_counts().to_dict()}")
+    
     # Apply main plot filters (Gemma SAE topk=1024, linear C=1.0)
     df = apply_main_plot_filters(df)
     
     if df.empty:
         print(f"No data found after applying filters for experiment 2, eval_dataset={eval_dataset}")
         return
+    
+    # Debug: Print data after filtering
+    print(f"After filtering - Total rows: {len(df)}")
+    print(f"After filtering - Probe types: {df['probe_name'].value_counts().to_dict()}")
+    
+    # Debug: Check sample counts after filtering
+    print(f"After filtering - num_positive_samples: {df['num_positive_samples'].value_counts().head(10).to_dict()}")
+    print(f"After filtering - num_negative_samples: {df['num_negative_samples'].value_counts().head(10).to_dict()}")
     
     # Get best probes from each category
     best_probes = get_best_probes_by_category(df)
@@ -293,9 +333,15 @@ def plot_experiment_2_best_probes_auc(eval_dataset: str, save_path: Path):
         y_max = min(1.0, max(all_y_values) + 0.05)
         ax.set_ylim(y_min, y_max)
     
+    # Get number of negative examples for title
+    num_negative = df['num_negative_samples'].iloc[0] if not df.empty and 'num_negative_samples' in df.columns else None
+    
     ax.set_xlabel('Number of positive examples in the train set')
     ax.set_ylabel('AUC')
-    ax.set_title(f'Experiment 2: Best Probes AUC Performance\nEval Dataset: {wrap_text(eval_dataset)}')
+    if num_negative is not None:
+        ax.set_title(f'Unbalanced ({num_negative} negative examples)')
+    else:
+        ax.set_title(f'Unbalanced')
     ax.set_xscale('log')
     ax.grid(True, alpha=0.3)
     
@@ -321,6 +367,13 @@ def plot_experiment_2_best_probes_recall(eval_dataset: str, save_path: Path):
     
     if df.empty:
         print(f"No data found for experiment 2, eval_dataset={eval_dataset}")
+        return
+    
+    # Apply main plot filters (Gemma SAE topk=1024, linear C=1.0)
+    df = apply_main_plot_filters(df)
+    
+    if df.empty:
+        print(f"No data found after applying filters for experiment 2, eval_dataset={eval_dataset}")
         return
     
     # Get best probes from each category
@@ -372,9 +425,15 @@ def plot_experiment_2_best_probes_recall(eval_dataset: str, save_path: Path):
         y_max = min(1.0, max(all_y_values) + 0.05)
         ax.set_ylim(y_min, y_max)
     
+    # Get number of negative examples for title
+    num_negative = df['num_negative_samples'].iloc[0] if not df.empty and 'num_negative_samples' in df.columns else None
+    
     ax.set_xlabel('Number of positive examples in the train set')
     ax.set_ylabel('Recall @ FPR=0.01')
-    ax.set_title(f'Experiment 2: Best Probes Recall Performance\nEval Dataset: {wrap_text(eval_dataset)}')
+    if num_negative is not None:
+        ax.set_title(f'Unbalanced ({num_negative} negative examples)')
+    else:
+        ax.set_title(f'Unbalanced')
     ax.set_xscale('log')
     ax.grid(True, alpha=0.3)
     
@@ -400,6 +459,13 @@ def plot_experiment_4_best_probes_auc(eval_dataset: str, save_path: Path):
     
     if df.empty:
         print(f"No data found for experiment 4, eval_dataset={eval_dataset}")
+        return
+    
+    # Apply main plot filters (Gemma SAE topk=1024, linear C=1.0)
+    df = apply_main_plot_filters(df)
+    
+    if df.empty:
+        print(f"No data found after applying filters for experiment 4, eval_dataset={eval_dataset}")
         return
     
     # Get best probes from each category
@@ -451,10 +517,22 @@ def plot_experiment_4_best_probes_auc(eval_dataset: str, save_path: Path):
         y_max = min(1.0, max(all_y_values) + 0.05)
         ax.set_ylim(y_min, y_max)
     
-    ax.set_xlabel('Number of positive examples in the train set')
+    ax.set_xlabel('Number of training examples per class\n(x negative, x positive)')
     ax.set_ylabel('AUC')
-    ax.set_title(f'Experiment 4: Best Probes AUC Performance\nEval Dataset: {wrap_text(eval_dataset)}')
-    ax.set_xscale('log')
+    ax.set_title(f'Balanced (equal positive and negative samples)')
+    
+    # Only set log scale if we have positive x values
+    if all_y_values and len(all_y_values) > 0:
+        # Check if we have any positive x values from the data
+        all_x_values = []
+        for probe in best_probes:
+            probe_data = df[df['probe_name'] == probe]
+            if not probe_data.empty:
+                all_x_values.extend(probe_data['num_positive_samples'].dropna().values)
+        
+        if all_x_values and min(all_x_values) > 0:
+            ax.set_xscale('log')
+    
     ax.grid(True, alpha=0.3)
     
     # Only add legend if there are lines plotted
@@ -479,6 +557,13 @@ def plot_experiment_4_best_probes_recall(eval_dataset: str, save_path: Path):
     
     if df.empty:
         print(f"No data found for experiment 4, eval_dataset={eval_dataset}")
+        return
+    
+    # Apply main plot filters (Gemma SAE topk=1024, linear C=1.0)
+    df = apply_main_plot_filters(df)
+    
+    if df.empty:
+        print(f"No data found after applying filters for experiment 4, eval_dataset={eval_dataset}")
         return
     
     # Get best probes from each category
@@ -530,10 +615,22 @@ def plot_experiment_4_best_probes_recall(eval_dataset: str, save_path: Path):
         y_max = min(1.0, max(all_y_values) + 0.05)
         ax.set_ylim(y_min, y_max)
     
-    ax.set_xlabel('Number of positive examples in the train set')
+    ax.set_xlabel('Number of training examples per class\n(x negative, x positive)')
     ax.set_ylabel('Recall @ FPR=0.01')
-    ax.set_title(f'Experiment 4: Best Probes Recall Performance\nEval Dataset: {wrap_text(eval_dataset)}')
-    ax.set_xscale('log')
+    ax.set_title(f'Balanced (equal positive and negative samples)')
+    
+    # Only set log scale if we have positive x values
+    if all_y_values and len(all_y_values) > 0:
+        # Check if we have any positive x values from the data
+        all_x_values = []
+        for probe in best_probes:
+            probe_data = df[df['probe_name'] == probe]
+            if not probe_data.empty:
+                all_x_values.extend(probe_data['num_positive_samples'].dropna().values)
+        
+        if all_x_values and min(all_x_values) > 0:
+            ax.set_xscale('log')
+    
     ax.grid(True, alpha=0.3)
     
     # Only add legend if there are lines plotted

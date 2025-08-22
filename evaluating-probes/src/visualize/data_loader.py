@@ -58,8 +58,22 @@ def extract_info_from_filename(filename: str) -> Dict[str, str]:
                 info['num_positive_samples'] = int(pos_match.group(1))
                 info['num_negative_samples'] = None  # Not specified in this pattern
             else:
-                info['num_negative_samples'] = None
-                info['num_positive_samples'] = None
+                # For attention probes, look for different patterns
+                # Check if this is an attention probe filename
+                if 'attention' in filename:
+                    # For attention probes, we need to look for different patterns
+                    # Let's check for patterns like class0_X_class1_Y in the filename
+                    attention_class_match = re.search(r'class0_(\d+)_class1_(\d+)', filename)
+                    if attention_class_match:
+                        info['num_negative_samples'] = int(attention_class_match.group(1))
+                        info['num_positive_samples'] = int(attention_class_match.group(2))
+                    else:
+                        # If no pattern found, set to None
+                        info['num_negative_samples'] = None
+                        info['num_positive_samples'] = None
+                else:
+                    info['num_negative_samples'] = None
+                    info['num_positive_samples'] = None
     
     # Extract LLM upsampling ratio (for experiment 3)
     # Look for pattern like pos1_10x or pos2_20x (matching old code)
@@ -98,8 +112,12 @@ def extract_info_from_filename(filename: str) -> Dict[str, str]:
         # For SAE probes, we need to distinguish between different SAE variants
         # Check if this is a Gemma experiment (which has only 16k SAEs now)
         if 'gemma' in filename.lower():
-            # Gemma has only one SAE variant (16k) - no more 262k SAEs
-            if 'sae_last' in filename:
+            # Gemma has only one SAE variant (16k) - explicitly exclude 262k SAEs
+            if 'sae_262k' in filename or 'sae2_' in filename:
+                # Skip 262k SAEs - don't assign a probe name
+                probe_architecture = None
+                info['probe_name'] = None
+            elif 'sae_last' in filename:
                 info['probe_name'] = 'sae_last'
             elif 'sae_max' in filename:
                 info['probe_name'] = 'sae_max'
@@ -242,19 +260,21 @@ def get_data_for_visualization(
         if 'sae' in probe_name:
             # For SAE probes, match the specific probe name
             # All SAE variants now use the same naming (no more sae2_ distinction)
+            # But we need to explicitly exclude 262k SAEs
             if 'last' in probe_name:
-                df = df[df['filename'].str.contains('sae.*_last_')]
+                df = df[df['filename'].str.contains('sae.*_last_') & ~df['filename'].str.contains('sae_262k')]
             elif 'max' in probe_name:
-                df = df[df['filename'].str.contains('sae.*_max_')]
+                df = df[df['filename'].str.contains('sae.*_max_') & ~df['filename'].str.contains('sae_262k')]
             elif 'mean' in probe_name:
-                df = df[df['filename'].str.contains('sae.*_mean_')]
+                df = df[df['filename'].str.contains('sae.*_mean_') & ~df['filename'].str.contains('sae_262k')]
             elif 'softmax' in probe_name:
-                df = df[df['filename'].str.contains('sae.*_softmax_')]
+                df = df[df['filename'].str.contains('sae.*_softmax_') & ~df['filename'].str.contains('sae_262k')]
         else:
             df = df[df['filename'].str.contains(probe_name)]
     
     if experiment is not None:
-        df = df[df['experiment'].str.startswith(experiment)]
+        # Convert experiment column to string and handle NaN values
+        df = df[df['experiment'].astype(str).str.startswith(experiment)]
     
     if run_name is not None:
         df = df[df['run_name'] == run_name]
@@ -272,7 +292,7 @@ def get_data_for_visualization(
 
 
 def get_probe_names() -> List[str]:
-    """Get list of all available probe names (excluding attention)."""
+    """Get list of all available probe names (excluding attention and 262k SAEs)."""
     df = load_metrics_data()
     
     # Extract probe names from all files
@@ -328,14 +348,18 @@ def get_experiment_types() -> List[str]:
 
 
 def filter_gemma_sae_topk_1024(df: pd.DataFrame) -> pd.DataFrame:
-    """Filter DataFrame to only include Gemma SAEs with topk=1024."""
+    """Filter DataFrame to only include Gemma SAEs with topk=1024 (exclude 262k SAEs)."""
     # Filter for Gemma runs
     gemma_df = df[df['run_name'].str.contains('gemma', case=False, na=False)]
     
-    # Filter for SAE probes with topk=1024
+    # Filter for SAE probes with topk=1024 and explicitly exclude 262k SAEs
+    # We want only the 16k SAEs, not the 262k SAEs
     filtered_df = gemma_df[
         (gemma_df['probe_name'].str.contains('sae', na=False)) & 
-        (gemma_df['topk'] == 1024)
+        (gemma_df['topk'] == 1024) &
+        (~gemma_df['filename'].str.contains('sae_262k', na=False)) &  # Exclude 262k SAEs
+        (~gemma_df['filename'].str.contains('sae2_', na=False)) &     # Exclude sae2_ (262k variant)
+        (~gemma_df['filename'].str.contains('262k', na=False))        # Exclude any 262k references
     ]
     
     return filtered_df
@@ -355,3 +379,21 @@ def filter_linear_probes_c_1_0(df: pd.DataFrame) -> pd.DataFrame:
     ]
     
     return filtered_df
+
+
+def filter_default_attention_probes(df: pd.DataFrame) -> pd.DataFrame:
+    """Filter DataFrame to only include default attention probes (without wd_ and lr_ parameters)."""
+    # Filter for attention probes
+    attention_df = df[df['probe_name'].str.contains('attention', na=False)]
+    
+    # Filter for default attention probes (no wd_ and lr_ parameters)
+    # Default attention probes don't have explicit wd_ and lr_ in filename
+    filtered_df = attention_df[
+        (~attention_df['filename'].str.contains('wd_', na=False)) &  # No weight decay parameter
+        (~attention_df['filename'].str.contains('lr_', na=False))    # No learning rate parameter
+    ]
+    
+    return filtered_df
+
+
+

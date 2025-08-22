@@ -53,11 +53,17 @@ def enumerate_result_files(results_root: Path, run_name: str) -> List[Path]:
         if not seed_dir.is_dir():
             continue
         for exp_dir in sorted(p for p in seed_dir.iterdir() if p.is_dir()):
-            for eval_name in ('gen_eval', 'test_eval', 'val_eval'):
+            for eval_name in ('gen_eval', 'test_eval'):  # Exclude val_eval for now
                 eval_dir = exp_dir / eval_name
                 if not eval_dir.exists():
                     continue
-                files.extend(sorted(eval_dir.glob('*_results.json')))
+                # Get all results files but filter out pynb checkpoints and ignored files
+                all_results = sorted(eval_dir.glob('*_results.json'))
+                for file_path in all_results:
+                    # Skip files with pynb, checkpoint, or ignore in the name
+                    file_str = str(file_path).lower()
+                    if ('ipynb' not in file_str and 'ignore' not in file_str):
+                        files.append(file_path)
     return files
 
 def load_existing_files(csv_path: Path, repo_root: Path) -> Set[str]:
@@ -92,8 +98,15 @@ def process_file(path: Path, repo_root: Path, fpr: float, verbose: bool):
         return None
 
 def main():
+
+    all_run_names = [
+        'mask_llama33_70b',  # mask config
+        'spam_qwen_0.6B', 'spam_qwen_1.7B', 'spam_qwen_4B', 'spam_qwen_8B', 'spam_qwen_14B', 'spam_qwen_32B',  # all qwen models
+        'spam_gemma_9b'  # gemma 9b
+    ]
+
     parser = argparse.ArgumentParser(description='Index AUC and Recall@FPR for all results JSONs under specified run_names.')
-    parser.add_argument('-r', '--run-names', nargs='+', required=True, help='One or more run_name folders under results/.')
+    parser.add_argument('-r', '--run-names', default=all_run_names, required=False, help='One or more run_name folders under results/, or "all" for predefined set.')
     parser.add_argument('--fpr', type=float, default=0.01, help='Target FPR for recall metric (default: 0.01).')
     parser.add_argument('-o', '--output', default='src/visualize/metrics_index.csv', help='Output CSV path.')
     parser.add_argument('-v', '--verbose', action='store_true', help='Verbose logging.')
@@ -112,6 +125,12 @@ def main():
         existing_files = load_existing_files(out_path, repo_root)
         if args.verbose:
             print(f"[index] Found {len(existing_files)} existing entries in {out_path}")
+    else:
+        if args.verbose:
+            if args.force:
+                print(f"[index] Force flag set - will overwrite existing CSV")
+            else:
+                print(f"[index] No existing CSV found - will create new one")
 
     # Collect files from all run_names
     all_files: List[Path] = []
@@ -155,7 +174,7 @@ def main():
     # Filter out None results (failed files)
     new_rows = [r for r in results if r is not None]
 
-    # Load existing rows if CSV exists
+    # Load existing rows if CSV exists and we're not forcing
     existing_rows = []
     if out_path.exists() and not args.force:
         try:
@@ -171,6 +190,15 @@ def main():
 
     # Write CSV
     out_path.parent.mkdir(parents=True, exist_ok=True)
+    
+    # Warn if we're overwriting existing data
+    if args.force and existing_rows:
+        print(f"[index] WARNING: Overwriting {len(existing_rows)} existing entries with --force flag!")
+        response = input("Continue? (y/N): ")
+        if response.lower() != 'y':
+            print("[index] Aborted.")
+            return
+    
     with open(out_path, 'w', newline='') as f:
         writer = csv.DictWriter(f, fieldnames=['filename', 'recall', 'auc'])
         writer.writeheader()
