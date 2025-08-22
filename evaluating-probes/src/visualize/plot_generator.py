@@ -10,7 +10,9 @@ from .data_loader import (
     get_data_for_visualization,
     get_probe_names,
     get_eval_datasets,
-    get_run_names
+    get_run_names,
+    filter_gemma_sae_topk_1024,
+    filter_linear_probes_c_1_0
 )
 
 
@@ -39,10 +41,6 @@ def get_probe_label(probe_name: str) -> str:
         'sae_max': 'SAE (max)',
         'sae_mean': 'SAE (mean)',
         'sae_softmax': 'SAE (softmax)',
-        'sae2_last': 'SAE2 (last)',
-        'sae2_max': 'SAE2 (max)',
-        'sae2_mean': 'SAE2 (mean)',
-        'sae2_softmax': 'SAE2 (softmax)',
         'sklearn_linear_last': 'Linear (last)',
         'sklearn_linear_max': 'Linear (max)',
         'sklearn_linear_mean': 'Linear (mean)',
@@ -164,6 +162,21 @@ def get_best_probes_by_category(df: pd.DataFrame) -> List[str]:
     return best_probes[:4]  # Return top 4
 
 
+def apply_main_plot_filters(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Apply filters for main plots:
+    - For Gemma SAEs: only topk=1024
+    - For linear probes: only C=1.0 (or no C specified)
+    """
+    # Apply Gemma SAE topk=1024 filter
+    df = filter_gemma_sae_topk_1024(df)
+    
+    # Apply linear probe C=1.0 filter
+    df = filter_linear_probes_c_1_0(df)
+    
+    return df
+
+
 def calculate_confidence_interval(data: List[float], confidence: float = 0.9) -> Tuple[float, float]:
     """Calculate confidence interval for a list of values."""
     # Filter out NaN and inf values
@@ -211,6 +224,13 @@ def plot_experiment_2_best_probes_auc(eval_dataset: str, save_path: Path):
     
     if df.empty:
         print(f"No data found for experiment 2, eval_dataset={eval_dataset}")
+        return
+    
+    # Apply main plot filters (Gemma SAE topk=1024, linear C=1.0)
+    df = apply_main_plot_filters(df)
+    
+    if df.empty:
+        print(f"No data found after applying filters for experiment 2, eval_dataset={eval_dataset}")
         return
     
     # Get best probes from each category
@@ -861,12 +881,11 @@ def plot_probe_subplots_unified(experiment: str, eval_dataset: str, save_path: P
     experiment_has_gemma = any('gemma' in run.lower() for run in experiment_runs)
     
     if experiment_has_gemma:
-        # Gemma has 16 probes total (4 act_sim + 4 linear + 8 SAE)
+        # Gemma has 12 probes total (4 act_sim + 4 linear + 4 SAE) - no more sae2_
         probe_names = [
             'act_sim_last', 'act_sim_max', 'act_sim_mean', 'act_sim_softmax',
             'sklearn_linear_last', 'sklearn_linear_max', 'sklearn_linear_mean', 'sklearn_linear_softmax',
-            'sae_last', 'sae_max', 'sae_mean', 'sae_softmax',
-            'sae2_last', 'sae2_max', 'sae2_mean', 'sae2_softmax'
+            'sae_last', 'sae_max', 'sae_mean', 'sae_softmax'
         ]
     else:
         # Qwen and other models have 12 probes total (4 act_sim + 4 linear + 4 SAE)
@@ -877,12 +896,8 @@ def plot_probe_subplots_unified(experiment: str, eval_dataset: str, save_path: P
         ]
     
     # Create subplot grid based on number of probes
-    if len(probe_names) == 16:
-        # Gemma: 4x4 grid for 16 probes
-        fig, axes = plt.subplots(4, 4, figsize=(16, 16))
-    else:
-        # Qwen: 3x4 grid for 12 probes
-        fig, axes = plt.subplots(3, 4, figsize=(16, 12))
+    # All models now have 12 probes (4 act_sim + 4 linear + 4 SAE)
+    fig, axes = plt.subplots(3, 4, figsize=(16, 12))
     axes = axes.flatten()
     
     # Define colors for each probe type
@@ -947,7 +962,7 @@ def plot_probe_subplots_unified(experiment: str, eval_dataset: str, save_path: P
             ax.set_ylim(y_min, y_max)
     
     # Hide unused subplots
-    max_subplots = 16 if len(probe_names) == 16 else 12
+    max_subplots = 12  # All models now have 12 probes
     for i in range(len(probe_names), max_subplots):
         axes[i].set_visible(False)
     
@@ -984,12 +999,11 @@ def plot_llm_upsampling_subplots_unified(eval_dataset: str, save_path: Path, met
     experiment_has_gemma = any('gemma' in run.lower() for run in experiment_runs)
     
     if experiment_has_gemma:
-        # Gemma has 16 probes total (4 act_sim + 4 linear + 8 SAE)
+        # Gemma has 12 probes total (4 act_sim + 4 linear + 4 SAE) - no more sae2_
         probe_names = [
             'act_sim_last', 'act_sim_max', 'act_sim_mean', 'act_sim_softmax',
             'sklearn_linear_last', 'sklearn_linear_max', 'sklearn_linear_mean', 'sklearn_linear_softmax',
-            'sae_last', 'sae_max', 'sae_mean', 'sae_softmax',
-            'sae2_last', 'sae2_max', 'sae2_mean', 'sae2_softmax'
+            'sae_last', 'sae_max', 'sae_mean', 'sae_softmax'
         ]
     else:
         # Qwen and other models have 12 probes total (4 act_sim + 4 linear + 4 SAE)
@@ -1000,12 +1014,8 @@ def plot_llm_upsampling_subplots_unified(eval_dataset: str, save_path: Path, met
         ]
     
     # Create subplot grid based on number of probes
-    if len(probe_names) == 16:
-        # Gemma: 4x4 grid for 16 probes
-        fig, axes = plt.subplots(4, 4, figsize=(16, 16))
-    else:
-        # Qwen: 3x4 grid for 12 probes
-        fig, axes = plt.subplots(3, 4, figsize=(16, 12))
+    # All models now have 12 probes (4 act_sim + 4 linear + 4 SAE)
+    fig, axes = plt.subplots(3, 4, figsize=(16, 12))
     axes = axes.flatten()
     
     # Set metric-specific parameters
@@ -1071,7 +1081,7 @@ def plot_llm_upsampling_subplots_unified(eval_dataset: str, save_path: Path, met
             ax.set_title(wrap_text(get_detailed_probe_label(probe), 25))
     
     # Hide unused subplots
-    max_subplots = 16 if len(probe_names) == 16 else 12
+    max_subplots = 12  # All models now have 12 probes
     for i in range(len(probe_names), max_subplots):
         axes[i].set_visible(False)
     
@@ -1379,24 +1389,14 @@ def get_probe_names_for_model(run_name: str) -> list:
 def get_probe_names_for_subplots(run_name: str = None) -> list:
     """
     Get probe names for subplot visualizations.
-    For Gemma models, we show 16 probes (4 act_sim + 4 linear + 8 SAE).
-    For Qwen models, we show 12 probes (4 act_sim + 4 linear + 4 SAE).
+    All models now have 12 probes (4 act_sim + 4 linear + 4 SAE).
     """
-    if run_name and 'gemma' in run_name.lower():
-        # Gemma has 16 probes total
-        probe_names = [
-            'act_sim_last', 'act_sim_max', 'act_sim_mean', 'act_sim_softmax',
-            'sklearn_linear_last', 'sklearn_linear_max', 'sklearn_linear_mean', 'sklearn_linear_softmax',
-            'sae_last', 'sae_max', 'sae_mean', 'sae_softmax',
-            'sae2_last', 'sae2_max', 'sae2_mean', 'sae2_softmax'
-        ]
-    else:
-        # Qwen and other models have 12 probes total
-        probe_names = [
-            'act_sim_last', 'act_sim_max', 'act_sim_mean', 'act_sim_softmax',
-            'sklearn_linear_last', 'sklearn_linear_max', 'sklearn_linear_mean', 'sklearn_linear_softmax',
-            'sae_last', 'sae_max', 'sae_mean', 'sae_softmax'
-        ]
+    # All models now have 12 probes total
+    probe_names = [
+        'act_sim_last', 'act_sim_max', 'act_sim_mean', 'act_sim_softmax',
+        'sklearn_linear_last', 'sklearn_linear_max', 'sklearn_linear_mean', 'sklearn_linear_softmax',
+        'sae_last', 'sae_max', 'sae_mean', 'sae_softmax'
+    ]
     return probe_names
 
 
@@ -1410,12 +1410,8 @@ def get_probe_label_with_config(probe_name: str, run_name: str = None) -> str:
     # For now, we'll use a simple approach. In the future, this could read from a config file
     if 'sae' in probe_name and run_name:
         if 'gemma' in run_name.lower():
-            if 'sae2' in probe_name:
-                # Second SAE variant for Gemma
-                return f"{base_label} (SAE2)"
-            else:
-                # First SAE variant for Gemma
-                return f"{base_label} (SAE1)"
+            # Gemma SAE (only one variant now)
+            return f"{base_label} (Gemma)"
         else:
             # Qwen SAE
             return f"{base_label} (Qwen)"
@@ -1434,11 +1430,7 @@ def create_probe_config_file():
                 "sae_last": {"width": 16384, "l0": 0.408, "label": "SAE (last, 16k, L0=0.408)"},
                 "sae_max": {"width": 16384, "l0": 0.408, "label": "SAE (max, 16k, L0=0.408)"},
                 "sae_mean": {"width": 16384, "l0": 0.408, "label": "SAE (mean, 16k, L0=0.408)"},
-                "sae_softmax": {"width": 16384, "l0": 0.408, "label": "SAE (softmax, 16k, L0=0.408)"},
-                "sae2_last": {"width": 8192, "l0": 0.204, "label": "SAE (last, 8k, L0=0.204)"},
-                "sae2_max": {"width": 8192, "l0": 0.204, "label": "SAE (max, 8k, L0=0.204)"},
-                "sae2_mean": {"width": 8192, "l0": 0.204, "label": "SAE (mean, 8k, L0=0.204)"},
-                "sae2_softmax": {"width": 8192, "l0": 0.204, "label": "SAE (softmax, 8k, L0=0.204)"}
+                "sae_softmax": {"width": 16384, "l0": 0.408, "label": "SAE (softmax, 16k, L0=0.408)"}
             },
             "qwen_0.5b": {
                 "sae_last": {"width": 4096, "l0": 0.1, "label": "SAE (last, 4k, L0=0.1)"},
