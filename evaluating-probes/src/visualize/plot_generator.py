@@ -170,15 +170,28 @@ def apply_main_plot_filters(df: pd.DataFrame) -> pd.DataFrame:
     - For linear probes: only C=1.0 (or no C specified)
     - For attention probes: only default probes (no wd_ and lr_ parameters)
     """
-    # Split data by probe type to apply specific filters
-    gemma_df = df[df['run_name'].str.contains('gemma', case=False, na=False)]
-    non_gemma_df = df[~df['run_name'].str.contains('gemma', case=False, na=False)]
-    
-    # Apply Gemma SAE topk=1024 filter to Gemma data only
-    filtered_gemma_df = filter_gemma_sae_topk_1024(gemma_df)
-    
-    # Combine filtered Gemma data with non-Gemma data
-    combined_df = pd.concat([filtered_gemma_df, non_gemma_df], ignore_index=True)
+    # Debug: entry counts
+    try:
+        print(f"[filters] start: rows={len(df)} | types={df['probe_name'].value_counts().to_dict()}")
+    except Exception:
+        print(f"[filters] start: rows={len(df)}")
+
+    # Only target Gemma SAE rows; keep everything else untouched
+    is_gemma = df['run_name'].str.contains('gemma', case=False, na=False)
+    is_sae = df['probe_name'].str.contains('sae', na=False)
+    gemma_sae_mask = is_gemma & is_sae
+    print(f"[filters] gemma_sae_mask true rows={gemma_sae_mask.sum()} of {len(df)}")
+
+    gemma_sae_df = df[gemma_sae_mask]
+    non_gemma_or_non_sae_df = df[~gemma_sae_mask]
+
+    # Apply Gemma SAE topk=1024 filter only to gemma+sae rows
+    filtered_gemma_sae_df = filter_gemma_sae_topk_1024(gemma_sae_df)
+    print(f"[filters] gemma+sae after topk=1024 filter: rows={len(filtered_gemma_sae_df)}")
+
+    # Merge back
+    combined_df = pd.concat([filtered_gemma_sae_df, non_gemma_or_non_sae_df], ignore_index=True)
+    print(f"[filters] combined after gemma-sae step: rows={len(combined_df)}")
     
     # Split by probe type for specific filtering
     linear_probes = combined_df[combined_df['probe_name'].str.contains('sklearn_linear', na=False)]
@@ -187,14 +200,22 @@ def apply_main_plot_filters(df: pd.DataFrame) -> pd.DataFrame:
         (~combined_df['probe_name'].str.contains('sklearn_linear', na=False)) & 
         (~combined_df['probe_name'].str.contains('attention', na=False))
     ]
+    print(f"[filters] split types: linear={len(linear_probes)}, attention={len(attention_probes)}, other={len(other_probes)}")
     
     # Apply specific filters
     filtered_linear_probes = filter_linear_probes_c_1_0(linear_probes)
     filtered_attention_probes = filter_default_attention_probes(attention_probes)
+    print(f"[filters] after specific: linear={len(filtered_linear_probes)}, attention={len(filtered_attention_probes)}")
     
     # Combine all filtered data
     filtered_df = pd.concat([filtered_linear_probes, filtered_attention_probes, other_probes], ignore_index=True)
-    
+    print(f"[filters] final combined rows={len(filtered_df)} | types={filtered_df['probe_name'].value_counts().to_dict() if not filtered_df.empty else {}}")
+
+    # Safety fallback to avoid empty plots while debugging
+    if filtered_df.empty:
+        print("[filters] WARNING: filtering produced 0 rows. Returning unfiltered data temporarily.")
+        return df
+
     return filtered_df
 
 
@@ -492,12 +513,31 @@ def plot_experiment_4_best_probes_auc(eval_dataset: str, save_path: Path):
         print(f"No data found for experiment 4, eval_dataset={eval_dataset}")
         return
     
+    # Debug: show SAE presence before filtering
+    print(f"\n=== EXPERIMENT 4 AUC PLOT DEBUG for {eval_dataset} ===")
+    print(f"Before filtering - Total rows: {len(df)}")
+    try:
+        print(f"Before filtering - SAE rows: {len(df[df['probe_name'].str.contains('sae', na=False)])}")
+        print(f"Before filtering - Example SAE filenames:")
+        print(df[df['probe_name'].str.contains('sae', na=False)]['filename'].head(10).to_list())
+    except Exception:
+        pass
+    
     # Apply main plot filters (Gemma SAE topk=1024, linear C=1.0)
     df = apply_main_plot_filters(df)
     
     if df.empty:
         print(f"No data found after applying filters for experiment 4, eval_dataset={eval_dataset}")
         return
+    
+    # Debug: show SAE presence after filtering
+    try:
+        print(f"After filtering - Total rows: {len(df)}")
+        print(f"After filtering - SAE rows: {len(df[df['probe_name'].str.contains('sae', na=False)])}")
+        print(f"After filtering - Example SAE filenames:")
+        print(df[df['probe_name'].str.contains('sae', na=False)]['filename'].head(10).to_list())
+    except Exception:
+        pass
     
     # Get best probes from each category
     best_probes = get_best_probes_by_category(df)
@@ -517,6 +557,15 @@ def plot_experiment_4_best_probes_auc(eval_dataset: str, save_path: Path):
         
         if probe_data.empty:
             continue
+        
+        # Debug: list contributing filenames per probe
+        try:
+            contributing_files = sorted(probe_data['filename'].unique().tolist())
+            print(f"[files] {probe}: {len(contributing_files)} files")
+            for f in contributing_files:
+                print(f"  - {f}")
+        except Exception:
+            pass
         
         # Group by number of positive samples
         grouped = probe_data.groupby('num_positive_samples')['auc'].apply(list).reset_index()
@@ -590,6 +639,16 @@ def plot_experiment_4_best_probes_recall(eval_dataset: str, save_path: Path):
         print(f"No data found for experiment 4, eval_dataset={eval_dataset}")
         return
     
+    # Debug: show SAE presence before filtering
+    print(f"\n=== EXPERIMENT 4 RECALL PLOT DEBUG for {eval_dataset} ===")
+    print(f"Before filtering - Total rows: {len(df)}")
+    try:
+        print(f"Before filtering - SAE rows: {len(df[df['probe_name'].str.contains('sae', na=False)])}")
+        print(f"Before filtering - Example SAE filenames:")
+        print(df[df['probe_name'].str.contains('sae', na=False)]['filename'].head(10).to_list())
+    except Exception:
+        pass
+    
     # Debug: Print data before filtering
     print(f"\n=== EXPERIMENT 4 RECALL PLOT DEBUG for {eval_dataset} ===")
     print(f"Before filtering - Total rows: {len(df)}")
@@ -603,6 +662,15 @@ def plot_experiment_4_best_probes_recall(eval_dataset: str, save_path: Path):
     if df.empty:
         print(f"No data found after applying filters for experiment 4, eval_dataset={eval_dataset}")
         return
+    
+    # Debug: show SAE presence after filtering
+    try:
+        print(f"After filtering - Total rows: {len(df)}")
+        print(f"After filtering - SAE rows: {len(df[df['probe_name'].str.contains('sae', na=False)])}")
+        print(f"After filtering - Example SAE filenames:")
+        print(df[df['probe_name'].str.contains('sae', na=False)]['filename'].head(10).to_list())
+    except Exception:
+        pass
     
     # Debug: Print data after filtering
     print(f"After filtering - Total rows: {len(df)}")
@@ -639,6 +707,15 @@ def plot_experiment_4_best_probes_recall(eval_dataset: str, save_path: Path):
         
         if probe_data.empty:
             continue
+        
+        # Debug: list contributing filenames per probe
+        try:
+            contributing_files = sorted(probe_data['filename'].unique().tolist())
+            print(f"[files] {probe}: {len(contributing_files)} files")
+            for f in contributing_files:
+                print(f"  - {f}")
+        except Exception:
+            pass
         
         # Group by number of positive samples
         grouped = probe_data.groupby('num_positive_samples')['recall'].apply(list).reset_index()
@@ -1393,6 +1470,18 @@ def generate_all_visualizations(skip_existing: bool = False):
     
     # Get available eval datasets
     eval_datasets = get_eval_datasets()
+    
+    # Filter: ignore datasets with numeric ID >= 99 (e.g., 99_*, 100_*)
+    def _leading_id(name: str) -> int:
+        try:
+            return int(str(name).split('_', 1)[0])
+        except Exception:
+            return -1  # keep if it doesn't start with a number
+    original = list(eval_datasets)
+    eval_datasets = [d for d in eval_datasets if _leading_id(d) == -1 or _leading_id(d) < 99]
+    dropped = sorted(set(original) - set(eval_datasets))
+    if dropped:
+        print(f"[viz] Skipping eval_datasets with ID >= 99: {dropped}")
     
     print("Generating main visualizations...")
     

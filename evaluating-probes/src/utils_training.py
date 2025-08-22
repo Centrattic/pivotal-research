@@ -278,7 +278,11 @@ def train_single_probe(
     ) and not rerun:
         if job.architecture_name == "attention":
             # For attention sweeps, skip training only if swept files already exist
-            sweep_pattern = f"{probe_filename_base}_lr_*_wd_*_state.npz"
+            # Include rebuild suffix in pattern if present to avoid cross-overwrite
+            if job.rebuild_config is not None:
+                sweep_pattern = f"{probe_filename_with_hparams}_{suffix}_lr_*_wd_*_state.npz"
+            else:
+                sweep_pattern = f"{probe_filename_with_hparams}_lr_*_wd_*_state.npz"
             has_swept = any(probe_save_dir.glob(sweep_pattern))
             if has_swept:
                 logger.log(f"  - [SKIP] Attention sweep already present in {probe_save_dir} (pattern: {sweep_pattern})")
@@ -507,11 +511,15 @@ def train_single_probe(
             config=probe_config_dict,
         )
 
-        # Always run hyperparameter sweep; saves all best-per-weight-decay probes under trained/
+        # Always run hyperparameter sweep; saves all lr/wd probes under trained/
         logger.log(f"  [DEBUG] Using find_best_fit for attention probe hyperparameter optimization (always)")
 
         probe_save_dir_for_sweep = probe_save_dir
-        probe_filename_base_for_sweep = probe_filename_base
+        # Include rebuild suffix in sweep base so saved files are unique per rebuild
+        if job.rebuild_config is not None:
+            probe_filename_base_for_sweep = f"{probe_filename_with_hparams}_{suffix}"
+        else:
+            probe_filename_base_for_sweep = probe_filename_with_hparams
 
         _ = probe.find_best_fit(
             X_train=train_acts,
@@ -525,7 +533,7 @@ def train_single_probe(
             weight_decay_values=None, # use defaults in method
         )
 
-        # We do not rename or overwrite probe_state_path here; evaluation will scan all saved states
+        # We do not save a single consolidated attention state to avoid overwriting; evaluation will scan all saved states
 
     elif job.architecture_name == "sae" or job.architecture_name.startswith("sae"):
         # SAE probe
@@ -582,7 +590,9 @@ def train_single_probe(
         parents=True,
         exist_ok=True,
     )
-    probe.save_state(probe_state_path)
+    # Avoid saving a single attention state/meta that could overwrite sweeps; rely on swept states
+    if job.architecture_name != "attention":
+        probe.save_state(probe_state_path)
 
     # Save metadata/config
     # yapf: disable
@@ -606,16 +616,17 @@ def train_single_probe(
             'final_loss': getattr(probe, 'loss_history', [])[-1] if hasattr(probe, 'loss_history') and probe.loss_history else None,
         }
     # yapf: enable
-    with open(
-            probe_json_path,
-            'w',
-    ) as f:
-        json.dump(
-            meta,
-            f,
-            indent=2,
-        )
-    logger.log(f"  - 🔥 Probe state saved to {probe_state_path.name}")
+    if job.architecture_name != "attention":
+        with open(
+                probe_json_path,
+                'w',
+        ) as f:
+            json.dump(
+                meta,
+                f,
+                indent=2,
+            )
+        logger.log(f"  - 🔥 Probe state saved to {probe_state_path.name}")
 
 
 def evaluate_single_probe(
@@ -927,7 +938,12 @@ def evaluate_single_probe(
 
     # Attention sweep: iterate all saved attention states in trained/ and write individual eval files
     # Pattern: <probe_filename_base>_lr_*_wd_*_state.npz
-    base_glob = f"{probe_filename_base}_lr_*_wd_*_state.npz"
+    # Include rebuild suffix if present to match saved sweep files
+    if job.rebuild_config is not None:
+        suffix = rebuild_suffix(job.rebuild_config)
+        base_glob = f"{probe_filename_with_hparams}_{suffix}_lr_*_wd_*_state.npz"
+    else:
+        base_glob = f"{probe_filename_with_hparams}_lr_*_wd_*_state.npz"
     for state_path in sorted(trained_dir.glob(base_glob)):
         try:
             probe.load_state(state_path)

@@ -109,32 +109,26 @@ def extract_info_from_filename(filename: str) -> Dict[str, str]:
             info['probe_name'] = 'act_sim_softmax'
     elif 'sae' in filename:
         probe_architecture = 'sae'
-        # For SAE probes, we need to distinguish between different SAE variants
-        # Check if this is a Gemma experiment (which has only 16k SAEs now)
-        if 'gemma' in filename.lower():
-            # Gemma has only one SAE variant (16k) - explicitly exclude 262k SAEs
-            if 'sae_262k' in filename or 'sae2_' in filename:
-                # Skip 262k SAEs - don't assign a probe name
-                probe_architecture = None
-                info['probe_name'] = None
-            elif 'sae_last' in filename:
-                info['probe_name'] = 'sae_last'
-            elif 'sae_max' in filename:
-                info['probe_name'] = 'sae_max'
-            elif 'sae_mean' in filename:
-                info['probe_name'] = 'sae_mean'
-            elif 'sae_softmax' in filename:
-                info['probe_name'] = 'sae_softmax'
+        # For SAE probes, distinguish variants and map to simplified names
+        is_gemma = 'gemma' in filename.lower()
+        is_262k = ('sae_262k' in filename) or ('sae2_' in filename) or ('262k' in filename)
+        if is_gemma and is_262k:
+            # Exclude Gemma's 262k SAE variant from simplified SAE set
+            probe_architecture = None
+            info['probe_name'] = None
         else:
-            # Qwen and other models have only one SAE variant
-            if 'sae_last' in filename:
+            # Map based on aggregation suffix present in filename
+            if re.search(r'sae.*_last_', filename):
                 info['probe_name'] = 'sae_last'
-            elif 'sae_max' in filename:
+            elif re.search(r'sae.*_max_', filename):
                 info['probe_name'] = 'sae_max'
-            elif 'sae_mean' in filename:
+            elif re.search(r'sae.*_mean_', filename):
                 info['probe_name'] = 'sae_mean'
-            elif 'sae_softmax' in filename:
+            elif re.search(r'sae.*_softmax_', filename):
                 info['probe_name'] = 'sae_softmax'
+            else:
+                # If SAE but aggregation not detected, leave unset
+                info['probe_name'] = None
     elif 'sklearn_linear' in filename:
         probe_architecture = 'sklearn_linear'
         if 'sklearn_linear_last' in filename:
@@ -361,6 +355,18 @@ def filter_gemma_sae_topk_1024(df: pd.DataFrame) -> pd.DataFrame:
         (~gemma_df['filename'].str.contains('sae2_', na=False)) &     # Exclude sae2_ (262k variant)
         (~gemma_df['filename'].str.contains('262k', na=False))        # Exclude any 262k references
     ]
+    
+    # Fallback: if nothing left after strict filter, relax to include any non-262k SAEs
+    if filtered_df.empty and not gemma_df.empty:
+        relaxed = gemma_df[
+            (gemma_df['probe_name'].str.contains('sae', na=False)) &
+            (~gemma_df['filename'].str.contains('sae_262k', na=False)) &
+            (~gemma_df['filename'].str.contains('sae2_', na=False)) &
+            (~gemma_df['filename'].str.contains('262k', na=False))
+        ]
+        if not relaxed.empty:
+            print("[filters] No Gemma SAE rows with topk=1024; falling back to all non-262k Gemma SAEs")
+            return relaxed
     
     return filtered_df
 

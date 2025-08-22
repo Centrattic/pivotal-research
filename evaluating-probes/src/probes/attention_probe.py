@@ -154,6 +154,7 @@ class AttentionProbe(BaseProbe):
                 -2,
                 5,
             )  # 5 weight decay values from 1e-6 to 1e-2
+            weight_decay_values = [0.0] + weight_decay_values
 
         # Create all combinations
         hyperparam_combinations = []
