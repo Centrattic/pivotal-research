@@ -288,7 +288,7 @@ def train_single_probe(
             # Use the same default grids as find_best_fit when None
             import numpy as _np
             lr_values_default = _np.logspace(-5, -2, 6)
-            wd_values_default = _np.logspace(-6, -2, 5)
+            wd_values_default = _np.concatenate([_np.array([0.0]), _np.logspace(-6, -2, 5)])
 
             def _fmt(x: float) -> str:
                 return f"{x:.2e}".replace("+", "").replace(".", "p")

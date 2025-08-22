@@ -149,12 +149,11 @@ class AttentionProbe(BaseProbe):
                 6,
             )  # 6 learning rates from 1e-5 to 1e-2
         if weight_decay_values is None:
-            weight_decay_values = np.logspace(
-                -6,
-                -2,
-                5,
-            )  # 5 weight decay values from 1e-6 to 1e-2
-            weight_decay_values = [0.0] + weight_decay_values
+            # Include 0.0 explicitly, plus a logspace grid
+            weight_decay_values = np.concatenate([
+                np.array([0.0]),
+                np.logspace(-6, -2, 5),
+            ])  # 6 weight decay values: 0.0 and 1e-6..1e-2
 
         # Create all combinations
         hyperparam_combinations = []
