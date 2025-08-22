@@ -14,7 +14,7 @@ from visualize.plot_generator import generate_all_visualizations
 
 if __name__ == "__main__":
     print("Starting visualization generation...")
-    generate_all_visualizations(skip_existing=False)
+    generate_all_visualizations(skip_existing=True)
     print("Visualization generation complete!")
 
 

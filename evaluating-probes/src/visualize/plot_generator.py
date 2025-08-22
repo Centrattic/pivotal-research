@@ -20,13 +20,13 @@ from .data_loader import (
 def setup_plot_style():
     """Set up consistent plot styling."""
     plt.style.use('default')
-    plt.rcParams['figure.figsize'] = (6, 4)
-    plt.rcParams['font.size'] = 10
-    plt.rcParams['axes.labelsize'] = 11
-    plt.rcParams['axes.titlesize'] = 12
-    plt.rcParams['legend.fontsize'] = 9
-    plt.rcParams['xtick.labelsize'] = 9
-    plt.rcParams['ytick.labelsize'] = 9
+    plt.rcParams['figure.figsize'] = (4, 3)
+    plt.rcParams['font.size'] = 14
+    plt.rcParams['axes.labelsize'] = 14
+    plt.rcParams['axes.titlesize'] = 16
+    plt.rcParams['legend.fontsize'] = 12
+    plt.rcParams['xtick.labelsize'] = 12
+    plt.rcParams['ytick.labelsize'] = 12
     plt.rcParams['lines.linewidth'] = 1.5
     plt.rcParams['lines.markersize'] = 4
 
@@ -358,7 +358,7 @@ def plot_experiment_2_best_probes_auc(eval_dataset: str, save_path: Path):
     # Set proper ylim based on actual data
     if all_y_values:
         y_min = max(0.0, min(all_y_values) - 0.05)
-        y_max = min(1.0, max(all_y_values) + 0.05)
+        y_max = min(1.0, max(all_y_values) + 0.02)  # Reduced from 0.05 to 0.02 to cut off higher
         ax.set_ylim(y_min, y_max)
     
     # Get number of negative examples for title
@@ -474,7 +474,7 @@ def plot_experiment_2_best_probes_recall(eval_dataset: str, save_path: Path):
     # Set proper ylim based on actual data
     if all_y_values:
         y_min = max(0.0, min(all_y_values) - 0.05)
-        y_max = min(1.0, max(all_y_values) + 0.05)
+        y_max = min(1.0, max(all_y_values) + 0.02)  # Reduced from 0.05 to 0.02 to cut off higher
         ax.set_ylim(y_min, y_max)
     
     # Get number of negative examples for title
@@ -594,7 +594,7 @@ def plot_experiment_4_best_probes_auc(eval_dataset: str, save_path: Path):
     # Set proper ylim based on actual data
     if all_y_values:
         y_min = max(0.0, min(all_y_values) - 0.05)
-        y_max = min(1.0, max(all_y_values) + 0.05)
+        y_max = min(1.0, max(all_y_values) + 0.02)  # Reduced from 0.05 to 0.02 to cut off higher
         ax.set_ylim(y_min, y_max)
     
     ax.set_xlabel('Number of training examples per class\n(x negative, x positive)')
@@ -744,7 +744,7 @@ def plot_experiment_4_best_probes_recall(eval_dataset: str, save_path: Path):
     # Set proper ylim based on actual data
     if all_y_values:
         y_min = max(0.0, min(all_y_values) - 0.05)
-        y_max = min(1.0, max(all_y_values) + 0.05)
+        y_max = min(1.0, max(all_y_values) + 0.02)  # Reduced from 0.05 to 0.02 to cut off higher
         ax.set_ylim(y_min, y_max)
     
     ax.set_xlabel('Number of training examples per class\n(x negative, x positive)')
@@ -774,8 +774,8 @@ def plot_experiment_4_best_probes_recall(eval_dataset: str, save_path: Path):
     plt.close()
 
 
-def plot_llm_upsampling_aggregated_auc(eval_dataset: str, save_path: Path):
-    """Plot LLM upsampling with median AUC performance across all probes."""
+def plot_llm_upsampling_aggregated(eval_dataset: str, save_path: Path, metric: str = 'auc'):
+    """Plot LLM upsampling with median performance across all probes."""
     setup_plot_style()
     
     # Get data for experiment 3 (LLM upsampling)
@@ -797,7 +797,7 @@ def plot_llm_upsampling_aggregated_auc(eval_dataset: str, save_path: Path):
         return
     
     # Create plot
-    fig, ax = plt.subplots(figsize=(8, 6))
+    fig, ax = plt.subplots(figsize=(6, 4))
     
     colors = plt.cm.viridis(np.linspace(0, 1, len(upsampling_ratios)))
     all_y_values = []
@@ -810,102 +810,125 @@ def plot_llm_upsampling_aggregated_auc(eval_dataset: str, save_path: Path):
             continue
         
         # Group by number of positive samples and calculate median across all probes
-        grouped = ratio_data.groupby('num_positive_samples')['auc'].apply(list).reset_index()
+        grouped = ratio_data.groupby('num_positive_samples')[metric].apply(list).reset_index()
         grouped = grouped.sort_values('num_positive_samples')
         
         if grouped.empty:
             continue
         
         x_values = grouped['num_positive_samples'].values
-        y_medians = [np.median(auc_list) for auc_list in grouped['auc']]
+        y_medians = [np.median(metric_list) for metric_list in grouped[metric]]
         all_y_values.extend(y_medians)
         
-        # Plot line
+        # Plot line with cleaner label (e.g., "1x" instead of "1.0x")
+        ratio_int = int(ratio) if ratio.is_integer() else ratio
         ax.plot(x_values, y_medians, 'o-', color=colors[i], 
-                label=f'{ratio}x upsampling', linewidth=2, markersize=4)
+                label=f'{ratio_int}x', linewidth=2, markersize=4)
         lines_plotted += 1
     
     # Don't save if no lines were plotted
     if lines_plotted == 0:
-        print(f"No data to plot for LLM upsampling AUC, eval_dataset={eval_dataset}")
+        print(f"No data to plot for LLM upsampling {metric}, eval_dataset={eval_dataset}")
         plt.close()
         return
     
     # Set proper ylim based on actual data
     if all_y_values:
         y_min = max(0.0, min(all_y_values) - 0.05)
-        y_max = min(1.0, max(all_y_values) + 0.05)
+        y_max = min(1.0, max(all_y_values) + 0.02)  # Reduced from 0.05 to 0.02 to cut off higher
         ax.set_ylim(y_min, y_max)
     
+    # Set metric-specific parameters
+    if metric == 'auc':
+        ylabel = 'Median AUC (across all probes)'
+        title_suffix = 'AUC'
+    elif metric == 'recall':
+        ylabel = 'Median Recall @ FPR=0.01 (across all probes)'
+        title_suffix = 'Recall'
+    else:
+        raise ValueError(f"Unsupported metric: {metric}. Use 'auc' or 'recall'.")
+    
+    # Format eval_dataset for cleaner title
+    formatted_dataset = format_dataset_name_for_display(eval_dataset)
+    
     ax.set_xlabel('Number of positive examples in the train set')
-    ax.set_ylabel('Median AUC (across all probes)')
-    ax.set_title(f'LLM Upsampling: Median AUC Performance\nEval Dataset: {wrap_text(eval_dataset)}')
+    ax.set_ylabel(ylabel)
+    ax.set_title(f'LLM Upsampling: Median {title_suffix} Performance\n{formatted_dataset} Dataset')
     ax.set_xscale('log')
     ax.grid(True, alpha=0.3)
     
     # Only add legend if there are lines plotted
     if all_y_values:
-        ax.legend()
+        ax.legend(title='Upsampling \nFactor')
     
     plt.tight_layout()
     plt.savefig(save_path, dpi=300, bbox_inches='tight')
     plt.close()
 
 
+def plot_llm_upsampling_aggregated_auc(eval_dataset: str, save_path: Path):
+    """Plot LLM upsampling with median AUC performance across all probes."""
+    plot_llm_upsampling_aggregated(eval_dataset, save_path, metric='auc')
+
+
 def plot_llm_upsampling_aggregated_recall(eval_dataset: str, save_path: Path):
     """Plot LLM upsampling with median Recall performance across all probes."""
+    plot_llm_upsampling_aggregated(eval_dataset, save_path, metric='recall')
+
+
+def plot_scaling_law_aggregated(eval_dataset: str, save_path: Path, metric: str = 'auc'):
+    """Plot scaling law with median performance across all probes."""
     setup_plot_style()
     
-    # Get data for experiment 3 (LLM upsampling)
-    df = get_data_for_visualization(
-        eval_dataset=eval_dataset,
-        experiment='3-',
-        exclude_attention=True
-    )
+    # Get Qwen run names for scaling analysis
+    qwen_runs = [run for run in get_run_names() if 'qwen' in run.lower()]
+    qwen_runs.sort(key=lambda x: float(x.split('_')[-1].replace('b', '').replace('B', '')))
     
-    if df.empty:
-        print(f"No data found for LLM upsampling, eval_dataset={eval_dataset}")
-        return
-    
-    # Get unique upsampling ratios
-    upsampling_ratios = sorted(df['llm_upsampling_ratio'].dropna().unique())
-    
-    if not upsampling_ratios:
-        print(f"No upsampling ratios found for eval_dataset={eval_dataset}")
+    if not qwen_runs:
+        print(f"No Qwen runs found for scaling law, eval_dataset={eval_dataset}")
         return
     
     # Create plot
     fig, ax = plt.subplots(figsize=(8, 6))
     
-    colors = plt.cm.viridis(np.linspace(0, 1, len(upsampling_ratios)))
+    colors = plt.cm.viridis(np.linspace(0, 1, len(qwen_runs)))
     all_y_values = []
     lines_plotted = 0
     
-    for i, ratio in enumerate(upsampling_ratios):
-        ratio_data = df[df['llm_upsampling_ratio'] == ratio]
+    for i, run in enumerate(qwen_runs):
+        df = get_data_for_visualization(
+            eval_dataset=eval_dataset,
+            experiment='2-',
+            run_name=run,
+            exclude_attention=True
+        )
         
-        if ratio_data.empty:
+        if df.empty:
             continue
         
+        # Extract model size for legend
+        size_str = run.split('_')[-1].replace('b', '').replace('B', '')
+        model_size = float(size_str)
+        
         # Group by number of positive samples and calculate median across all probes
-        grouped = ratio_data.groupby('num_positive_samples')['recall'].apply(list).reset_index()
+        grouped = df.groupby('num_positive_samples')[metric].apply(list).reset_index()
         grouped = grouped.sort_values('num_positive_samples')
         
         if grouped.empty:
             continue
         
         x_values = grouped['num_positive_samples'].values
-        y_medians = [np.median(recall_list) for recall_list in grouped['recall']]
+        y_medians = [np.median(metric_list) for metric_list in grouped[metric]]
         all_y_values.extend(y_medians)
         
         # Plot line
         ax.plot(x_values, y_medians, 'o-', color=colors[i], 
-                label=f'{ratio}x upsampling', linewidth=2, markersize=4)
+                label=f'{model_size}B', linewidth=2, markersize=4)
         lines_plotted += 1
     
     # Don't save if no lines were plotted
     if lines_plotted == 0:
-        print(f"No data to plot for LLM upsampling Recall, eval_dataset={eval_dataset}")
+        print(f"No data to plot for scaling law {metric}, eval_dataset={eval_dataset}")
         plt.close()
         return
     
@@ -915,9 +938,19 @@ def plot_llm_upsampling_aggregated_recall(eval_dataset: str, save_path: Path):
         y_max = min(1.0, max(all_y_values) + 0.05)
         ax.set_ylim(y_min, y_max)
     
+    # Set metric-specific parameters
+    if metric == 'auc':
+        ylabel = 'Median AUC (across all probes)'
+        title_suffix = 'AUC'
+    elif metric == 'recall':
+        ylabel = 'Median Recall @ FPR=0.01 (across all probes)'
+        title_suffix = 'Recall'
+    else:
+        raise ValueError(f"Unsupported metric: {metric}. Use 'auc' or 'recall'.")
+    
     ax.set_xlabel('Number of positive examples in the train set')
-    ax.set_ylabel('Median Recall @ FPR=0.01 (across all probes)')
-    ax.set_title(f'LLM Upsampling: Median Recall Performance\nEval Dataset: {wrap_text(eval_dataset)}')
+    ax.set_ylabel(ylabel)
+    ax.set_title(f'Scaling across Qwen model sizes: {title_suffix}\nEval Dataset: {wrap_text(eval_dataset)}')
     ax.set_xscale('log')
     ax.grid(True, alpha=0.3)
     
@@ -932,156 +965,12 @@ def plot_llm_upsampling_aggregated_recall(eval_dataset: str, save_path: Path):
 
 def plot_scaling_law_aggregated_auc(eval_dataset: str, save_path: Path):
     """Plot scaling law with median AUC performance across all probes."""
-    setup_plot_style()
-    
-    # Get Qwen run names for scaling analysis
-    qwen_runs = [run for run in get_run_names() if 'qwen' in run.lower()]
-    qwen_runs.sort(key=lambda x: float(x.split('_')[-1].replace('b', '').replace('B', '')))
-    
-    if not qwen_runs:
-        print(f"No Qwen runs found for scaling law, eval_dataset={eval_dataset}")
-        return
-    
-    # Create plot
-    fig, ax = plt.subplots(figsize=(8, 6))
-    
-    colors = plt.cm.viridis(np.linspace(0, 1, len(qwen_runs)))
-    all_y_values = []
-    lines_plotted = 0
-    
-    for i, run in enumerate(qwen_runs):
-        df = get_data_for_visualization(
-            eval_dataset=eval_dataset,
-            experiment='2-',
-            run_name=run,
-            exclude_attention=True
-        )
-        
-        if df.empty:
-            continue
-        
-        # Extract model size for legend
-        size_str = run.split('_')[-1].replace('b', '').replace('B', '')
-        model_size = float(size_str)
-        
-        # Group by number of positive samples and calculate median across all probes
-        grouped = df.groupby('num_positive_samples')['auc'].apply(list).reset_index()
-        grouped = grouped.sort_values('num_positive_samples')
-        
-        if grouped.empty:
-            continue
-        
-        x_values = grouped['num_positive_samples'].values
-        y_medians = [np.median(auc_list) for auc_list in grouped['auc']]
-        all_y_values.extend(y_medians)
-        
-        # Plot line
-        ax.plot(x_values, y_medians, 'o-', color=colors[i], 
-                label=f'{model_size}B', linewidth=2, markersize=4)
-        lines_plotted += 1
-    
-    # Don't save if no lines were plotted
-    if lines_plotted == 0:
-        print(f"No data to plot for scaling law AUC, eval_dataset={eval_dataset}")
-        plt.close()
-        return
-    
-    # Set proper ylim based on actual data
-    if all_y_values:
-        y_min = max(0.0, min(all_y_values) - 0.05)
-        y_max = min(1.0, max(all_y_values) + 0.05)
-        ax.set_ylim(y_min, y_max)
-    
-    ax.set_xlabel('Number of positive examples in the train set')
-    ax.set_ylabel('Median AUC (across all probes)')
-    ax.set_title(f'Scaling across Qwen model sizes: AUC\nEval Dataset: {wrap_text(eval_dataset)}')
-    ax.set_xscale('log')
-    ax.grid(True, alpha=0.3)
-    
-    # Only add legend if there are lines plotted
-    if all_y_values:
-        ax.legend()
-    
-    plt.tight_layout()
-    plt.savefig(save_path, dpi=300, bbox_inches='tight')
-    plt.close()
+    plot_scaling_law_aggregated(eval_dataset, save_path, metric='auc')
 
 
 def plot_scaling_law_aggregated_recall(eval_dataset: str, save_path: Path):
     """Plot scaling law with median Recall performance across all probes."""
-    setup_plot_style()
-    
-    # Get Qwen run names for scaling analysis
-    qwen_runs = [run for run in get_run_names() if 'qwen' in run.lower()]
-    qwen_runs.sort(key=lambda x: float(x.split('_')[-1].replace('b', '').replace('B', '')))
-    
-    if not qwen_runs:
-        print(f"No Qwen runs found for scaling law, eval_dataset={eval_dataset}")
-        return
-    
-    # Create plot
-    fig, ax = plt.subplots(figsize=(8, 6))
-    
-    colors = plt.cm.viridis(np.linspace(0, 1, len(qwen_runs)))
-    all_y_values = []
-    lines_plotted = 0
-    
-    for i, run in enumerate(qwen_runs):
-        df = get_data_for_visualization(
-            eval_dataset=eval_dataset,
-            experiment='2-',
-            run_name=run,
-            exclude_attention=True
-        )
-        
-        if df.empty:
-            continue
-        
-        # Extract model size for legend
-        size_str = run.split('_')[-1].replace('b', '').replace('B', '')
-        model_size = float(size_str)
-        
-        # Group by number of positive samples and calculate median across all probes
-        grouped = df.groupby('num_positive_samples')['recall'].apply(list).reset_index()
-        grouped = grouped.sort_values('num_positive_samples')
-        
-        if grouped.empty:
-            continue
-        
-        x_values = grouped['num_positive_samples'].values
-        y_medians = [np.median(recall_list) for recall_list in grouped['recall']]
-        all_y_values.extend(y_medians)
-        
-        # Plot line
-        ax.plot(x_values, y_medians, 'o-', color=colors[i], 
-                label=f'{model_size}B', linewidth=2, markersize=4)
-        lines_plotted += 1
-    
-    # Don't save if no lines were plotted
-    if lines_plotted == 0:
-        print(f"No data to plot for scaling law Recall, eval_dataset={eval_dataset}")
-        plt.close()
-        return
-    
-    # Set proper ylim based on actual data
-    if all_y_values:
-        y_min = max(0.0, min(all_y_values) - 0.05)
-        y_max = min(1.0, max(all_y_values) + 0.05)
-        ax.set_ylim(y_min, y_max)
-    
-    ax.set_xlabel('Number of positive examples in the train set')
-    ax.set_ylabel('Median Recall @ FPR=0.01 (across all probes)')
-    ax.set_title(f'Scaling across Qwen model sizes: Recall\nEval Dataset: {wrap_text(eval_dataset)}')
-    ax.set_xscale('log')
-    ax.grid(True, alpha=0.3)
-    
-    # Only add legend if there are lines plotted
-    if all_y_values:
-        ax.legend()
-    
-    plt.tight_layout()
-    plt.savefig(save_path, dpi=300, bbox_inches='tight')
-    plt.close()
+    plot_scaling_law_aggregated(eval_dataset, save_path, metric='recall')
 
 
 def plot_probe_subplots_unified(experiment: str, eval_dataset: str, save_path: Path, metric: str = 'auc'):
@@ -1126,7 +1015,7 @@ def plot_probe_subplots_unified(experiment: str, eval_dataset: str, save_path: P
     
     # Create subplot grid based on number of probes
     # All models now have 12 probes (4 act_sim + 4 linear + 4 SAE)
-    fig, axes = plt.subplots(3, 4, figsize=(16, 12))
+    fig, axes = plt.subplots(3, 4, figsize=(10, 7.5))
     axes = axes.flatten()
     
     # Define colors for each probe type
@@ -1244,7 +1133,7 @@ def plot_llm_upsampling_subplots_unified(eval_dataset: str, save_path: Path, met
     
     # Create subplot grid based on number of probes
     # All models now have 12 probes (4 act_sim + 4 linear + 4 SAE)
-    fig, axes = plt.subplots(3, 4, figsize=(16, 12))
+    fig, axes = plt.subplots(3, 4, figsize=(12, 9))
     axes = axes.flatten()
     
     # Set metric-specific parameters
@@ -1342,7 +1231,7 @@ def plot_scaling_law_subplots_unified(eval_dataset: str, save_path: Path, metric
     ]
     
     # Create 3x4 subplot grid for Qwen models
-    fig, axes = plt.subplots(3, 4, figsize=(16, 12))
+    fig, axes = plt.subplots(3, 4, figsize=(12, 9))
     axes = axes.flatten()
     
     # Set metric-specific parameters
@@ -1468,8 +1357,9 @@ def generate_all_visualizations(skip_existing: bool = False):
     main_dir.mkdir(parents=True, exist_ok=True)
     other_dir.mkdir(parents=True, exist_ok=True)
     
-    # Get available eval datasets
+    # Get available eval datasets and run names
     eval_datasets = get_eval_datasets()
+    run_names = get_run_names()
     
     # Filter: ignore datasets with numeric ID >= 99 (e.g., 99_*, 100_*)
     def _leading_id(name: str) -> int:
@@ -1483,124 +1373,174 @@ def generate_all_visualizations(skip_existing: bool = False):
     if dropped:
         print(f"[viz] Skipping eval_datasets with ID >= 99: {dropped}")
     
-    print("Generating main visualizations...")
+    print(f"Generating visualizations for {len(run_names)} models: {run_names}")
     
-    # Generate main plots (experiment 2 and 4 best probes)
+    # Generate plots for each model separately
+    for run_name in run_names:
+        print(f"\nProcessing model: {run_name}")
+        
+        # Determine output directory based on model type
+        if 'gemma' in run_name.lower() or 'mask' in run_name.lower():
+            output_dir = main_dir
+            print(f"  -> Saving to main/ (Gemma or MASK model)")
+        else:
+            output_dir = other_dir
+            print(f"  -> Saving to other/ (Qwen model)")
+        
+        # Generate main plots (experiment 2 and 4 best probes) for this model
+        for eval_dataset in eval_datasets:
+            # Experiment 2 best probes - AUC
+            save_path = output_dir / f"experiment_2_best_probes_auc_{eval_dataset}_{run_name}.png"
+            if not skip_existing or not save_path.exists():
+                plot_experiment_2_best_probes_auc_for_model(eval_dataset, run_name, save_path)
+            
+            # Experiment 2 best probes - Recall
+            save_path = output_dir / f"experiment_2_best_probes_recall_{eval_dataset}_{run_name}.png"
+            if not skip_existing or not save_path.exists():
+                plot_experiment_2_best_probes_recall_for_model(eval_dataset, run_name, save_path)
+            
+            # Experiment 4 best probes - AUC
+            save_path = output_dir / f"experiment_4_best_probes_auc_{eval_dataset}_{run_name}.png"
+            if not skip_existing or not save_path.exists():
+                plot_experiment_4_best_probes_auc_for_model(eval_dataset, run_name, save_path)
+            
+            # Experiment 4 best probes - Recall
+            save_path = output_dir / f"experiment_4_best_probes_recall_{eval_dataset}_{run_name}.png"
+            if not skip_existing or not save_path.exists():
+                plot_experiment_4_best_probes_recall_for_model(eval_dataset, run_name, save_path)
+            
+            # LLM upsampling aggregated - AUC
+            save_path = output_dir / f"llm_upsampling_aggregated_auc_{eval_dataset}_{run_name}.png"
+            if not skip_existing or not save_path.exists():
+                plot_llm_upsampling_aggregated_auc_for_model(eval_dataset, run_name, save_path)
+            
+            # LLM upsampling aggregated - Recall
+            save_path = output_dir / f"llm_upsampling_aggregated_recall_{eval_dataset}_{run_name}.png"
+            if not skip_existing or not save_path.exists():
+                plot_llm_upsampling_aggregated_recall_for_model(eval_dataset, run_name, save_path)
+            
+            # Scaling law aggregated - AUC
+            save_path = output_dir / f"scaling_law_aggregated_auc_{eval_dataset}_{run_name}.png"
+            if not skip_existing or not save_path.exists():
+                plot_scaling_law_aggregated_auc_for_model(eval_dataset, run_name, save_path)
+            
+            # Scaling law aggregated - Recall
+            save_path = output_dir / f"scaling_law_aggregated_recall_{eval_dataset}_{run_name}.png"
+            if not skip_existing or not save_path.exists():
+                plot_scaling_law_aggregated_recall_for_model(eval_dataset, run_name, save_path)
+    
+    print("\nGenerating subplot visualizations...")
+    
+    # Generate subplot visualizations for each model
+    for run_name in run_names:
+        print(f"\nProcessing subplots for model: {run_name}")
+        
+        # Determine output directory based on model type
+        if 'gemma' in run_name.lower() or 'mask' in run_name.lower():
+            output_dir = main_dir
+        else:
+            output_dir = other_dir
+        
+        for eval_dataset in eval_datasets:
+            # Experiment 2 subplots
+            save_path = output_dir / f"experiment_2_subplots_auc_{eval_dataset}_{run_name}.png"
+            if not skip_existing or not save_path.exists():
+                plot_probe_subplots_auc_for_model('2-', eval_dataset, run_name, save_path)
+            
+            # Experiment 2 subplots
+            save_path = output_dir / f"experiment_2_subplots_recall_{eval_dataset}_{run_name}.png"
+            if not skip_existing or not save_path.exists():
+                plot_probe_subplots_recall_for_model('2-', eval_dataset, run_name, save_path)
+            
+            # Experiment 4 subplots
+            save_path = output_dir / f"experiment_4_subplots_auc_{eval_dataset}_{run_name}.png"
+            if not skip_existing or not save_path.exists():
+                plot_probe_subplots_auc_for_model('4-', eval_dataset, run_name, save_path)
+            
+            # Experiment 4 subplots
+            save_path = output_dir / f"experiment_4_subplots_recall_{eval_dataset}_{run_name}.png"
+            if not skip_existing or not save_path.exists():
+                plot_probe_subplots_recall_for_model('4-', eval_dataset, run_name, save_path)
+            
+            # LLM upsampling subplots
+            save_path = output_dir / f"llm_upsampling_subplots_auc_{eval_dataset}_{run_name}.png"
+            if not skip_existing or not save_path.exists():
+                plot_llm_upsampling_subplots_auc_for_model(eval_dataset, run_name, save_path)
+            
+            # LLM upsampling subplots
+            save_path = output_dir / f"llm_upsampling_subplots_recall_{eval_dataset}_{run_name}.png"
+            if not skip_existing or not save_path.exists():
+                plot_llm_upsampling_subplots_recall_for_model(eval_dataset, run_name, save_path)
+            
+            # Scaling law subplots - AUC
+            save_path = output_dir / f"scaling_law_subplots_auc_{eval_dataset}_{run_name}.png"
+            if not skip_existing or not save_path.exists():
+                plot_scaling_law_subplots_auc_for_model(eval_dataset, run_name, save_path)
+            
+            # Scaling law subplots - Recall
+            save_path = output_dir / f"scaling_law_subplots_recall_{eval_dataset}_{run_name}.png"
+            if not skip_existing or not save_path.exists():
+                plot_scaling_law_subplots_recall_for_model(eval_dataset, run_name, save_path)
+    
+    print("\nGenerating main aggregated plots...")
+    
+    # Generate main aggregated plots (all models together)
     for eval_dataset in eval_datasets:
-        # Experiment 2 best probes - AUC
-        save_path = main_dir / f"experiment_2_best_probes_auc_{eval_dataset}.png"
-        if not skip_existing or not save_path.exists():
-            plot_experiment_2_best_probes_auc(eval_dataset, save_path)
-        
-        # Experiment 2 best probes - Recall
-        save_path = main_dir / f"experiment_2_best_probes_recall_{eval_dataset}.png"
-        if not skip_existing or not save_path.exists():
-            plot_experiment_2_best_probes_recall(eval_dataset, save_path)
-        
-        # Experiment 4 best probes - AUC
-        save_path = main_dir / f"experiment_4_best_probes_auc_{eval_dataset}.png"
-        if not skip_existing or not save_path.exists():
-            plot_experiment_4_best_probes_auc(eval_dataset, save_path)
-        
-        # Experiment 4 best probes - Recall
-        save_path = main_dir / f"experiment_4_best_probes_recall_{eval_dataset}.png"
-        if not skip_existing or not save_path.exists():
-            plot_experiment_4_best_probes_recall(eval_dataset, save_path)
-        
-        # LLM upsampling aggregated - AUC
+        # LLM upsampling aggregated (Gemma only) - AUC
         save_path = main_dir / f"llm_upsampling_aggregated_auc_{eval_dataset}.png"
         if not skip_existing or not save_path.exists():
             plot_llm_upsampling_aggregated_auc(eval_dataset, save_path)
         
-        # LLM upsampling aggregated - Recall
+        # LLM upsampling aggregated (Gemma only) - Recall
         save_path = main_dir / f"llm_upsampling_aggregated_recall_{eval_dataset}.png"
         if not skip_existing or not save_path.exists():
             plot_llm_upsampling_aggregated_recall(eval_dataset, save_path)
         
-        # Scaling law aggregated - AUC
+        # Scaling law aggregated (Qwen only) - AUC
         save_path = main_dir / f"scaling_law_aggregated_auc_{eval_dataset}.png"
         if not skip_existing or not save_path.exists():
             plot_scaling_law_aggregated_auc(eval_dataset, save_path)
         
-        # Scaling law aggregated - Recall
+        # Scaling law aggregated (Qwen only) - Recall
         save_path = main_dir / f"scaling_law_aggregated_recall_{eval_dataset}.png"
         if not skip_existing or not save_path.exists():
             plot_scaling_law_aggregated_recall(eval_dataset, save_path)
     
-    print("Generating other visualizations (subplots)...")
+    print("\nGenerating heatmap visualizations...")
     
-    # Generate subplot visualizations
-    for eval_dataset in eval_datasets:
-        # Experiment 2 subplots
-        save_path = other_dir / f"experiment_2_subplots_auc_{eval_dataset}.png"
-        if not skip_existing or not save_path.exists():
-            plot_probe_subplots_auc('2-', eval_dataset, save_path)
+    for run_name in run_names:
+        print(f"\nProcessing heatmaps for model: {run_name}")
         
-        # Experiment 2 subplots
-        save_path = other_dir / f"experiment_2_subplots_recall_{eval_dataset}.png"
-        if not skip_existing or not save_path.exists():
-            plot_probe_subplots_recall('2-', eval_dataset, save_path)
+        # Determine output directory based on model type
+        if 'gemma' in run_name.lower() or 'mask' in run_name.lower():
+            output_dir = main_dir
+        else:
+            output_dir = other_dir
         
-        # Experiment 4 subplots
-        save_path = other_dir / f"experiment_4_subplots_auc_{eval_dataset}.png"
-        if not skip_existing or not save_path.exists():
-            plot_probe_subplots_auc('4-', eval_dataset, save_path)
-        
-        # Experiment 4 subplots
-        save_path = other_dir / f"experiment_4_subplots_recall_{eval_dataset}.png"
-        if not skip_existing or not save_path.exists():
-            plot_probe_subplots_recall('4-', eval_dataset, save_path)
-        
-        # LLM upsampling subplots
-        save_path = other_dir / f"llm_upsampling_subplots_auc_{eval_dataset}.png"
-        if not skip_existing or not save_path.exists():
-            plot_llm_upsampling_subplots_auc(eval_dataset, save_path)
-        
-        # LLM upsampling subplots
-        save_path = other_dir / f"llm_upsampling_subplots_recall_{eval_dataset}.png"
-        if not skip_existing or not save_path.exists():
-            plot_llm_upsampling_subplots_recall(eval_dataset, save_path)
-        
-        # Scaling law subplots - AUC
-        save_path = other_dir / f"scaling_law_subplots_auc_{eval_dataset}.png"
-        if not skip_existing or not save_path.exists():
-            plot_scaling_law_subplots_auc(eval_dataset, save_path)
-        
-        # Scaling law subplots - Recall
-        save_path = other_dir / f"scaling_law_subplots_recall_{eval_dataset}.png"
-        if not skip_existing or not save_path.exists():
-            plot_scaling_law_subplots_recall(eval_dataset, save_path)
-    
-    print("Generating heatmap visualizations...")
-    
-    for eval_dataset in eval_datasets:
-        # Scaling Law Heatmap - AUC
-        save_path = main_dir / f"scaling_law_heatmap_auc_{eval_dataset}.png"
-        if not skip_existing or not save_path.exists():
-            # TODO: Recreate heatmap functions
-            print(f"Skipping heatmap generation - functions need to be recreated")
-        
-        # Scaling Law Heatmap - Recall
-        save_path = main_dir / f"scaling_law_heatmap_recall_{eval_dataset}.png"
-        if not skip_existing or not save_path.exists():
-            # TODO: Recreate heatmap functions
-            print(f"Skipping heatmap generation - functions need to be recreated")
-        
-        # LLM Upsampling Heatmap - AUC
-        save_path = main_dir / f"llm_upsampling_heatmap_auc_{eval_dataset}.png"
-        if not skip_existing or not save_path.exists():
-            # TODO: Recreate heatmap functions
-            print(f"Skipping heatmap generation - functions need to be recreated")
-        
-        # LLM Upsampling Heatmap - Recall
-        save_path = main_dir / f"llm_upsampling_heatmap_recall_{eval_dataset}.png"
-        if not skip_existing or not save_path.exists():
-            # TODO: Recreate heatmap functions
-            print(f"Skipping heatmap generation - functions need to be recreated")
+        for eval_dataset in eval_datasets:
+            # Scaling Law Heatmap - AUC
+            save_path = output_dir / f"scaling_law_heatmap_auc_{eval_dataset}_{run_name}.png"
+            if not skip_existing or not save_path.exists():
+                plot_scaling_law_heatmap_auc_for_model(eval_dataset, run_name, save_path)
+            
+            # Scaling Law Heatmap - Recall
+            save_path = output_dir / f"scaling_law_heatmap_recall_{eval_dataset}_{run_name}.png"
+            if not skip_existing or not save_path.exists():
+                plot_scaling_law_heatmap_recall_for_model(eval_dataset, run_name, save_path)
+            
+            # LLM Upsampling Heatmap - AUC
+            save_path = output_dir / f"llm_upsampling_heatmap_auc_{eval_dataset}_{run_name}.png"
+            if not skip_existing or not save_path.exists():
+                plot_llm_upsampling_heatmap_auc_for_model(eval_dataset, run_name, save_path)
+            
+            # LLM Upsampling Heatmap - Recall
+            save_path = output_dir / f"llm_upsampling_heatmap_recall_{eval_dataset}_{run_name}.png"
+            if not skip_existing or not save_path.exists():
+                plot_llm_upsampling_heatmap_recall_for_model(eval_dataset, run_name, save_path)
     
     print("All visualizations generated successfully!")
-    print(f"Main plots saved to: {main_dir}")
-    print(f"Other plots saved to: {other_dir}")
+    print(f"Main plots (Gemma) saved to: {main_dir}")
+    print(f"Other plots (Qwen) saved to: {other_dir}")
 
 
 def get_probe_names_for_model(run_name: str) -> list:
@@ -1753,6 +1693,1045 @@ def get_detailed_probe_label(probe_name: str, run_name: str = None) -> str:
         return config["probe_configs"][model_key][probe_name]["label"]
     
     return get_probe_label(probe_name)
+
+
+def plot_experiment_2_best_probes_for_model(eval_dataset: str, run_name: str, save_path: Path, metric: str = 'auc'):
+    """Plot experiment 2 best probes as line chart with confidence intervals for a specific model."""
+    setup_plot_style()
+    
+    # Get data for experiment 2
+    df = get_data_for_visualization(
+        eval_dataset=eval_dataset,
+        experiment='2-',
+        exclude_attention=False  # Include attention for best probes
+    )
+    
+    if df.empty:
+        print(f"No data found for experiment 2, eval_dataset={eval_dataset}")
+        return
+    
+    # Filter to only include data from the specified model
+    df = df[df['run_name'] == run_name]
+    
+    if df.empty:
+        print(f"No data found for experiment 2, eval_dataset={eval_dataset}, run_name={run_name}")
+        return
+    
+    # Debug: Print data before filtering
+    print(f"\n=== EXPERIMENT 2 {metric.upper()} PLOT DEBUG for {eval_dataset} - {run_name} ===")
+    print(f"Before filtering - Total rows: {len(df)}")
+    print(f"Before filtering - Probe types: {df['probe_name'].value_counts().to_dict()}")
+    
+    # Debug: Check sample counts
+    print(f"Before filtering - num_positive_samples: {df['num_positive_samples'].value_counts().head(10).to_dict()}")
+    print(f"Before filtering - num_negative_samples: {df['num_negative_samples'].value_counts().head(10).to_dict()}")
+    
+    # Apply main plot filters (Gemma SAE topk=1024, linear C=1.0)
+    df = apply_main_plot_filters(df)
+    
+    if df.empty:
+        print(f"No data found after applying filters for experiment 2, eval_dataset={eval_dataset}, run_name={run_name}")
+        return
+    
+    # Debug: Print data after filtering
+    print(f"After filtering - Total rows: {len(df)}")
+    print(f"After filtering - Probe types: {df['probe_name'].value_counts().to_dict()}")
+    print(f"After filtering - num_positive_samples: {df['num_positive_samples'].value_counts().to_dict()}")
+    print(f"After filtering - num_negative_samples: {df['num_negative_samples'].value_counts().to_dict()}")
+    
+    # Get best probes from each category
+    best_probes = get_best_probes_by_category(df)
+    
+    if not best_probes:
+        print(f"No valid probes found for experiment 2, eval_dataset={eval_dataset}, run_name={run_name}")
+        return
+    
+    # Debug: Print best probes and their data counts
+    print(f"Best probes selected: {best_probes}")
+    for probe in best_probes:
+        probe_data = df[df['probe_name'] == probe]
+        print(f"  {probe}: {len(probe_data)} data rows")
+        if not probe_data.empty:
+            print(f"    Sample counts: {probe_data['num_positive_samples'].value_counts().to_dict()}")
+            print(f"    Seeds: {probe_data['seed'].value_counts().to_dict()}")
+    
+    print("=== END DEBUG ===\n")
+    
+    # Create plot
+    fig, ax = plt.subplots(figsize=(8, 6))
+    
+    colors = ['blue', 'orange', 'green', 'red']
+    all_y_values = []  # Collect all y values for proper ylim
+    lines_plotted = 0
+    
+    for i, probe in enumerate(best_probes):
+        probe_data = df[df['probe_name'] == probe]
+        
+        if probe_data.empty:
+            continue
+        
+        # Group by number of positive samples
+        grouped = probe_data.groupby('num_positive_samples')[metric].apply(list).reset_index()
+        grouped = grouped.sort_values('num_positive_samples')
+        
+        if grouped.empty:
+            continue
+        
+        x_values = grouped['num_positive_samples'].values
+        y_means = [np.mean(metric_list) for metric_list in grouped[metric]]
+        y_lower = []
+        y_upper = []
+        
+        for metric_list in grouped[metric]:
+            lower, upper = calculate_confidence_interval(metric_list)
+            y_lower.append(lower)
+            y_upper.append(upper)
+        
+        # Collect all y values for ylim calculation
+        all_y_values.extend(y_means)
+        all_y_values.extend(y_lower)
+        all_y_values.extend(y_upper)
+        
+        # Plot line with confidence interval
+        ax.plot(x_values, y_means, 'o-', color=colors[i], label=get_probe_label(probe), 
+                linewidth=2, markersize=4)
+        ax.fill_between(x_values, y_lower, y_upper, alpha=0.3, color=colors[i])
+        lines_plotted += 1
+    
+    # Don't save if no lines were plotted
+    if lines_plotted == 0:
+        print(f"No data to plot for experiment 2 {metric}, eval_dataset={eval_dataset}, run_name={run_name}")
+        plt.close()
+        return
+    
+    # Set proper ylim based on actual data
+    if all_y_values:
+        y_min = max(0.0, min(all_y_values) - 0.05)
+        y_max = min(1.0, max(all_y_values) + 0.05)
+        ax.set_ylim(y_min, y_max)
+    
+    # Get number of negative examples for title and format run_name
+    num_negative = df['num_negative_samples'].iloc[0] if not df.empty and 'num_negative_samples' in df.columns else None
+    
+    # Format run_name to be cleaner (e.g., "spam_gemma_9b" -> "Gemma-2-9b")
+    formatted_run_name = format_run_name_for_display(run_name)
+    
+    # Set metric-specific parameters
+    if metric == 'auc':
+        ylabel = 'AUC'
+    elif metric == 'recall':
+        ylabel = 'Recall @ FPR=0.01'
+    else:
+        raise ValueError(f"Unsupported metric: {metric}. Use 'auc' or 'recall'.")
+    
+    ax.set_xlabel('Number of positive examples in the train set')
+    ax.set_ylabel(ylabel)
+    if num_negative is not None:
+        # Convert to int to remove .0
+        num_negative_int = int(num_negative)
+        ax.set_title(f'{formatted_run_name} Probes On Unbalanced Enron-Spam Dataset\n({num_negative_int} negative examples)')
+    else:
+        ax.set_title(f'{formatted_run_name} Probes On Unbalanced Enron-Spam Dataset')
+    ax.set_xscale('log')
+    ax.grid(True, alpha=0.3)
+    
+    # Only add legend if there are lines plotted
+    if all_y_values:
+        ax.legend()
+    
+    plt.tight_layout()
+    plt.savefig(save_path, dpi=300, bbox_inches='tight')
+    plt.close()
+
+
+def format_run_name_for_display(run_name: str) -> str:
+    """Format run_name for display in plot titles."""
+    if 'gemma' in run_name.lower():
+        # Extract model size and format as "Gemma-2-9b"
+        if '9b' in run_name.lower():
+            return "Gemma-2-9b"
+        elif '7b' in run_name.lower():
+            return "Gemma-2-7b"
+        else:
+            return "Gemma-2"
+    elif 'qwen' in run_name.lower():
+        # Extract model size and format as "Qwen-1.5-7B"
+        if '32b' in run_name.lower():
+            return "Qwen-1.5-32B"
+        elif '14b' in run_name.lower():
+            return "Qwen-1.5-14B"
+        elif '8b' in run_name.lower():
+            return "Qwen-1.5-8B"
+        elif '4b' in run_name.lower():
+            return "Qwen-1.5-4B"
+        elif '1.7b' in run_name.lower():
+            return "Qwen-1.5-1.7B"
+        elif '0.6b' in run_name.lower():
+            return "Qwen-1.5-0.6B"
+        else:
+            return "Qwen-1.5"
+    elif 'mask' in run_name.lower():
+        return "MASK"
+    else:
+        return run_name
+
+
+def format_dataset_name_for_display(eval_dataset: str) -> str:
+    """Format eval_dataset for display in plot titles."""
+    if 'enron' in eval_dataset.lower() or 'spam' in eval_dataset.lower():
+        return "Enron-Spam"
+    else:
+        # Capitalize first letter and replace underscores with spaces
+        return eval_dataset.replace('_', ' ').title()
+
+
+def plot_experiment_2_best_probes_auc_for_model(eval_dataset: str, run_name: str, save_path: Path):
+    """Plot experiment 2 best probes AUC as line chart with confidence intervals for a specific model."""
+    plot_experiment_2_best_probes_for_model(eval_dataset, run_name, save_path, metric='auc')
+
+
+def plot_experiment_2_best_probes_recall_for_model(eval_dataset: str, run_name: str, save_path: Path):
+    """Plot experiment 2 best probes Recall @ FPR=0.01 as line chart with confidence intervals for a specific model."""
+    plot_experiment_2_best_probes_for_model(eval_dataset, run_name, save_path, metric='recall')
+
+
+def plot_experiment_4_best_probes_for_model(eval_dataset: str, run_name: str, save_path: Path, metric: str = 'auc'):
+    """Plot experiment 4 best probes as line chart with confidence intervals for a specific model."""
+    setup_plot_style()
+    
+    # Get data for experiment 4
+    df = get_data_for_visualization(
+        eval_dataset=eval_dataset,
+        experiment='4-',
+        exclude_attention=False  # Include attention for best probes
+    )
+    
+    if df.empty:
+        print(f"No data found for experiment 4, eval_dataset={eval_dataset}")
+        return
+    
+    # Filter to only include data from the specified model
+    df = df[df['run_name'] == run_name]
+    
+    if df.empty:
+        print(f"No data found for experiment 4, eval_dataset={eval_dataset}, run_name={run_name}")
+        return
+    
+    # Debug: Print data before filtering
+    print(f"\n=== EXPERIMENT 4 {metric.upper()} PLOT DEBUG for {eval_dataset} - {run_name} ===")
+    print(f"Before filtering - Total rows: {len(df)}")
+    print(f"Before filtering - Probe types: {df['probe_name'].value_counts().to_dict()}")
+    
+    # Debug: Check sample counts
+    print(f"Before filtering - num_positive_samples: {df['num_positive_samples'].value_counts().head(10).to_dict()}")
+    print(f"Before filtering - num_negative_samples: {df['num_negative_samples'].value_counts().head(10).to_dict()}")
+    
+    # Apply main plot filters (Gemma SAE topk=1024, linear C=1.0)
+    df = apply_main_plot_filters(df)
+    
+    if df.empty:
+        print(f"No data found after applying filters for experiment 4, eval_dataset={eval_dataset}, run_name={run_name}")
+        return
+    
+    # Debug: Print data after filtering
+    print(f"After filtering - Total rows: {len(df)}")
+    print(f"After filtering - Probe types: {df['probe_name'].value_counts().to_dict()}")
+    print(f"After filtering - num_positive_samples: {df['num_positive_samples'].value_counts().to_dict()}")
+    print(f"After filtering - num_negative_samples: {df['num_negative_samples'].value_counts().to_dict()}")
+    
+    # Get best probes from each category
+    best_probes = get_best_probes_by_category(df)
+    
+    if not best_probes:
+        print(f"No valid probes found for experiment 4, eval_dataset={eval_dataset}, run_name={run_name}")
+        return
+    
+    # Debug: Print best probes and their data counts
+    print(f"Best probes selected: {best_probes}")
+    for probe in best_probes:
+        probe_data = df[df['probe_name'] == probe]
+        print(f"  {probe}: {len(probe_data)} data rows")
+        if not probe_data.empty:
+            print(f"    Sample counts: {probe_data['num_positive_samples'].value_counts().to_dict()}")
+            print(f"    Seeds: {probe_data['seed'].value_counts().to_dict()}")
+    
+    print("=== END DEBUG ===\n")
+    
+    # Create plot
+    fig, ax = plt.subplots(figsize=(8, 6))
+    
+    colors = ['blue', 'orange', 'green', 'red']
+    all_y_values = []  # Collect all y values for proper ylim
+    lines_plotted = 0
+    
+    for i, probe in enumerate(best_probes):
+        probe_data = df[df['probe_name'] == probe]
+        
+        if probe_data.empty:
+            continue
+        
+        # Group by number of positive samples
+        grouped = probe_data.groupby('num_positive_samples')[metric].apply(list).reset_index()
+        grouped = grouped.sort_values('num_positive_samples')
+        
+        if grouped.empty:
+            continue
+        
+        x_values = grouped['num_positive_samples'].values
+        y_means = [np.mean(metric_list) for metric_list in grouped[metric]]
+        y_lower = []
+        y_upper = []
+        
+        for metric_list in grouped[metric]:
+            lower, upper = calculate_confidence_interval(metric_list)
+            y_lower.append(lower)
+            y_upper.append(upper)
+        
+        # Collect all y values for ylim calculation
+        all_y_values.extend(y_means)
+        all_y_values.extend(y_lower)
+        all_y_values.extend(y_upper)
+        
+        # Plot line with confidence interval
+        ax.plot(x_values, y_means, 'o-', color=colors[i], label=get_probe_label(probe), 
+                linewidth=2, markersize=4)
+        ax.fill_between(x_values, y_lower, y_upper, alpha=0.3, color=colors[i])
+        lines_plotted += 1
+    
+    # Don't save if no lines were plotted
+    if lines_plotted == 0:
+        print(f"No data to plot for experiment 4 {metric}, eval_dataset={eval_dataset}, run_name={run_name}")
+        plt.close()
+        return
+    
+    # Set proper ylim based on actual data
+    if all_y_values:
+        y_min = max(0.0, min(all_y_values) - 0.05)
+        y_max = min(1.0, max(all_y_values) + 0.05)
+        ax.set_ylim(y_min, y_max)
+    
+    # Format run_name and eval_dataset for cleaner title
+    formatted_run_name = format_run_name_for_display(run_name)
+    formatted_dataset = format_dataset_name_for_display(eval_dataset)
+    
+    # Set metric-specific parameters
+    if metric == 'auc':
+        ylabel = 'AUC'
+    elif metric == 'recall':
+        ylabel = 'Recall @ FPR=0.01'
+    else:
+        raise ValueError(f"Unsupported metric: {metric}. Use 'auc' or 'recall'.")
+    
+    ax.set_xlabel('Number of training examples per class\n(x negative, x positive)')
+    ax.set_ylabel(ylabel)
+    ax.set_title(f'{formatted_run_name} Probes on Balanced Enron-Spam Dataset\n(equal positive and negative samples)')
+    
+    # Set log scale only if all x values are positive
+    all_x_values = []
+    for probe in best_probes:
+        probe_data = df[df['probe_name'] == probe]
+        if not probe_data.empty:
+            all_x_values.extend(probe_data['num_positive_samples'].unique())
+    
+    if all_x_values and min(all_x_values) > 0:
+        ax.set_xscale('log')
+    ax.grid(True, alpha=0.3)
+    
+    # Only add legend if there are lines plotted
+    if all_y_values:
+        ax.legend()
+    
+    plt.tight_layout()
+    plt.savefig(save_path, dpi=300, bbox_inches='tight')
+    plt.close()
+
+
+def plot_experiment_4_best_probes_auc_for_model(eval_dataset: str, run_name: str, save_path: Path):
+    """Plot experiment 4 best probes AUC as line chart with confidence intervals for a specific model."""
+    plot_experiment_4_best_probes_for_model(eval_dataset, run_name, save_path, metric='auc')
+
+
+def plot_experiment_4_best_probes_recall_for_model(eval_dataset: str, run_name: str, save_path: Path):
+    """Plot experiment 4 best probes Recall @ FPR=0.01 as line chart with confidence intervals for a specific model."""
+    plot_experiment_4_best_probes_for_model(eval_dataset, run_name, save_path, metric='recall')
+
+
+# Placeholder functions for other plot types (to be implemented later)
+def plot_llm_upsampling_aggregated_for_model(eval_dataset: str, run_name: str, save_path: Path, metric: str = 'auc'):
+    """Plot LLM upsampling with median performance across all probes for Gemma models only."""
+    setup_plot_style()
+    
+    # Only generate for Gemma models
+    if 'gemma' not in run_name.lower():
+        print(f"Skipping LLM upsampling aggregated {metric} for {run_name} - only for Gemma models")
+        return
+    
+    # Get data for experiment 3 (LLM upsampling) for this specific model
+    df = get_data_for_visualization(
+        eval_dataset=eval_dataset,
+        experiment='3-',
+        run_name=run_name,
+        exclude_attention=True
+    )
+    
+    if df.empty:
+        print(f"No data found for LLM upsampling, eval_dataset={eval_dataset}, run_name={run_name}")
+        return
+    
+    # Get unique upsampling ratios
+    upsampling_ratios = sorted(df['llm_upsampling_ratio'].dropna().unique())
+    
+    if not upsampling_ratios:
+        print(f"No upsampling ratios found for eval_dataset={eval_dataset}, run_name={run_name}")
+        return
+    
+    # Create plot
+    fig, ax = plt.subplots(figsize=(8, 6))
+    
+    colors = plt.cm.viridis(np.linspace(0, 1, len(upsampling_ratios)))
+    all_y_values = []
+    lines_plotted = 0
+    
+    for i, ratio in enumerate(upsampling_ratios):
+        ratio_data = df[df['llm_upsampling_ratio'] == ratio]
+        
+        if ratio_data.empty:
+            continue
+        
+        # Group by number of positive samples and calculate median across all probes
+        grouped = ratio_data.groupby('num_positive_samples')[metric].apply(list).reset_index()
+        grouped = grouped.sort_values('num_positive_samples')
+        
+        if grouped.empty:
+            continue
+        
+        x_values = grouped['num_positive_samples'].values
+        y_medians = [np.median(metric_list) for metric_list in grouped[metric]]
+        all_y_values.extend(y_medians)
+        
+        # Plot line with cleaner label (e.g., "1x" instead of "1.0x")
+        ratio_int = int(ratio) if ratio.is_integer() else ratio
+        ax.plot(x_values, y_medians, 'o-', color=colors[i], 
+                label=f'{ratio_int}x', linewidth=2, markersize=4)
+        lines_plotted += 1
+    
+    # Don't save if no lines were plotted
+    if lines_plotted == 0:
+        print(f"No data to plot for LLM upsampling {metric}, eval_dataset={eval_dataset}, run_name={run_name}")
+        plt.close()
+        return
+    
+    # Set proper ylim based on actual data
+    if all_y_values:
+        y_min = max(0.0, min(all_y_values) - 0.05)
+        y_max = min(1.0, max(all_y_values) + 0.02)  # Reduced from 0.05 to 0.02 to cut off higher
+        ax.set_ylim(y_min, y_max)
+    
+    # Set metric-specific parameters
+    if metric == 'auc':
+        ylabel = 'Median AUC (across all probes)'
+        title_suffix = 'AUC'
+    elif metric == 'recall':
+        ylabel = 'Median Recall @ FPR=0.01 (across all probes)'
+        title_suffix = 'Recall'
+    else:
+        raise ValueError(f"Unsupported metric: {metric}. Use 'auc' or 'recall'.")
+    
+    # Format run_name and eval_dataset for cleaner title
+    formatted_run_name = format_run_name_for_display(run_name)
+    formatted_dataset = format_dataset_name_for_display(eval_dataset)
+    
+    ax.set_xlabel('Number of positive examples in the train set')
+    ax.set_ylabel(ylabel)
+    ax.set_title(f'{formatted_run_name} Probes on LLM-Upsampled {formatted_dataset}')
+    ax.set_xscale('log')
+    ax.grid(True, alpha=0.3)
+    
+    # Only add legend if there are lines plotted
+    if all_y_values:
+        ax.legend(title='Upsampling \nFactor')
+    
+    plt.tight_layout()
+    plt.savefig(save_path, dpi=300, bbox_inches='tight')
+    plt.close()
+
+
+def plot_llm_upsampling_aggregated_auc_for_model(eval_dataset: str, run_name: str, save_path: Path):
+    """Plot LLM upsampling with median AUC performance across all probes for Gemma models only."""
+    plot_llm_upsampling_aggregated_for_model(eval_dataset, run_name, save_path, metric='auc')
+
+
+def plot_llm_upsampling_aggregated_recall_for_model(eval_dataset: str, run_name: str, save_path: Path):
+    """Plot LLM upsampling with median Recall performance across all probes for Gemma models only."""
+    plot_llm_upsampling_aggregated_for_model(eval_dataset, run_name, save_path, metric='recall')
+
+
+def plot_scaling_law_aggregated_for_model(eval_dataset: str, run_name: str, save_path: Path, metric: str = 'auc'):
+    """Plot scaling law with median performance across all probes for Qwen models only."""
+    setup_plot_style()
+    
+    # Only generate for Qwen models
+    if 'qwen' not in run_name.lower():
+        print(f"Skipping scaling law aggregated {metric} for {run_name} - only for Qwen models")
+        return
+    
+    # Get data for experiment 2 for this specific model
+    df = get_data_for_visualization(
+        eval_dataset=eval_dataset,
+        experiment='2-',
+        run_name=run_name,
+        exclude_attention=True
+    )
+    
+    if df.empty:
+        print(f"No data found for scaling law, eval_dataset={eval_dataset}, run_name={run_name}")
+        return
+    
+    # Create plot
+    fig, ax = plt.subplots(figsize=(8, 6))
+    
+    # Group by number of positive samples and calculate median across all probes
+    grouped = df.groupby('num_positive_samples')[metric].apply(list).reset_index()
+    grouped = grouped.sort_values('num_positive_samples')
+    
+    if grouped.empty:
+        print(f"No data to plot for scaling law {metric}, eval_dataset={eval_dataset}, run_name={run_name}")
+        plt.close()
+        return
+    
+    x_values = grouped['num_positive_samples'].values
+    y_medians = [np.median(metric_list) for metric_list in grouped[metric]]
+    
+    # Extract model size for legend
+    size_str = run_name.split('_')[-1].replace('b', '').replace('B', '')
+    model_size = float(size_str)
+    
+    # Plot line
+    ax.plot(x_values, y_medians, 'o-', color='blue', 
+            label=f'{model_size}B', linewidth=2, markersize=4)
+    
+    # Set proper ylim based on actual data
+    if y_medians:
+        y_min = max(0.0, min(y_medians) - 0.05)
+        y_max = min(1.0, max(y_medians) + 0.05)
+        ax.set_ylim(y_min, y_max)
+    
+    # Set metric-specific parameters
+    if metric == 'auc':
+        ylabel = 'Median AUC (across all probes)'
+        title_suffix = 'AUC'
+    elif metric == 'recall':
+        ylabel = 'Median Recall @ FPR=0.01 (across all probes)'
+        title_suffix = 'Recall'
+    else:
+        raise ValueError(f"Unsupported metric: {metric}. Use 'auc' or 'recall'.")
+    
+    ax.set_xlabel('Number of positive examples in the train set')
+    ax.set_ylabel(ylabel)
+    ax.set_title(f'Scaling Law: Median {title_suffix} Performance\n{run_name} - {eval_dataset}')
+    ax.set_xscale('log')
+    ax.grid(True, alpha=0.3)
+    
+    # Add legend
+    ax.legend()
+    
+    plt.tight_layout()
+    plt.savefig(save_path, dpi=300, bbox_inches='tight')
+    plt.close()
+
+
+def plot_scaling_law_aggregated_auc_for_model(eval_dataset: str, run_name: str, save_path: Path):
+    """Plot scaling law with median AUC performance across all probes for Qwen models only."""
+    plot_scaling_law_aggregated_for_model(eval_dataset, run_name, save_path, metric='auc')
+
+
+def plot_scaling_law_aggregated_recall_for_model(eval_dataset: str, run_name: str, save_path: Path):
+    """Plot scaling law with median Recall performance across all probes for Qwen models only."""
+    plot_scaling_law_aggregated_for_model(eval_dataset, run_name, save_path, metric='recall')
+
+
+def plot_probe_subplots_auc_for_model(experiment: str, eval_dataset: str, run_name: str, save_path: Path):
+    """Create subplot visualization for all probes AUC for a specific model."""
+    plot_probe_subplots_unified_for_model(experiment, eval_dataset, run_name, save_path, metric='auc')
+
+
+def plot_probe_subplots_recall_for_model(experiment: str, eval_dataset: str, run_name: str, save_path: Path):
+    """Create subplot visualization for all probes Recall for a specific model."""
+    plot_probe_subplots_unified_for_model(experiment, eval_dataset, run_name, save_path, metric='recall')
+
+
+def plot_probe_subplots_unified_for_model(experiment: str, eval_dataset: str, run_name: str, save_path: Path, metric: str = 'auc'):
+    """Create subplot visualization for all probes for a specific model - unified function for AUC and Recall."""
+    setup_plot_style()
+    
+    # Get data for the experiment for this specific model
+    df = get_data_for_visualization(
+        eval_dataset=eval_dataset,
+        experiment=experiment,
+        run_name=run_name,
+        exclude_attention=True
+    )
+    
+    if df.empty:
+        print(f"No data found for experiment {experiment}, eval_dataset={eval_dataset}, run_name={run_name}")
+        return
+    
+    # Define the probe names we want to include
+    # For subplots, we need to determine if this is a Gemma experiment
+    if 'gemma' in run_name.lower():
+        # Gemma has 12 probes total (4 act_sim + 4 linear + 4 SAE)
+        probe_names = [
+            'act_sim_last', 'act_sim_max', 'act_sim_mean', 'act_sim_softmax',
+            'sklearn_linear_last', 'sklearn_linear_max', 'sklearn_linear_mean', 'sklearn_linear_softmax',
+            'sae_last', 'sae_max', 'sae_mean', 'sae_softmax'
+        ]
+    else:
+        # Qwen and other models have 12 probes total (4 act_sim + 4 linear + 4 SAE)
+        probe_names = [
+            'act_sim_last', 'act_sim_max', 'act_sim_mean', 'act_sim_softmax',
+            'sklearn_linear_last', 'sklearn_linear_max', 'sklearn_linear_mean', 'sklearn_linear_softmax',
+            'sae_last', 'sae_max', 'sae_mean', 'sae_softmax'
+        ]
+    
+    # Create subplot grid based on number of probes
+    # All models now have 12 probes (4 act_sim + 4 linear + 4 SAE)
+    fig, axes = plt.subplots(3, 4, figsize=(12, 9))
+    axes = axes.flatten()
+    
+    # Define colors for each probe type
+    act_sim_color = 'blue'
+    sae_color = 'orange'
+    linear_color = 'green'
+    
+    # Set metric-specific parameters
+    if metric == 'auc':
+        ylabel = 'AUC'
+        y_min_default = 0.6
+        title_suffix = '(AUC)'
+    elif metric == 'recall':
+        ylabel = 'Recall @ FPR=0.01'
+        y_min_default = 0.0
+        title_suffix = '(Recall @ FPR=0.01)'
+    else:
+        raise ValueError(f"Unsupported metric: {metric}. Use 'auc' or 'recall'.")
+    
+    all_y_values = []  # Collect all y values for proper ylim
+    
+    for i, probe in enumerate(probe_names):  # Use all probes
+        ax = axes[i]
+        
+        # Get data for this probe
+        probe_data = df[df['probe_name'] == probe]
+        
+        if not probe_data.empty and probe_data['num_positive_samples'].notna().any():
+            # Group by number of positive samples
+            grouped = probe_data.groupby('num_positive_samples')[metric].apply(list).reset_index()
+            grouped = grouped.sort_values('num_positive_samples')
+            
+            x_values = grouped['num_positive_samples'].values
+            y_means = [np.mean(values) for values in grouped[metric]]
+            all_y_values.extend(y_means)
+            
+            # Choose color based on probe type
+            if 'act_sim' in probe:
+                color = act_sim_color
+            elif 'sae' in probe:
+                color = sae_color
+            elif 'linear' in probe:
+                color = linear_color
+            else:
+                color = 'black'
+            
+            ax.plot(x_values, y_means, 'o-', color=color, markersize=4, linewidth=1.5)
+            ax.set_title(wrap_text(get_detailed_probe_label(probe), 25))
+            ax.set_xlabel('Training Size')
+            ax.set_ylabel(ylabel)
+            ax.set_xscale('log')
+            ax.grid(True, alpha=0.3)
+        else:
+            ax.text(0.5, 0.5, 'No data', ha='center', va='center', transform=ax.transAxes)
+            ax.set_title(wrap_text(get_detailed_probe_label(probe), 25))
+    
+    # Set consistent ylim across all subplots
+    if all_y_values:
+        y_min = max(y_min_default, min(all_y_values) - 0.05)
+        y_max = min(1.0, max(all_y_values) + 0.05)
+        for ax in axes:
+            ax.set_ylim(y_min, y_max)
+    
+    # Set experiment-specific title
+    if experiment == '2-':
+        experiment_title = 'Unbalanced'
+    elif experiment == '4-':
+        experiment_title = 'Balanced'
+    else:
+        experiment_title = f'Experiment {experiment}'
+    
+    fig.suptitle(f'{run_name} - {experiment_title} {title_suffix}\n{eval_dataset}', fontsize=16)
+    
+    plt.tight_layout()
+    plt.savefig(save_path, dpi=300, bbox_inches='tight')
+    plt.close()
+
+
+def plot_llm_upsampling_subplots_auc_for_model(eval_dataset: str, run_name: str, save_path: Path):
+    """Create LLM upsampling subplot visualization for all probes AUC for a specific model."""
+    plot_llm_upsampling_subplots_unified_for_model(eval_dataset, run_name, save_path, metric='auc')
+
+
+def plot_llm_upsampling_subplots_recall_for_model(eval_dataset: str, run_name: str, save_path: Path):
+    """Create LLM upsampling subplot visualization for all probes Recall for a specific model."""
+    plot_llm_upsampling_subplots_unified_for_model(eval_dataset, run_name, save_path, metric='recall')
+
+
+def plot_llm_upsampling_subplots_unified_for_model(eval_dataset: str, run_name: str, save_path: Path, metric: str = 'auc'):
+    """Create LLM upsampling subplot visualization for all probes for a specific model - unified function for AUC and Recall."""
+    setup_plot_style()
+    
+    # Only generate for Gemma models
+    if 'gemma' not in run_name.lower():
+        print(f"Skipping LLM upsampling subplots for {run_name} - only for Gemma models")
+        return
+    
+    # Get data for experiment 3 (LLM upsampling) for this specific model
+    df = get_data_for_visualization(
+        eval_dataset=eval_dataset,
+        experiment='3-',
+        run_name=run_name,
+        exclude_attention=True
+    )
+    
+    if df.empty:
+        print(f"No data found for LLM upsampling, eval_dataset={eval_dataset}, run_name={run_name}")
+        return
+    
+    # Define the probe names we want to include
+    probe_names = [
+        'act_sim_last', 'act_sim_max', 'act_sim_mean', 'act_sim_softmax',
+        'sklearn_linear_last', 'sklearn_linear_max', 'sklearn_linear_mean', 'sklearn_linear_softmax',
+        'sae_last', 'sae_max', 'sae_mean', 'sae_softmax'
+    ]
+    
+    # Create subplot grid based on number of probes
+    fig, axes = plt.subplots(3, 4, figsize=(12, 9))
+    axes = axes.flatten()
+    
+    # Define colors for each probe type
+    act_sim_color = 'blue'
+    sae_color = 'orange'
+    linear_color = 'green'
+    
+    # Set metric-specific parameters
+    if metric == 'auc':
+        ylabel = 'AUC'
+        y_min_default = 0.6
+        title_suffix = '(AUC)'
+    elif metric == 'recall':
+        ylabel = 'Recall @ FPR=0.01'
+        y_min_default = 0.0
+        title_suffix = '(Recall @ FPR=0.01)'
+    else:
+        raise ValueError(f"Unsupported metric: {metric}. Use 'auc' or 'recall'.")
+    
+    all_y_values = []  # Collect all y values for proper ylim
+    
+    for i, probe in enumerate(probe_names):
+        ax = axes[i]
+        
+        # Get data for this probe
+        probe_data = df[df['probe_name'] == probe]
+        
+        if not probe_data.empty and probe_data['num_positive_samples'].notna().any():
+            # Group by number of positive samples and upsampling ratio
+            grouped = probe_data.groupby(['num_positive_samples', 'llm_upsampling_ratio'])[metric].apply(list).reset_index()
+            grouped = grouped.sort_values(['num_positive_samples', 'llm_upsampling_ratio'])
+            
+            # Get unique upsampling ratios
+            upsampling_ratios = sorted(probe_data['llm_upsampling_ratio'].dropna().unique())
+            colors = plt.cm.viridis(np.linspace(0, 1, len(upsampling_ratios)))
+            
+            for j, ratio in enumerate(upsampling_ratios):
+                ratio_data = grouped[grouped['llm_upsampling_ratio'] == ratio]
+                if not ratio_data.empty:
+                    x_values = ratio_data['num_positive_samples'].values
+                    y_means = [np.mean(values) for values in ratio_data[metric]]
+                    all_y_values.extend(y_means)
+                    
+                    # Choose color based on probe type
+                    if 'act_sim' in probe:
+                        color = act_sim_color
+                    elif 'sae' in probe:
+                        color = sae_color
+                    elif 'linear' in probe:
+                        color = linear_color
+                    else:
+                        color = 'black'
+                    
+                    ax.plot(x_values, y_means, 'o-', color=color, markersize=3, linewidth=1, alpha=0.7)
+            
+            ax.set_title(wrap_text(get_detailed_probe_label(probe), 25))
+            ax.set_xlabel('Training Size')
+            ax.set_ylabel(ylabel)
+            ax.set_xscale('log')
+            ax.grid(True, alpha=0.3)
+        else:
+            ax.text(0.5, 0.5, 'No data', ha='center', va='center', transform=ax.transAxes)
+            ax.set_title(wrap_text(get_detailed_probe_label(probe), 25))
+    
+    # Set consistent ylim across all subplots
+    if all_y_values:
+        y_min = max(y_min_default, min(all_y_values) - 0.05)
+        y_max = min(1.0, max(all_y_values) + 0.05)
+        for ax in axes:
+            ax.set_ylim(y_min, y_max)
+    
+    fig.suptitle(f'{run_name} - LLM Upsampling {title_suffix}\n{eval_dataset}', fontsize=16)
+    
+    plt.tight_layout()
+    plt.savefig(save_path, dpi=300, bbox_inches='tight')
+    plt.close()
+
+
+def plot_scaling_law_subplots_auc_for_model(eval_dataset: str, run_name: str, save_path: Path):
+    """Create scaling law subplot visualization for all probes AUC for a specific model."""
+    plot_scaling_law_subplots_unified_for_model(eval_dataset, run_name, save_path, metric='auc')
+
+
+def plot_scaling_law_subplots_recall_for_model(eval_dataset: str, run_name: str, save_path: Path):
+    """Create scaling law subplot visualization for all probes Recall for a specific model."""
+    plot_scaling_law_subplots_unified_for_model(eval_dataset, run_name, save_path, metric='recall')
+
+
+def plot_scaling_law_subplots_unified_for_model(eval_dataset: str, run_name: str, save_path: Path, metric: str = 'auc'):
+    """Create scaling law subplot visualization for all probes for a specific model - unified function for AUC and Recall."""
+    setup_plot_style()
+    
+    # Only generate for Qwen models
+    if 'qwen' not in run_name.lower():
+        print(f"Skipping scaling law subplots for {run_name} - only for Qwen models")
+        return
+    
+    # Get data for experiment 2 for this specific model
+    df = get_data_for_visualization(
+        eval_dataset=eval_dataset,
+        experiment='2-',
+        run_name=run_name,
+        exclude_attention=True
+    )
+    
+    if df.empty:
+        print(f"No data found for scaling law, eval_dataset={eval_dataset}, run_name={run_name}")
+        return
+    
+    # Define the probe names we want to include
+    probe_names = [
+        'act_sim_last', 'act_sim_max', 'act_sim_mean', 'act_sim_softmax',
+        'sklearn_linear_last', 'sklearn_linear_max', 'sklearn_linear_mean', 'sklearn_linear_softmax',
+        'sae_last', 'sae_max', 'sae_mean', 'sae_softmax'
+    ]
+    
+    # Create subplot grid based on number of probes
+    fig, axes = plt.subplots(3, 4, figsize=(12, 9))
+    axes = axes.flatten()
+    
+    # Define colors for each probe type
+    act_sim_color = 'blue'
+    sae_color = 'orange'
+    linear_color = 'green'
+    
+    # Set metric-specific parameters
+    if metric == 'auc':
+        ylabel = 'AUC'
+        y_min_default = 0.6
+        title_suffix = '(AUC)'
+    elif metric == 'recall':
+        ylabel = 'Recall @ FPR=0.01'
+        y_min_default = 0.0
+        title_suffix = '(Recall @ FPR=0.01)'
+    else:
+        raise ValueError(f"Unsupported metric: {metric}. Use 'auc' or 'recall'.")
+    
+    all_y_values = []  # Collect all y values for proper ylim
+    
+    for i, probe in enumerate(probe_names):
+        ax = axes[i]
+        
+        # Get data for this probe
+        probe_data = df[df['probe_name'] == probe]
+        
+        if not probe_data.empty and probe_data['num_positive_samples'].notna().any():
+            # Group by number of positive samples
+            grouped = probe_data.groupby('num_positive_samples')[metric].apply(list).reset_index()
+            grouped = grouped.sort_values('num_positive_samples')
+            
+            x_values = grouped['num_positive_samples'].values
+            y_means = [np.mean(values) for values in grouped[metric]]
+            all_y_values.extend(y_means)
+            
+            # Choose color based on probe type
+            if 'act_sim' in probe:
+                color = act_sim_color
+            elif 'sae' in probe:
+                color = sae_color
+            elif 'linear' in probe:
+                color = linear_color
+            else:
+                color = 'black'
+            
+            ax.plot(x_values, y_means, 'o-', color=color, markersize=4, linewidth=1.5)
+            ax.set_title(wrap_text(get_detailed_probe_label(probe), 25))
+            ax.set_xlabel('Training Size')
+            ax.set_ylabel(ylabel)
+            ax.set_xscale('log')
+            ax.grid(True, alpha=0.3)
+        else:
+            ax.text(0.5, 0.5, 'No data', ha='center', va='center', transform=ax.transAxes)
+            ax.set_title(wrap_text(get_detailed_probe_label(probe), 25))
+    
+    # Set consistent ylim across all subplots
+    if all_y_values:
+        y_min = max(y_min_default, min(all_y_values) - 0.05)
+        y_max = min(1.0, max(all_y_values) + 0.05)
+        for ax in axes:
+            ax.set_ylim(y_min, y_max)
+    
+    fig.suptitle(f'{run_name} - Scaling Law {title_suffix}\n{eval_dataset}', fontsize=16)
+    
+    plt.tight_layout()
+    plt.savefig(save_path, dpi=300, bbox_inches='tight')
+    plt.close()
+
+
+def plot_scaling_law_heatmap_for_model(eval_dataset: str, run_name: str, save_path: Path, metric: str = 'auc'):
+    """Create scaling law heatmap for a specific model."""
+    setup_plot_style()
+    
+    # Only generate for Qwen models
+    if 'qwen' not in run_name.lower():
+        print(f"Skipping scaling law heatmap for {run_name} - only for Qwen models")
+        return
+    
+    # Get data for experiment 2 for this specific model
+    df = get_data_for_visualization(
+        eval_dataset=eval_dataset,
+        experiment='2-',
+        run_name=run_name,
+        exclude_attention=True
+    )
+    
+    if df.empty:
+        print(f"No data found for scaling law heatmap, eval_dataset={eval_dataset}, run_name={run_name}")
+        return
+    
+    # Create heatmap data
+    pivot_data = df.pivot_table(
+        values=metric,
+        index='probe_name',
+        columns='num_positive_samples',
+        aggfunc='mean'
+    )
+    
+    if pivot_data.empty:
+        print(f"No data to plot for scaling law heatmap, eval_dataset={eval_dataset}, run_name={run_name}")
+        return
+    
+    # Create plot
+    fig, ax = plt.subplots(figsize=(8, 5))
+    
+    # Create heatmap
+    sns.heatmap(pivot_data, annot=True, fmt='.3f', cmap='viridis', ax=ax)
+    
+    # Set metric-specific parameters
+    if metric == 'auc':
+        title_suffix = 'AUC'
+    elif metric == 'recall':
+        title_suffix = 'Recall @ FPR=0.01'
+    else:
+        raise ValueError(f"Unsupported metric: {metric}. Use 'auc' or 'recall'.")
+    
+    ax.set_title(f'Scaling Law Heatmap: {title_suffix}\n{run_name} - {eval_dataset}')
+    ax.set_xlabel('Number of positive examples in the train set')
+    ax.set_ylabel('Probe Name')
+    
+    plt.tight_layout()
+    plt.savefig(save_path, dpi=300, bbox_inches='tight')
+    plt.close()
+
+
+def plot_scaling_law_heatmap_auc_for_model(eval_dataset: str, run_name: str, save_path: Path):
+    """Create scaling law heatmap for AUC for a specific model."""
+    plot_scaling_law_heatmap_for_model(eval_dataset, run_name, save_path, metric='auc')
+
+
+def plot_scaling_law_heatmap_recall_for_model(eval_dataset: str, run_name: str, save_path: Path):
+    """Create scaling law heatmap for Recall for a specific model."""
+    plot_scaling_law_heatmap_for_model(eval_dataset, run_name, save_path, metric='recall')
+
+
+def plot_llm_upsampling_heatmap_for_model(eval_dataset: str, run_name: str, save_path: Path, metric: str = 'auc'):
+    """Create LLM upsampling heatmap for a specific model."""
+    setup_plot_style()
+    
+    # Only generate for Gemma models
+    if 'gemma' not in run_name.lower():
+        print(f"Skipping LLM upsampling heatmap for {run_name} - only for Gemma models")
+        return
+    
+    # Get data for experiment 3 for this specific model
+    df = get_data_for_visualization(
+        eval_dataset=eval_dataset,
+        experiment='3-',
+        run_name=run_name,
+        exclude_attention=True
+    )
+    
+    if df.empty:
+        print(f"No data found for LLM upsampling heatmap, eval_dataset={eval_dataset}, run_name={run_name}")
+        return
+    
+    # Create heatmap data
+    pivot_data = df.pivot_table(
+        values=metric,
+        index='probe_name',
+        columns=['num_positive_samples', 'llm_upsampling_ratio'],
+        aggfunc='mean'
+    )
+    
+    if pivot_data.empty:
+        print(f"No data to plot for LLM upsampling heatmap, eval_dataset={eval_dataset}, run_name={run_name}")
+        return
+    
+    # Create plot
+    fig, ax = plt.subplots(figsize=(10, 5))
+    
+    # Create heatmap
+    sns.heatmap(pivot_data, annot=True, fmt='.3f', cmap='viridis', ax=ax)
+    
+    # Set metric-specific parameters
+    if metric == 'auc':
+        title_suffix = 'AUC'
+    elif metric == 'recall':
+        title_suffix = 'Recall @ FPR=0.01'
+    else:
+        raise ValueError(f"Unsupported metric: {metric}. Use 'auc' or 'recall'.")
+    
+    ax.set_title(f'LLM Upsampling Heatmap: {title_suffix}\n{run_name} - {eval_dataset}')
+    ax.set_xlabel('(Number of positive examples, Upsampling ratio)')
+    ax.set_ylabel('Probe Name')
+    
+    plt.tight_layout()
+    plt.savefig(save_path, dpi=300, bbox_inches='tight')
+    plt.close()
+
+
+def plot_llm_upsampling_heatmap_auc_for_model(eval_dataset: str, run_name: str, save_path: Path):
+    """Create LLM upsampling heatmap for AUC for a specific model."""
+    plot_llm_upsampling_heatmap_for_model(eval_dataset, run_name, save_path, metric='auc')
+
+
+def plot_llm_upsampling_heatmap_recall_for_model(eval_dataset: str, run_name: str, save_path: Path):
+    """Create LLM upsampling heatmap for Recall for a specific model."""
+    plot_llm_upsampling_heatmap_for_model(eval_dataset, run_name, save_path, metric='recall')
 
 
 if __name__ == "__main__":
