@@ -277,16 +277,34 @@ def train_single_probe(
             True,
     ) and not rerun:
         if job.architecture_name == "attention":
-            # For attention sweeps, skip training only if swept files already exist
+            # For attention sweeps, skip training only if ALL expected swept files already exist
             # Include rebuild suffix in pattern if present to avoid cross-overwrite
             if job.rebuild_config is not None:
-                sweep_pattern = f"{probe_filename_with_hparams}_{suffix}_lr_*_wd_*_state.npz"
+                suffix = rebuild_suffix(job.rebuild_config)
+                sweep_base = f"{probe_filename_with_hparams}_{suffix}"
             else:
-                sweep_pattern = f"{probe_filename_with_hparams}_lr_*_wd_*_state.npz"
-            has_swept = any(probe_save_dir.glob(sweep_pattern))
-            if has_swept:
-                logger.log(f"  - [SKIP] Attention sweep already present in {probe_save_dir} (pattern: {sweep_pattern})")
+                sweep_base = probe_filename_with_hparams
+
+            # Use the same default grids as find_best_fit when None
+            import numpy as _np
+            lr_values_default = _np.logspace(-5, -2, 6)
+            wd_values_default = _np.logspace(-6, -2, 5)
+
+            def _fmt(x: float) -> str:
+                return f"{x:.2e}".replace("+", "").replace(".", "p")
+
+            expected_paths = [
+                probe_save_dir / f"{sweep_base}_lr_{_fmt(lr)}_wd_{_fmt(wd)}_state.npz"
+                for lr in lr_values_default for wd in wd_values_default
+            ]
+            all_present = all(p.exists() for p in expected_paths)
+
+            if all_present:
+                logger.log(f"  - [SKIP] Attention sweep already complete in {probe_save_dir} (base: {sweep_base})")
                 return
+            else:
+                missing = sum(1 for p in expected_paths if not p.exists())
+                logger.log(f"  - [CONT] Incomplete attention sweep detected: {missing} files missing; continuing training")
         else:
             if probe_state_path.exists():
                 logger.log(f"  - [SKIP] Probe already trained: {probe_state_path.name}")
