@@ -53,7 +53,7 @@ def enumerate_result_files(results_root: Path, run_name: str) -> List[Path]:
         if not seed_dir.is_dir():
             continue
         for exp_dir in sorted(p for p in seed_dir.iterdir() if p.is_dir()):
-            for eval_name in ('gen_eval', 'test_eval'):  # Exclude val_eval for now
+            for eval_name in ('gen_eval', 'test_eval', 'val_eval'):  # Include val_eval for cross-validation
                 eval_dir = exp_dir / eval_name
                 if not eval_dir.exists():
                     continue

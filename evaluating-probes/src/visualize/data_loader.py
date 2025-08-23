@@ -210,7 +210,8 @@ def get_data_for_visualization(
     run_name: Optional[str] = None,
     seeds: Optional[List[str]] = None,
     train_dataset: Optional[str] = None,
-    exclude_attention: bool = False
+    exclude_attention: bool = False,
+    include_val_eval: bool = False
 ) -> pd.DataFrame:
     """
     Retrieve data from metrics_index.csv based on specified parameters.
@@ -282,6 +283,10 @@ def get_data_for_visualization(
     
     if exclude_attention:
         df = df[~df['filename'].str.contains('attention')]
+    
+    # Filter out val_eval results unless explicitly requested
+    if not include_val_eval:
+        df = df[~df['filename'].str.contains('/val_eval/')]
     
     return df.reset_index(drop=True)
 
