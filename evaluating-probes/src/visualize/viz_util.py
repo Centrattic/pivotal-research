@@ -15,17 +15,30 @@ from scipy import stats
 import re
 import matplotlib.ticker as mticker
 
-from .data_loader import (
-    get_data_for_visualization,
-    get_probe_names,
-    get_eval_datasets,
-    get_run_names,
-    load_metrics_data,
-    extract_info_from_filename,
-    filter_gemma_sae_topk_1024,
-    filter_linear_probes_c_1_0,
-    filter_default_attention_probes
-)
+try:
+    from .data_loader import (
+        get_data_for_visualization,
+        get_probe_names,
+        get_eval_datasets,
+        get_run_names,
+        load_metrics_data,
+        extract_info_from_filename,
+        filter_gemma_sae_topk_1024,
+        filter_linear_probes_c_1_0,
+        filter_default_attention_probes
+    )
+except ImportError:
+    from data_loader import (
+        get_data_for_visualization,
+        get_probe_names,
+        get_eval_datasets,
+        get_run_names,
+        load_metrics_data,
+        extract_info_from_filename,
+        filter_gemma_sae_topk_1024,
+        filter_linear_probes_c_1_0,
+        filter_default_attention_probes
+    )
 
 
 def setup_plot_style(figsize=(8, 6), big_figsize=(16, 12)):

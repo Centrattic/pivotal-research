@@ -7,8 +7,22 @@ import numpy as np
 
 def load_metrics_data() -> pd.DataFrame:
     """Load the metrics index CSV file."""
-    csv_path = Path("src/visualize/metrics_index.csv")
-    return pd.read_csv(csv_path)
+    # Try multiple possible locations for the CSV file
+    possible_paths = [
+        Path("metrics_index.csv"),  # Current directory
+        Path("src/visualize/metrics_index.csv"),  # From project root
+        Path("../metrics_index.csv"),  # Parent directory
+    ]
+    
+    for csv_path in possible_paths:
+        if csv_path.exists():
+            return pd.read_csv(csv_path)
+    
+    # If none found, raise an error with helpful message
+    raise FileNotFoundError(
+        f"Could not find metrics_index.csv in any of these locations: {[str(p) for p in possible_paths]}. "
+        "Please ensure the file exists and run from the correct directory."
+    )
 
 
 def extract_info_from_filename(filename: str) -> Dict[str, str]:
@@ -175,23 +189,76 @@ def extract_info_from_filename(filename: str) -> Dict[str, str]:
     
     # Extract learning rate and weight decay (for attention)
     if probe_architecture == 'attention':
-        lr_match = re.search(r'lr([0-9eE\.+-]+)', filename)
+        # Try the actual format first: lr_1p00e-02_wd_0p00e00
+        lr_match = re.search(r'lr_([0-9p]+e[+-][0-9]+)', filename)
         if lr_match:
             try:
-                info['lr'] = float(lr_match.group(1))
+                # Convert format like "1p00e-02" to "1.00e-02"
+                lr_str = lr_match.group(1).replace('p', '.')
+                info['lr'] = float(lr_str)
             except ValueError:
                 info['lr'] = default_lr
         else:
-            info['lr'] = default_lr
+            # Fallback to old format
+            lr_match = re.search(r'lr([0-9eE\.+-]+)', filename)
+            if lr_match:
+                try:
+                    info['lr'] = float(lr_match.group(1))
+                except ValueError:
+                    info['lr'] = default_lr
+            else:
+                info['lr'] = default_lr
         
-        wd_match = re.search(r'wd([0-9eE\.+-]+)', filename)
+        wd_match = re.search(r'wd_([0-9p]+e[+-][0-9]+)', filename)
         if wd_match:
             try:
-                info['weight_decay'] = float(wd_match.group(1))
+                # Convert format like "0p00e00" to "0.00e00"
+                wd_str = wd_match.group(1).replace('p', '.')
+                info['weight_decay'] = float(wd_str)
             except ValueError:
                 info['weight_decay'] = default_weight_decay
         else:
-            info['weight_decay'] = default_weight_decay
+            # Fallback to old format
+            wd_match = re.search(r'wd([0-9eE\.+-]+)', filename)
+            if wd_match:
+                try:
+                    info['weight_decay'] = float(wd_match.group(1))
+                except ValueError:
+                    info['weight_decay'] = default_weight_decay
+            else:
+                info['weight_decay'] = default_weight_decay
+    
+    # Extract additional hyperparameters that appear in filenames
+    # Extract layer number (L50, L12, etc.)
+    layer_match = re.search(r'L(\d+)', filename)
+    if layer_match:
+        info['layer'] = int(layer_match.group(1))
+    else:
+        info['layer'] = None
+    
+    # Extract batch size (bs1280, etc.)
+    bs_match = re.search(r'bs(\d+)', filename)
+    if bs_match:
+        info['batch_size'] = int(bs_match.group(1))
+    else:
+        info['batch_size'] = None
+    
+    # Extract position type (resid_post, etc.)
+    pos_match = re.search(r'(resid_post|resid_pre|mlp_post|mlp_pre)', filename)
+    if pos_match:
+        info['position'] = pos_match.group(1)
+    else:
+        info['position'] = None
+    
+    # Extract evaluation type (test_eval vs gen_eval vs val_eval)
+    if '/test_eval/' in filename:
+        info['eval_type'] = 'test'
+    elif '/gen_eval/' in filename:
+        info['eval_type'] = 'generalization'
+    elif '/val_eval/' in filename:
+        info['eval_type'] = 'validation'
+    else:
+        info['eval_type'] = None
     
     # For act_sim, no hyperparameters are needed (non-trainable)
     if probe_architecture == 'act_sim':
@@ -245,7 +312,7 @@ def get_data_for_visualization(
         df[key] = [meta.get(key) for meta in metadata_list]
     
     # Add additional metadata columns
-    for key in ['num_negative_samples', 'num_positive_samples', 'llm_upsampling_ratio', 'qwen_model_size']:
+    for key in ['num_negative_samples', 'num_positive_samples', 'llm_upsampling_ratio', 'qwen_model_size', 'layer', 'batch_size', 'position', 'eval_type']:
         df[key] = [meta.get(key) for meta in metadata_list]
     
     # Apply filters

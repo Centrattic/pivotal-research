@@ -14,23 +14,42 @@ from typing import List, Dict, Optional, Tuple, Any
 import seaborn as sns
 from scipy import stats
 import re
-from .data_loader import (
-    get_data_for_visualization,
-    get_probe_names,
-    get_eval_datasets,
-    get_run_names,
-    load_metrics_data,
-    extract_info_from_filename
-)
-from .viz_util import (
-    plot_experiment_best_probes_generic,
-    plot_probe_subplots_generic,
-    get_default_hyperparameter_filters,
-    filter_data_by_hyperparameters,
-    format_run_name_for_display,
-    format_dataset_name_for_display,
-    get_probe_label
-)
+try:
+    from .data_loader import (
+        get_data_for_visualization,
+        get_probe_names,
+        get_eval_datasets,
+        get_run_names,
+        load_metrics_data,
+        extract_info_from_filename
+    )
+    from .viz_util import (
+        plot_experiment_best_probes_generic,
+        plot_probe_subplots_generic,
+        get_default_hyperparameter_filters,
+        filter_data_by_hyperparameters,
+        format_run_name_for_display,
+        format_dataset_name_for_display,
+        get_probe_label
+    )
+except ImportError:
+    from data_loader import (
+        get_data_for_visualization,
+        get_probe_names,
+        get_eval_datasets,
+        get_run_names,
+        load_metrics_data,
+        extract_info_from_filename
+    )
+    from viz_util import (
+        plot_experiment_best_probes_generic,
+        plot_probe_subplots_generic,
+        get_default_hyperparameter_filters,
+        filter_data_by_hyperparameters,
+        format_run_name_for_display,
+        format_dataset_name_for_display,
+        get_probe_label
+    )
 
 
 class CrossValidationAnalyzer:
@@ -98,21 +117,20 @@ class CrossValidationAnalyzer:
         eval_dataset: str,
         experiment: str,
         run_name: str,
-        probe_type: str,
         num_positive_samples: Optional[int] = None
     ) -> Dict[str, Any]:
         """
         Determine best hyperparameters using cross-validation (val_eval performance).
+        Chooses the best probe variant from each category based on val_eval AUC.
         
         Args:
             eval_dataset: Evaluation dataset name
             experiment: Experiment type ('2-' or '4-')
             run_name: Model run name
-            probe_type: Type of probe ('sae', 'sklearn_linear', 'attention')
             num_positive_samples: Filter by number of positive samples
             
         Returns:
-            Dictionary with best hyperparameters for each probe variant
+            Dictionary with best hyperparameters for each probe category
         """
         # Get val_eval data for cross-validation
         val_df = get_data_for_visualization(
@@ -130,14 +148,6 @@ class CrossValidationAnalyzer:
             print(f"No val_eval data found for cross-validation: {eval_dataset}, {run_name}")
             return {}
         
-        # Filter by probe type
-        if probe_type == 'sae':
-            val_df = val_df[val_df['probe_name'].str.contains('sae', na=False)]
-        elif probe_type == 'sklearn_linear':
-            val_df = val_df[val_df['probe_name'].str.contains('sklearn_linear', na=False)]
-        elif probe_type == 'attention':
-            val_df = val_df[val_df['probe_name'].str.contains('attention', na=False)]
-        
         # Filter by number of positive samples if specified
         if num_positive_samples is not None:
             val_df = val_df[val_df['num_positive_samples'] == num_positive_samples]
@@ -145,32 +155,41 @@ class CrossValidationAnalyzer:
         if val_df.empty:
             return {}
         
-        # Determine best hyperparameters based on probe type
+        # Group probes by category and find the best variant
         best_hyperparams = {}
         
-        if probe_type == 'sae':
-            # Find best topk value
-            topk_performance = val_df.groupby('topk')['auc'].mean()
+        # SAE probes - find best topk
+        sae_probes = val_df[val_df['probe_name'].str.contains('sae', na=False)]
+        if not sae_probes.empty:
+            # Group by topk and calculate mean AUC across seeds
+            topk_performance = sae_probes.groupby('topk')['auc'].mean()
             if not topk_performance.empty:
                 best_topk = topk_performance.idxmax()
                 best_hyperparams['sae'] = {'topk': best_topk}
+                print(f"Best SAE topk: {best_topk} (val_eval AUC: {topk_performance[best_topk]:.3f})")
         
-        elif probe_type == 'sklearn_linear':
-            # Find best C value
-            c_performance = val_df.groupby('C')['auc'].mean()
+        # Linear probes - find best C
+        linear_probes = val_df[val_df['probe_name'].str.contains('sklearn_linear', na=False)]
+        if not linear_probes.empty:
+            # Group by C and calculate mean AUC across seeds
+            c_performance = linear_probes.groupby('C')['auc'].mean()
             if not c_performance.empty:
                 best_c = c_performance.idxmax()
                 best_hyperparams['sklearn_linear'] = {'C': best_c}
+                print(f"Best linear C: {best_c} (val_eval AUC: {c_performance[best_c]:.3f})")
         
-        elif probe_type == 'attention':
-            # Find best lr and weight_decay combination
-            lr_wd_performance = val_df.groupby(['lr', 'weight_decay'])['auc'].mean()
+        # Attention probes - find best lr and weight_decay combination
+        attention_probes = val_df[val_df['probe_name'].str.contains('attention', na=False)]
+        if not attention_probes.empty:
+            # Group by lr and weight_decay and calculate mean AUC across seeds
+            lr_wd_performance = attention_probes.groupby(['lr', 'weight_decay'])['auc'].mean()
             if not lr_wd_performance.empty:
                 best_lr_wd = lr_wd_performance.idxmax()
                 best_hyperparams['attention'] = {
                     'lr': best_lr_wd[0],
                     'weight_decay': best_lr_wd[1]
                 }
+                print(f"Best attention lr: {best_lr_wd[0]:.1e}, wd: {best_lr_wd[1]:.1e} (val_eval AUC: {lr_wd_performance[best_lr_wd]:.3f})")
         
         return best_hyperparams
 
@@ -195,13 +214,9 @@ class CrossValidationAnalyzer:
             num_positive_samples: Filter by number of positive samples
         """
         # Get best hyperparameters for each probe type using cross-validation
-        best_hyperparams = {}
-        
-        for probe_type in ['sae', 'sklearn_linear', 'attention']:
-            cv_hyperparams = self.get_cross_validation_best_hyperparameters(
-                eval_dataset, experiment, run_name, probe_type, num_positive_samples
-            )
-            best_hyperparams.update(cv_hyperparams)
+        best_hyperparams = self.get_cross_validation_best_hyperparameters(
+            eval_dataset, experiment, run_name, num_positive_samples
+        )
         
         if not best_hyperparams:
             print(f"No cross-validation hyperparameters found for {eval_dataset}, {run_name}")
@@ -243,13 +258,9 @@ class CrossValidationAnalyzer:
             num_positive_samples: Filter by number of positive samples
         """
         # Get best hyperparameters for each probe type using cross-validation
-        best_hyperparams = {}
-        
-        for probe_type in ['sae', 'sklearn_linear', 'attention']:
-            cv_hyperparams = self.get_cross_validation_best_hyperparameters(
-                eval_dataset, experiment, run_name, probe_type, num_positive_samples
-            )
-            best_hyperparams.update(cv_hyperparams)
+        best_hyperparams = self.get_cross_validation_best_hyperparameters(
+            eval_dataset, experiment, run_name, num_positive_samples
+        )
         
         if not best_hyperparams:
             print(f"No cross-validation hyperparameters found for {eval_dataset}, {run_name}")
@@ -289,7 +300,7 @@ def generate_cross_validation_plots(skip_existing: bool = False):
     eval_datasets = get_eval_datasets()
     run_names = get_run_names()
     
-    # Filter datasets (same as original system)
+    # Filter datasets - exclude gen_eval datasets like 87_is_spam
     def _leading_id(name: str) -> int:
         try:
             return int(str(name).split('_', 1)[0])

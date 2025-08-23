@@ -6,30 +6,56 @@ from typing import List, Dict, Optional, Tuple
 import seaborn as sns
 from scipy import stats
 import re
-from .data_loader import (
-    get_data_for_visualization,
-    get_probe_names,
-    get_eval_datasets,
-    get_run_names,
-    filter_gemma_sae_topk_1024,
-    filter_linear_probes_c_1_0,
-    filter_default_attention_probes
-)
-from .viz_util import (
-    setup_plot_style,
-    get_probe_label,
-    get_detailed_probe_label,
-    calculate_confidence_interval,
-    format_run_name_for_display,
-    format_dataset_name_for_display,
-    wrap_text,
-    add_clean_log_inset,
-    get_best_probes_by_category,
-    apply_main_plot_filters,
-    extract_model_size,
-    plot_experiment_best_probes_generic,
-    plot_probe_subplots_generic
-)
+try:
+    from .data_loader import (
+        get_data_for_visualization,
+        get_probe_names,
+        get_eval_datasets,
+        get_run_names,
+        filter_gemma_sae_topk_1024,
+        filter_linear_probes_c_1_0,
+        filter_default_attention_probes
+    )
+    from .viz_util import (
+        setup_plot_style,
+        get_probe_label,
+        get_detailed_probe_label,
+        calculate_confidence_interval,
+        format_run_name_for_display,
+        format_dataset_name_for_display,
+        wrap_text,
+        add_clean_log_inset,
+        get_best_probes_by_category,
+        apply_main_plot_filters,
+        extract_model_size,
+        plot_experiment_best_probes_generic,
+        plot_probe_subplots_generic
+    )
+except ImportError:
+    from data_loader import (
+        get_data_for_visualization,
+        get_probe_names,
+        get_eval_datasets,
+        get_run_names,
+        filter_gemma_sae_topk_1024,
+        filter_linear_probes_c_1_0,
+        filter_default_attention_probes
+    )
+    from viz_util import (
+        setup_plot_style,
+        get_probe_label,
+        get_detailed_probe_label,
+        calculate_confidence_interval,
+        format_run_name_for_display,
+        format_dataset_name_for_display,
+        wrap_text,
+        add_clean_log_inset,
+        get_best_probes_by_category,
+        apply_main_plot_filters,
+        extract_model_size,
+        plot_experiment_best_probes_generic,
+        plot_probe_subplots_generic
+    )
 
 # All these functions are now imported from viz_util.py
 
