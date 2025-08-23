@@ -1266,14 +1266,14 @@ def plot_joint_best_probes_comparison(eval_dataset: str, run_name: str, save_pat
     
     # Special handling for 87_is_spam dataset (OOD generalization)
     if '87_is_spam' in eval_dataset:
-        ax1.set_title(f'OOD Generalization: Unbalanced {formatted_run_name} Probes\nEvaluated On SMS Spam Dataset', y=1.02)
+        ax1.set_title(f'OOD Generalization: Unbalanced {formatted_run_name} Probes\nEvaluated On SMS Spam Dataset', y=1.05, pad=20)
     else:
         if num_negative is not None:
             # Convert to int to remove .0
             num_negative_int = int(num_negative)
-            ax1.set_title(f'{formatted_run_name} Probes On Unbalanced {formatted_dataset} Dataset\n({num_negative_int} negative examples)', y=1.02)
+            ax1.set_title(f'{formatted_run_name} Probes On Unbalanced {formatted_dataset} Dataset\n({num_negative_int} negative examples)', y=1.05, pad=20)
         else:
-            ax1.set_title(f'{formatted_run_name} Probes On Unbalanced {formatted_dataset} Dataset', y=1.02)
+            ax1.set_title(f'{formatted_run_name} Probes On Unbalanced {formatted_dataset} Dataset', y=1.05, pad=20)
     ax1.set_xscale('log')
     ax1.grid(True, alpha=0.3)
     
@@ -1283,9 +1283,9 @@ def plot_joint_best_probes_comparison(eval_dataset: str, run_name: str, save_pat
     
     # Special handling for 87_is_spam dataset (OOD generalization)
     if '87_is_spam' in eval_dataset:
-        ax2.set_title(f'OOD Generalization: Balanced {formatted_run_name} Probes\nEvaluated On SMS Spam Dataset', y=1.02)
+        ax2.set_title(f'OOD Generalization: Balanced {formatted_run_name} Probes\nEvaluated On SMS Spam Dataset', y=1.05, pad=20)
     else:
-        ax2.set_title(f'{formatted_run_name} Probes on Balanced {formatted_dataset} Dataset\n(equal positive and negative samples)', y=1.02)
+        ax2.set_title(f'{formatted_run_name} Probes on Balanced {formatted_dataset} Dataset\n(equal positive and negative samples)', y=1.05, pad=20)
     ax2.set_xscale('log')
     ax2.grid(True, alpha=0.3)
     

@@ -105,8 +105,9 @@ def plot_linear_c_sweep(
         print(f"No linear probe data found for {eval_dataset}, {run_name}")
         return
     
-    # Get unique C values and sample counts
-    c_values = sorted(df['C'].dropna().unique())
+    # Get unique C values and sample counts, excluding default C=1.0 and extreme values with partial results
+    c_values = sorted([c for c in df['C'].dropna().unique() 
+                      if c != 1.0 and c not in [1e-05, 1e-04, 1e+04, 1e+05]])
     sample_counts = sorted(df['num_positive_samples'].dropna().unique())
     
     if not c_values or not sample_counts:
@@ -129,8 +130,8 @@ def plot_linear_c_sweep(
                 performance_matrix[i, j] = np.nan
                 probe_counts_matrix[i, j] = 0
     
-    # Create plot
-    fig, ax = plt.subplots(figsize=(10, 8))
+    # Create plot with smaller size
+    fig, ax = plt.subplots(figsize=(8, 6))
     
     # Create heatmap with viridis colormap
     im = ax.imshow(performance_matrix, cmap='viridis', aspect='auto', interpolation='nearest')
@@ -148,11 +149,11 @@ def plot_linear_c_sweep(
     cbar = plt.colorbar(im, ax=ax)
     cbar.set_label(f'{metric.upper()}', rotation=270, labelpad=20)
     
-    # Add title
+    # Add title with bigger font
     formatted_run_name = format_run_name_for_display(run_name)
     formatted_dataset = format_dataset_name_for_display(eval_dataset)
     experiment_name = "Unbalanced" if experiment == '2-' else "Balanced"
-    ax.set_title(f'{formatted_run_name} Linear Probes - {experiment_name} {formatted_dataset}\n{metric.upper()} vs C parameter')
+    ax.set_title(f'{formatted_run_name} Linear Probes - {experiment_name} {formatted_dataset} {metric.upper()} vs C', fontsize=14)
     
     plt.tight_layout()
     plt.savefig(save_path, dpi=300, bbox_inches='tight')
@@ -183,16 +184,20 @@ def plot_attention_weight_decay_sweep(
         print(f"No attention probe data found for {eval_dataset}, {run_name}")
         return
     
-    # Get unique learning rates
-    lr_values = sorted(df['lr'].dropna().unique())
+    # Get unique learning rates, excluding default lr=5e-4
+    all_lr_values = sorted(df['lr'].dropna().unique())
+    lr_values = sorted([lr for lr in all_lr_values if abs(lr - 5e-4) > 1e-6])
+    
+    print(f"Available learning rates for {eval_dataset}, {run_name}: {all_lr_values}")
+    print(f"After excluding default (5e-4): {lr_values}")
     
     if not lr_values:
         print(f"No learning rate data found for attention probes: {eval_dataset}, {run_name}")
         return
     
-    # Create subplot for each learning rate
+    # Create subplot for each learning rate with smaller figure size
     n_lrs = len(lr_values)
-    fig, axes = plt.subplots(2, 3, figsize=(18, 12))
+    fig, axes = plt.subplots(2, 3, figsize=(12, 8))
     axes = axes.flatten()
     
     for idx, lr in enumerate(lr_values):
@@ -207,9 +212,13 @@ def plot_attention_weight_decay_sweep(
         if lr_df.empty:
             continue
         
-        # Get unique weight_decay values and sample counts
-        wd_values = sorted(lr_df['weight_decay'].dropna().unique())
+        # Get unique weight_decay values and sample counts, excluding default weight_decay=0.0
+        all_wd_values = sorted(lr_df['weight_decay'].dropna().unique())
+        wd_values = sorted([wd for wd in all_wd_values if wd != 0.0])
         sample_counts = sorted(lr_df['num_positive_samples'].dropna().unique())
+        
+        print(f"  LR {lr:.1e}: weight_decay values {all_wd_values} -> {wd_values}")
+        print(f"  LR {lr:.1e}: sample counts {sample_counts}")
         
         if not wd_values or not sample_counts:
             continue
@@ -238,18 +247,18 @@ def plot_attention_weight_decay_sweep(
         
         ax.set_xlabel('Weight Decay')
         ax.set_ylabel('Num Positive Samples')
-        ax.set_title(f'LR = {lr:.1e}')
+        ax.set_title(f'LR = {lr:.1e}', fontsize=12)
     
     # Hide unused subplots
     for idx in range(n_lrs, len(axes)):
         axes[idx].set_visible(False)
     
-    # Add overall title
+    # Add overall title with bigger font and single line
     formatted_run_name = format_run_name_for_display(run_name)
     formatted_dataset = format_dataset_name_for_display(eval_dataset)
     experiment_name = "Unbalanced" if experiment == '2-' else "Balanced"
-    fig.suptitle(f'{formatted_run_name} Attention Probes - {experiment_name} {formatted_dataset}\n{metric.upper()} vs Weight Decay (by Learning Rate)', 
-                 fontsize=16, y=0.98)
+    fig.suptitle(f'{formatted_run_name} Attention Probes - {experiment_name} {formatted_dataset} {metric.upper()} vs Weight Decay', 
+                 fontsize=14, y=0.98)
     
     plt.tight_layout()
     plt.savefig(save_path, dpi=300, bbox_inches='tight')
@@ -267,30 +276,18 @@ def generate_all_hyperparameter_sweeps(skip_existing: bool = False):
     output_dir = Path("visualizations/hyp")
     output_dir.mkdir(parents=True, exist_ok=True)
     
-    # Get available configurations
-    eval_datasets = get_eval_datasets()
-    run_names = get_run_names()
-    
-    # Filter datasets - exclude gen_eval datasets like 87_is_spam
-    def _leading_id(name: str) -> int:
-        try:
-            return int(str(name).split('_', 1)[0])
-        except Exception:
-            return -1
-    
-    eval_datasets = [d for d in eval_datasets if _leading_id(d) == -1 or _leading_id(d) < 99]
-    
-    # Filter run_names to exclude Qwen models
-    non_qwen_models = [name for name in run_names if 'qwen' not in name.lower()]
+    # Focus only on specific datasets and models
+    target_datasets = ['94_better_spam', '98_mask_all_honesty']
+    target_models = ['spam_gemma_9b', 'mask_llama33_70b']
     
     # Focus only on experiments 2- (imbalanced) and 4- (balanced)
     experiments = ['2-', '4-']
     
     # Generate hyperparameter sweep plots
-    for run_name in non_qwen_models:
+    for run_name in target_models:
         print(f"\nProcessing hyperparameter sweeps for: {run_name}")
         
-        for eval_dataset in eval_datasets:
+        for eval_dataset in target_datasets:
             for experiment in experiments:
                 print(f"  Processing {experiment} for {eval_dataset}")
                 

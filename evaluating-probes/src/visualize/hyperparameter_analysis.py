@@ -26,6 +26,7 @@ try:
     from .viz_util import (
         plot_experiment_best_probes_generic,
         plot_probe_subplots_generic,
+        plot_experiment_comparison_generic,
         get_default_hyperparameter_filters,
         filter_data_by_hyperparameters,
         format_run_name_for_display,
@@ -223,7 +224,7 @@ class CrossValidationAnalyzer:
             return
         
         # Generate title suffix indicating cross-validation was used
-        title_suffix = " (CV-optimized hyperparameters)"
+        title_suffix = ""
         
         # Use the generic plotting function with best hyperparameters
         plot_experiment_best_probes_generic(
@@ -266,9 +267,6 @@ class CrossValidationAnalyzer:
             print(f"No cross-validation hyperparameters found for {eval_dataset}, {run_name}")
             return
         
-        # Generate title suffix indicating cross-validation was used
-        title_suffix = " (CV-optimized hyperparameters)"
-        
         # Use the generic plotting function with best hyperparameters
         plot_probe_subplots_generic(
             experiment=experiment,
@@ -277,7 +275,49 @@ class CrossValidationAnalyzer:
             save_path=save_path,
             metric=metric,
             hyperparam_filters=best_hyperparams,
-            title_suffix=title_suffix,
+            title_suffix="",
+            output_dir=Path("visualizations/hyp")
+        )
+
+    def plot_experiment_comparison_with_cv_hyperparameters(
+        self,
+        eval_dataset: str,
+        run_name: str,
+        save_path: Path,
+        metric: str = 'auc',
+        num_positive_samples: Optional[int] = None
+    ):
+        """
+        Plot joint comparison of experiment 2- vs 4- using best hyperparameters determined by cross-validation.
+        
+        Args:
+            eval_dataset: Evaluation dataset name
+            run_name: Model run name
+            save_path: Path to save the plot
+            metric: Metric to plot ('auc' or 'recall')
+            num_positive_samples: Filter by number of positive samples
+        """
+        # Get best hyperparameters for both experiments using cross-validation
+        best_hyperparams_2 = self.get_cross_validation_best_hyperparameters(
+            eval_dataset, '2-', run_name, num_positive_samples
+        )
+        best_hyperparams_4 = self.get_cross_validation_best_hyperparameters(
+            eval_dataset, '4-', run_name, num_positive_samples
+        )
+        
+        if not best_hyperparams_2 and not best_hyperparams_4:
+            print(f"No cross-validation hyperparameters found for {eval_dataset}, {run_name}")
+            return
+        
+        # Use the generic plotting function to create joint comparison
+        plot_experiment_comparison_generic(
+            eval_dataset=eval_dataset,
+            run_name=run_name,
+            save_path=save_path,
+            metric=metric,
+            hyperparam_filters_2=best_hyperparams_2,
+            hyperparam_filters_4=best_hyperparams_4,
+            title_suffix="",
             output_dir=Path("visualizations/hyp")
         )
 

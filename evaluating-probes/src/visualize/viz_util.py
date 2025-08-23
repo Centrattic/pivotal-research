@@ -528,7 +528,8 @@ def plot_experiment_best_probes_generic(
     metric: str = 'auc',
     hyperparam_filters: Optional[Dict[str, Dict[str, Any]]] = None,
     title_suffix: str = "",
-    output_dir: Optional[Path] = None
+    output_dir: Optional[Path] = None,
+    ax: Optional[plt.Axes] = None
 ):
     """
     Generic function to plot best probes for any experiment with custom hyperparameter filters.
@@ -571,8 +572,11 @@ def plot_experiment_best_probes_generic(
         print(f"No valid probes found for experiment {experiment}, eval_dataset={eval_dataset}, run_name={run_name}")
         return
     
-    # Create plot
-    fig, ax = plt.subplots(figsize=plot_size)
+    # Create plot or use provided axis
+    if ax is None:
+        fig, ax = plt.subplots(figsize=plot_size)
+    else:
+        fig = ax.figure
     
     # Define consistent colors for each probe category
     color_map = {
@@ -675,22 +679,84 @@ def plot_experiment_best_probes_generic(
     else:
         title = f'{formatted_run_name} Probes - {experiment} {title_suffix}'
     
-    ax.set_title(title, y=1.02)
+    ax.set_title(title, y=1.05, pad=20)
     ax.set_xscale('log')
     ax.grid(True, alpha=0.3)
     
     # Only add legend if there are lines plotted
     if all_y_values:
-        ax.legend(loc='upper right', bbox_to_anchor=(0.98, 0.98), borderaxespad=-0.5)
+        # Force legend to upper left with explicit positioning
+        ax.legend(loc='upper left', bbox_to_anchor=(0.02, 0.98), frameon=True)
     
-    # Adjust subplot parameters to reduce gap
-    plt.subplots_adjust(bottom=0.15, top=0.9, left=0.1, right=0.95)
+    # Adjust subplot parameters to reduce gap - but only if this is a standalone plot
+    if ax.figure == plt.gcf():  # Only adjust if this is the main figure
+        plt.subplots_adjust(bottom=0.15, top=0.9, left=0.1, right=0.95)
     
-    # Ensure output directory exists
-    if output_dir:
-        output_dir.mkdir(parents=True, exist_ok=True)
-        save_path = output_dir / save_path.name
+    # Only save if save_path is provided
+    if save_path is not None:
+        # Ensure output directory exists
+        if output_dir:
+            output_dir.mkdir(parents=True, exist_ok=True)
+            save_path = output_dir / save_path.name
+        
+        plt.savefig(save_path, dpi=300, bbox_inches='tight')
+        plt.close()
+
+
+def plot_experiment_comparison_generic(
+    eval_dataset: str,
+    run_name: str,
+    save_path: Path,
+    metric: str = 'auc',
+    hyperparam_filters_2: Optional[Dict[str, Any]] = None,
+    hyperparam_filters_4: Optional[Dict[str, Any]] = None,
+    title_suffix: str = "",
+    output_dir: Optional[Path] = None
+):
+    """
+    Plot joint comparison of experiment 2- vs 4- using specified hyperparameter filters.
     
+    Args:
+        eval_dataset: Evaluation dataset name
+        run_name: Model run name
+        save_path: Path to save the plot
+        metric: Metric to plot ('auc' or 'recall')
+        hyperparam_filters_2: Hyperparameter filters for experiment 2-
+        hyperparam_filters_4: Hyperparameter filters for experiment 4-
+        title_suffix: Additional title suffix
+        output_dir: Output directory (optional)
+    """
+    # Create figure with two subplots side by side
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 6))
+    
+    # Plot experiment 2- (unbalanced)
+    plot_experiment_best_probes_generic(
+        eval_dataset=eval_dataset,
+        run_name=run_name,
+        save_path=None,  # Don't save individual plot
+        experiment='2-',
+        metric=metric,
+        hyperparam_filters=hyperparam_filters_2,
+        title_suffix=title_suffix,
+        output_dir=output_dir,
+        ax=ax1
+    )
+    
+    # Plot experiment 4- (balanced)
+    plot_experiment_best_probes_generic(
+        eval_dataset=eval_dataset,
+        run_name=run_name,
+        save_path=None,  # Don't save individual plot
+        experiment='4-',
+        metric=metric,
+        hyperparam_filters=hyperparam_filters_4,
+        title_suffix=title_suffix,
+        output_dir=output_dir,
+        ax=ax2
+    )
+    
+    # Save the combined plot
+    plt.tight_layout()
     plt.savefig(save_path, dpi=300, bbox_inches='tight')
     plt.close()
 
